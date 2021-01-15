@@ -1,5 +1,5 @@
 import pytest
-import paradiag
+import asQ
 import firedrake as fd
 import numpy as np
 
@@ -27,7 +27,7 @@ def test_set_para_form():
     def form_mass(u, v):
         return u*v*fd.dx
     
-    PD = paradiag.paradiag(form_function=form_function,
+    PD = asQ.paradiag(form_function=form_function,
                            form_mass=form_mass, W=V, w0=u0,
                            dt=dt, theta=theta,
                            alpha=alpha,
@@ -87,7 +87,7 @@ def test_set_para_form_mixed():
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up*vp)*fd.dx
     
-    PD = paradiag.paradiag(form_function=form_function,
+    PD = asQ.paradiag(form_function=form_function,
                            form_mass=form_mass, W=W, w0=w0, dt=dt,
                            theta=theta, alpha=alpha, M=M,
                            solver_parameters=solver_parameters,
@@ -148,7 +148,7 @@ def test_solve_para_form():
     def form_mass(u, v):
         return u*v*fd.dx
     
-    PD = paradiag.paradiag(form_function=form_function, form_mass=form_mass, W=V, w0=u0, dt=dt, theta=theta,
+    PD = asQ.paradiag(form_function=form_function, form_mass=form_mass, W=V, w0=u0, dt=dt, theta=theta,
                            alpha=alpha, M=M, solver_parameters=solver_parameters, circ="none")
     PD.solve()
     
@@ -205,7 +205,7 @@ def test_solve_para_form_mixed():
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up*vp)*fd.dx
     
-    PD = paradiag.paradiag(form_function=form_function,
+    PD = asQ.paradiag(form_function=form_function,
                            form_mass=form_mass, W=W, w0=w0, dt=dt,
                            theta=theta, alpha=alpha, M=M,
                            solver_parameters=solver_parameters,
@@ -271,7 +271,7 @@ def test_relax():
     def form_mass(u, v):
         return u*v*fd.dx
     
-    PD = paradiag.paradiag(form_function=form_function,
+    PD = asQ.paradiag(form_function=form_function,
                            form_mass=form_mass,
                            W=V, w0=u0, dt=dt, theta=theta,
                            alpha=alpha, M=M,
@@ -332,7 +332,7 @@ def test_relax_mixed():
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up*vp)*fd.dx
     
-    PD = paradiag.paradiag(form_function=form_function,
+    PD = asQ.paradiag(form_function=form_function,
                            form_mass=form_mass, W=W, w0=w0, dt=dt,
                            theta=theta, alpha=alpha, M=M,
                            solver_parameters=solver_parameters,
@@ -403,7 +403,7 @@ def test_diag_precon():
         'ksp_rtol':1.0e-10,
         'ksp_converged_reason':None,
         'pc_type':'python',
-        'pc_python_type':'paradiag.DiagFFTPC',
+        'pc_python_type':'asQ.DiagFFTPC',
         'diagfft':diagfft_options}
 
     def form_function(u, v):
@@ -412,7 +412,7 @@ def test_diag_precon():
     def form_mass(u, v):
         return u*v*fd.dx
     
-    PD = paradiag.paradiag(form_function=form_function,
+    PD = asQ.paradiag(form_function=form_function,
                            form_mass=form_mass, W=V,
                            w0=u0, dt=dt, theta=theta,
                            alpha=alpha, M=M,
@@ -423,7 +423,7 @@ def test_diag_precon():
     solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
                          'pc_factor_mat_solver_type':'mumps',
                          'mat_type':'aij'}
-    PDe = paradiag.paradiag(form_function=form_function,
+    PDe = asQ.paradiag(form_function=form_function,
                             form_mass=form_mass, W=V,
                             w0=u0, dt=dt, theta=theta,
                             alpha=alpha, M=M,
