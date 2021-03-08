@@ -2,6 +2,11 @@ import numpy as np
 import firedrake as fd
 from scipy.fft import fft, ifft
 
+#use ipython:
+#load_ext autoreload
+#autoreload
+print('reload paradiag module')
+
 class DiagFFTPC(fd.PCBase):
 
     r"""A preconditioner for all-at-once systems with alpha-circulant
@@ -64,16 +69,18 @@ class DiagFFTPC(fd.PCBase):
                 SubV = Ve.sub_elements()[cpt]
                 if isinstance(SubV, fd.FiniteElement):
                     MixedCpts.append(fd.VectorElement(SubV, dim=2))
-                elif isinstance(subV, fd.VectorElement):
+                elif isinstance(SubV, fd.VectorElement):
                     shape = (2,SubV.num_sub_elements())
                     MixedCpts.append(fd.TensorElement(SubV, shape))
-                elif isinstance(subV, fd.TensorElement):
-                    shape = (2,) + Subv._shape
+                elif isinstance(SubV, fd.TensorElement):
+                    shape = (2,) + SubV._shape
                     MixedCpts.append(fd.TensorElement(SubV, shape))
                 else:
                     raise(NotImplementedError)
-            self.CblockV = np.prod([FunctionSpace(mesh,
-                                    MixedCpt) for i in range(M)])
+
+            dim = len(MixedCpts)
+            self.CblockV = np.prod([fd.FunctionSpace(mesh,
+                                    MixedCpts[i]) for i in range(dim)])
         else:
             self.ncpts = 1
             if isinstance(Ve, fd.FiniteElement):
@@ -84,7 +91,7 @@ class DiagFFTPC(fd.PCBase):
                 self.CblockV = fd.FunctionSpace(mesh,
                                                 fd.TensorElement(Ve, shape))
             elif isinstance(Ve, fd.TensorElement):
-                shape = (2,) + Subv._shape
+                shape = (2,) + SubV._shape
                 self.CblockV = fd.FunctionSpace(mesh,
                                                 fd.TensorElement(Ve, shape))
             else:
@@ -95,32 +102,32 @@ class DiagFFTPC(fd.PCBase):
         vs = fd.TestFunctions(self.CblockV)
         self.u0 = fd.Function(self.CblockV) #we will create a linearisation
         us = fd.split(self.u0)
-        
+
         ##extract the real and imaginary parts
         vsr = []
         vsi = []
         usr = []
         usi = []
-        
+
         if isinstance(Ve, fd.MixedElement):
             N = Ve.num_sub_elements()
             for i in range(N):
                 SubV = Ve.sub_elements()[i]
-                if isinstance(SubV, fd.FiniteElement):
-                    vsr.append(vs.sub(i).sub(0))
-                    vsi.append(vs.sub(i).sub(1))
-                    usr.append(self.u0.sub(i).sub(0))
-                    usi.append(self.u0.sub(i).sub(1))
-                elif isinstance(subV, fd.VectorElement):
-                    vsr.append(vs.sub(i)[0,:])
-                    vsi.append(vs.sub(i)[1,:])
-                    usr.append(self.u0.sub(i)[0,:])
-                    usi.append(self.u0.sub(i)[1,:])
-                elif isinstance(subV, fd.TensorElement):
-                    vsr.append(vs.sub(i)[0,:])
-                    vsi.append(vs.sub(i)[1,:])
-                    usr.append(self.u0.sub(i)[0,:])
-                    usi.append(self.u0.sub(i)[1,:])
+                if len(SubV.value_shape()) == 0:
+                    vsr.append(vs[i][0])
+                    vsi.append(vs[i][1])
+                    usr.append(us[i][0])
+                    usi.append(us[i][1])
+                elif len(SubV.value_shape()) == 1:
+                    vsr.append(vs[i][0,:])
+                    vsi.append(vs[i][1,:])
+                    usr.append(us[i][0,:])
+                    usi.append(us[i][1,:])
+                elif len(SubV.value_shape()) == 2:
+                    vsr.append(vs[i][0,:,:])
+                    vsi.append(vs[i][1,:,:])
+                    usr.append(us[i][0,:,:])
+                    usi.append(us[i][1,:,:])
                 else:
                     raise(NotImplementedError)
         else:
@@ -142,6 +149,7 @@ class DiagFFTPC(fd.PCBase):
             else:
                 raise(NotImplementedError)
 
+                   
         ## input and output functions
         self.Jprob_in = fd.Function(self.CblockV)
         self.Jprob_out = fd.Function(self.CblockV)
@@ -214,9 +222,9 @@ class DiagFFTPC(fd.PCBase):
             if self.ncpts > 1:
                 Jins = self.Jprob_in.split()
                 for cpt in range(self.ncpts):
-                    Jins.sub(cpt).sub(0).assign(
+                    Jins[cpt].sub(0).assign(
                         self.xfr.split()[self.ncpts*i+cpt])
-                    Jins.sub(cpt).sub(1).assign(
+                    Jins[cpt].sub(1).assign(
                         self.xfi.split()[self.ncpts*i+cpt])
             else:
                 self.Jprob_in.sub(0).assign(self.xfr.split()[i])
@@ -227,12 +235,12 @@ class DiagFFTPC(fd.PCBase):
 
             #copy the data from solver output
             if self.ncpts > 1:
-                Jouts = self.Jprob_out.split()
+                Jpouts = self.Jprob_out.split()
                 for cpt in range(self.ncpts):
                     self.xfr.split()[self.ncpts*i+cpt].assign(
-                        Jpouts.sub(cpt).sub(0))
+                        Jpouts[cpt].sub(0))
                     self.xfi.split()[self.ncpts*i+cpt].assign(
-                        Jpouts.sub(cpt).sub(1))
+                        Jpouts[cpt].sub(1))
             else:
                 Jpouts = self.Jprob_out
                 self.xfr.split()[i].assign(Jpouts.sub(0))
