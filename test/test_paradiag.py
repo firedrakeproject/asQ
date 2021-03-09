@@ -444,7 +444,6 @@ def test_diag_precon():
         assert(fd.norm(err) < 1.0e-13)
 
 
-### BEGIN: Added by Werner
 def test_diag_precon_mixed():
     #checks that the all-at-once system is the same as solving
     #timesteps sequentially using the mixed wave equation as an
@@ -531,4 +530,3 @@ def test_diag_precon_mixed():
         err.assign(un-pun)
         assert(fd.norm(err) < 1.0e-15)
 
-### END: Added by Werner
