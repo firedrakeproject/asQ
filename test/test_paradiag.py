@@ -603,5 +603,4 @@ def test_diag_precon_nl():
         unD.assign(walls)
         un.assign(wallsE)
         err.assign(un-unD)
-        # print(fd.norm(err))
         assert(fd.norm(err) < 1.0e-12)
