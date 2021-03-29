@@ -2,7 +2,7 @@ import numpy as np
 import firedrake as fd
 from scipy.fft import fft, ifft
 
-
+print('reload paradiag')
 class DiagFFTPC(fd.PCBase):
 
     r"""A preconditioner for all-at-once systems with alpha-circulant
@@ -18,7 +18,10 @@ class DiagFFTPC(fd.PCBase):
         _, P = pc.getOperators()
         context = P.getPythonContext()
         appctx = context.appctx
-        
+
+        # w_all contains all functions, used for nonlinear update!
+        self.w_all = appctx.get("w_all", None)
+
         # FunctionSpace checks
         test, trial = context.a.arguments()
         if test.function_space() != trial.function_space():
@@ -156,6 +159,7 @@ class DiagFFTPC(fd.PCBase):
             
         ## Building the nonlinear operator
         self.Jsolvers = []
+        self.Js = []
         form_mass = appctx.get("form_mass", None)
         form_function = appctx.get("form_function", None)
         for i in range(M):
@@ -177,13 +181,28 @@ class DiagFFTPC(fd.PCBase):
 
             ## The linear operator
             J = fd.derivative(L, self.u0)
-
             Jsolver = fd.LinearSolver(fd.assemble(J),
                                                  options_prefix=prefix)
+            self.Js.append(J)
             self.Jsolvers.append(Jsolver)
         
     def update(self, pc):
-        pass
+        self.u0.assign(0)
+        for i in range(self.M):
+            #copy the data into solver input
+            if self.ncpts > 1:
+                u0s = self.u0.split()
+                for cpt in range(self.ncpts):
+                    u0s[cpt].sub(0).assign(
+                        u0s[cpt].sub(0) + self.w_all.split()[self.ncpts*i+cpt])
+            else:
+                self.u0.sub(0).assign(self.u0.sub(0) + self.w_all.split()[i])
+
+            solver =  self.Jsolvers[i]
+            fd.assemble(self.Js[i],tensor=solver.A)
+        self.u0 /= self.M
+
+
 
     def apply(self, pc, x, y):
 
@@ -210,7 +229,7 @@ class DiagFFTPC(fd.PCBase):
 
         # Do the block solves
 
-        print("Warning - for nonlinear we need to update u0")
+        # print("Warning - for nonlinear we need to update u0")
         #The above will be done via self.get_appctx(pc)["state"]
 
         for i in range(self.M):
@@ -337,7 +356,8 @@ class paradiag(object):
                "theta":self.theta,
                "dt":self.dt,
                "form_mass":self.form_mass,
-               "form_function":self.form_function} 
+               "form_function":self.form_function,
+               "w_all":self.w_all}
         vproblem = fd.NonlinearVariationalProblem(self.para_form, self.w_all)
         self.vsolver = fd.NonlinearVariationalSolver(vproblem,
                                                      solver_parameters
