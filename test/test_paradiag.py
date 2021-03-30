@@ -48,8 +48,7 @@ def test_set_para_form():
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
     ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters  # noqa: E251
-                                            =solver_parameters)  # noqa: E251
+                                            solver_parameters=solver_parameters)
 
     for i in range(M):
         ssolver.solve()
@@ -115,8 +114,7 @@ def test_set_para_form_mixed():
                          'pc_factor_mat_solver_type': 'mumps',
                          'mat_type': 'aij'}
     ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters  # noqa: E251
-                                            =solver_parameters)
+                                            solver_parameters=solver_parameters)
 
     for i in range(M):
         ssolver.solve()
@@ -175,8 +173,7 @@ def test_solve_para_form():
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
     ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters  # noqa: E251
-                                            =solver_parameters)
+                                            solver_parameters=solver_parameters)
 
     err = fd.Function(V, name="err")
     pun = fd.Function(V, name="pun")
@@ -243,8 +240,7 @@ def test_solve_para_form_mixed():
                          'pc_factor_mat_solver_type': 'mumps',
                          'mat_type': 'aij'}
     ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters  # noqa: E251
-                                            =solver_parameters)
+                                            solver_parameters=solver_parameters)
     ssolver.solve()
 
     err = fd.Function(W, name="err")
@@ -307,8 +303,7 @@ def test_relax():
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
     ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters  # noqa:
-                                            =solver_parameters)
+                                            solver_parameters=solver_parameters)
 
     err = fd.Function(V, name="err")
     pun = fd.Function(V, name="pun")
@@ -375,8 +370,7 @@ def test_relax_mixed():
                          'pc_factor_mat_solver_type': 'mumps',
                          'mat_type': 'aij'}
     ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters  # noqa:
-                                            =solver_parameters)
+                                            solver_parameters=solver_parameters)
     ssolver.solve()
 
     err = fd.Function(W, name="err")
@@ -531,8 +525,7 @@ def test_diag_precon_mixed():
                          'pc_factor_mat_solver_type': 'mumps',
                          'mat_type': 'aij'}
     ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters  # noqa:
-                                            =solver_parameters)
+                                            solver_parameters=solver_parameters)
     ssolver.solve()
 
     err = fd.Function(W, name="err")

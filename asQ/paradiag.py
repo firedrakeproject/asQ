@@ -75,7 +75,7 @@ class DiagFFTPC(fd.PCBase):
                     shape = (2,) + SubV._shape
                     MixedCpts.append(fd.TensorElement(SubV, shape))
                 else:
-                    raise(NotImplementedError)
+                    raise NotImplementedError
 
             dim = len(MixedCpts)
             self.CblockV = np.prod([fd.FunctionSpace(mesh,
@@ -90,11 +90,11 @@ class DiagFFTPC(fd.PCBase):
                 self.CblockV = fd.FunctionSpace(mesh,
                                                 fd.TensorElement(Ve, shape))
             elif isinstance(Ve, fd.TensorElement):
-                shape = (2,) + SubV._shape
+                shape = (2,) + Ve._shape
                 self.CblockV = fd.FunctionSpace(mesh,
                                                 fd.TensorElement(Ve, shape))
             else:
-                raise(NotImplementedError)
+                raise NotImplementedError
 
         # Now need to build the block solver
         vs = fd.TestFunctions(self.CblockV)
@@ -127,7 +127,7 @@ class DiagFFTPC(fd.PCBase):
                     usr.append(us[i][0, :, :])
                     usi.append(us[i][1, :, :])
                 else:
-                    raise(NotImplementedError)
+                    raise NotImplementedError
         else:
             if isinstance(Ve, fd.FiniteElement):
                 vsr.append(vs[0])
@@ -145,7 +145,7 @@ class DiagFFTPC(fd.PCBase):
                 usr.append(self.u0[0, :])
                 usi.append(self.u0[1, :])
             else:
-                raise(NotImplementedError)
+                raise NotImplementedError
 
         # input and output functions
         self.Jprob_in = fd.Function(self.CblockV)
@@ -352,8 +352,7 @@ class paradiag(object):
                "w_all": self.w_all}
         vproblem = fd.NonlinearVariationalProblem(self.para_form, self.w_all)
         self.vsolver = fd.NonlinearVariationalSolver(vproblem,
-                                                     solver_parameters=  # noqa 
-                                                     solver_parameters,
+                                                     solver_parameters=solver_parameters,
                                                      appctx=ctx)
 
     def _set_para_form(self):
