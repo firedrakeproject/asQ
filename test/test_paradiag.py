@@ -627,7 +627,7 @@ def test_quasi():
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
                          'pc_factor_mat_solver_type': 'mumps',
                          'mat_type': 'aij',
-                         'snes_monitor':None}
+                         'snes_monitor': None}
 
     # Solving U_t + F(U) = 0
     # defining F(U)

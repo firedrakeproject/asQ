@@ -351,14 +351,14 @@ class paradiag(object):
                "form_function": self.form_function,
                "w_all": self.w_all}
 
-        if self.circ=="quasi":
+        if self.circ == "quasi":
             J = fd.derivative(self.para_form, self.w_all)
             test_fns = fd.TestFunctions(self.W_all)
             dws = test_fns[self.ncpts*(M-1):]
             wMs = fd.split(self.w_all)[self.ncpts*(M-1):]
             extra_term = - self.alpha*self.form_mass(*wMs, *dws)
             extra_term += self.alpha*self.theta*self.dt \
-                *self.form_function(*wMs, *dws)
+                * self.form_function(*wMs, *dws)
             J += fd.derivative(extra_term, self.w_all)
             vproblem = fd.NonlinearVariationalProblem(self.para_form,
                                                       self.w_all,
