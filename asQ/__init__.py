@@ -1,1 +1,1 @@
-from .paradiag import paradiag, DiagFFTPC
+from .paradiag import paradiag, DiagFFTPC  # noqa: F401
