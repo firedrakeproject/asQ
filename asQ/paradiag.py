@@ -277,7 +277,7 @@ class DiagFFTPC(fd.PCBase):
 class paradiag(object):
     def __init__(self, form_function, form_mass, W, w0, dt, theta,
                  alpha, M, solver_parameters=None,
-                 circ="outside",
+                 circ="picard",
                  jac_average="newton", tol=1.0e-6, maxits=10):
         """A class to implement paradiag timestepping.
 
@@ -293,11 +293,11 @@ class paradiag(object):
         :arg M: integer, the number of timesteps
         :arg solver_parameters: options dictionary for nonlinear solver
         :arg circ: a string describing the option on where to use the
-        alpha-circulant modification. "outside" - do a nonlinear wave
-        form relaxation method. "jacobian" - do a modified Newton
+        alpha-circulant modification. "picard" - do a nonlinear wave
+        form relaxation method. "quasi" - do a modified Newton
         method with alpha-circulant modification added to the
-        Jacobian. "preconditioner" - only make the alpha-circulant
-        modification in the preconditioner.
+        Jacobian. To make the alpha circulant modification only in the
+        preconditioner, simply set ksp_type:preonly in the solve options.
         :arg jac_average: a string describing the option for when to
         average the jacobian. "newton" - make a quasi-Newton method by
         time averaging the Jacobian. "preconditioner" - only do the
@@ -335,7 +335,7 @@ class paradiag(object):
 
         # function containing the last timestep
         # from the previous iteration
-        if self.circ == "outside":
+        if self.circ == "picard":
             self.w_prev = fd.Function(self.W)
 
         self._set_para_form()
@@ -350,7 +350,22 @@ class paradiag(object):
                "form_mass": self.form_mass,
                "form_function": self.form_function,
                "w_all": self.w_all}
-        vproblem = fd.NonlinearVariationalProblem(self.para_form, self.w_all)
+
+        if self.circ == "quasi":
+            J = fd.derivative(self.para_form, self.w_all)
+            test_fns = fd.TestFunctions(self.W_all)
+            dws = test_fns[self.ncpts*(M-1):]
+            wMs = fd.split(self.w_all)[self.ncpts*(M-1):]
+            extra_term = - self.alpha*self.form_mass(*wMs, *dws)
+            extra_term += self.alpha*self.theta*self.dt \
+                * self.form_function(*wMs, *dws)
+            J += fd.derivative(extra_term, self.w_all)
+            vproblem = fd.NonlinearVariationalProblem(self.para_form,
+                                                      self.w_all,
+                                                      J=J)
+        else:
+            vproblem = fd.NonlinearVariationalProblem(self.para_form,
+                                                      self.w_all)
         self.vsolver = fd.NonlinearVariationalSolver(vproblem,
                                                      solver_parameters=solver_parameters,
                                                      appctx=ctx)
@@ -370,7 +385,7 @@ class paradiag(object):
         theta = fd.Constant(self.theta)
         alpha = fd.Constant(self.alpha)
         wMs = w_all_cpts[self.ncpts*(M-1):]
-        if self.circ == "outside":
+        if self.circ == "picard":
             if self.ncpts == 1:
                 wMkm1s = [self.w_prev]
             else:
@@ -380,7 +395,7 @@ class paradiag(object):
             # previous time level
             if n == 0:
                 w0ss = fd.split(self.w0)
-                if self.circ == "outside":
+                if self.circ == "picard":
                     w0s = [w0ss[i] + alpha*(wMs[i] - wMkm1s[i])
                            for i in range(self.ncpts)]
                 else:
@@ -406,7 +421,7 @@ class paradiag(object):
         Solve the system (either in one shot or as a relaxation method).
         """
         M = self.M
-        if self.circ == "outside":
+        if self.circ == "picard":
             # Relaxation method
             wMs = fd.split(self.w_all)[self.ncpts*(M-1):]
             residual = 2*self.tol
