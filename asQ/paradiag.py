@@ -353,9 +353,19 @@ class paradiag(object):
 
         if self.circ=="quasi":
             J = fd.derivative(self.para_form, self.w_all)
+            test_fns = fd.TestFunctions(self.W_all)
+            dws = test_fns[self.ncpts*(M-1):]
             wMs = w_all_cpts[self.ncpts*(M-1):]
-            extra_term = self.form_mass(
-        vproblem = fd.NonlinearVariationalProblem(self.para_form, self.w_all)
+            extra_term = - self.alpha*self.form_mass(wMs, dws)
+            extra_term += self.alpha*self.theta*self.dt \
+                *self.form_function(Wms, dws)
+            J += fd.derivative(extra_term, self.w_all)
+            vproblem = fd.NonlinearVariationalProblem(self.para_form,
+                                                      self.w_all,
+                                                      J=J)
+        else:
+            vproblem = fd.NonlinearVariationalProblem(self.para_form,
+                                                      self.w_all)
         self.vsolver = fd.NonlinearVariationalSolver(vproblem,
                                                      solver_parameters=solver_parameters,
                                                      appctx=ctx)
