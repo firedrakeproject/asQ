@@ -11,8 +11,6 @@ on:
 
 jobs:
   build:
-    env:
-      ASQ: /home/firedrake/asQ
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
     # The docker container to use.
@@ -21,31 +19,24 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:
-      # FIXME: can't use this checkout stuff until firedrake docker
-      # image has USER root
-      # - uses: actions/checkout@v2
-      - name: Checkout
+      - name: Fix permissions
+        # Firedrake's Dockerfile sets USER to firedrake instead of
+        # using the default user, so we need to update file
+        # permissions for this image to work on GH Actions.
+        # See https://help.github.com/en/actions/reference/virtual-environments-for-github-hosted-runners#docker-container-filesystem
+        # (copied from https://help.github.com/en/actions/migrating-to-github-actions/migrating-from-circleci-to-github-actions)
         run: |
-          mkdir -p $ASQ
-          cd $ASQ
-          git clone --depth 1 https://github.com/$GITHUB_REPOSITORY.git .
-          git fetch origin $GITHUB_SHA:temporary-ci-branch
-          git checkout $GITHUB_SHA || (git fetch && git checkout $GITHUB_SHA)
+          sudo chmod -R 777 $GITHUB_WORKSPACE /github /__w/_temp
+      - uses: actions/checkout@v2
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
-          cd $ASQ
           python -m pip install -e .
-      # Uncomment this to run flake8, currently billions of errors.
       - name: Lint
-        continue-on-error: true
         run: |
           . /home/firedrake/firedrake/bin/activate
           flake8 .
       - name: Test
         run: |
-          # Work around docker image user not being root
-          export HOME=/home/firedrake
           . /home/firedrake/firedrake/bin/activate
-          cd $ASQ
           pytest -v test
