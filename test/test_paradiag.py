@@ -1,14 +1,14 @@
-import pytest
 import asQ
 import firedrake as fd
 import numpy as np
 
-def test_set_para_form():
-    #checks that the all-at-once system is the same as solving timesteps sequentially
-    #using the heat equation as an example
-    #by substituting the sequential solution and evaluating the residual
 
-    mesh = fd.UnitSquareMesh(20,20)
+def test_set_para_form():
+    # checks that the all-at-once system is the same as solving
+    # timesteps sequentially using the heat equation as an example by
+    # substituting the sequential solution and evaluating the residual
+
+    mesh = fd.UnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -17,37 +17,39 @@ def test_set_para_form():
     theta = 0.5
     alpha = 0.001
     M = 4
-    solver_parameters = {'ksp_type':'gmres', 'pc_type':'none',
-                         'ksp_rtol':1.0e-8, 'ksp_atol':1.0e-8,
-                         'ksp_monitor':None}
+    solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
+                         'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
+                         'ksp_monitor': None}
 
     def form_function(u, v):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
         return u*v*fd.dx
-    
-    PD = asQ.paradiag(form_function=form_function,
-                           form_mass=form_mass, W=V, w0=u0,
-                           dt=dt, theta=theta,
-                           alpha=alpha,
-                           M=M, solver_parameters=solver_parameters,
-                           circ="none")
 
-    #sequential solver
+    PD = asQ.paradiag(form_function=form_function,
+                      form_mass=form_mass, W=V, w0=u0,
+                      dt=dt, theta=theta,
+                      alpha=alpha,
+                      M=M, solver_parameters=solver_parameters,
+                      circ="none")
+
+    # sequential solver
     un = fd.Function(V)
     unp1 = fd.Function(V)
 
     un.assign(u0)
     v = fd.TestFunction(V)
-    
+
     eqn = (unp1 - un)*v/dt*fd.dx
     eqn += fd.Constant((1-theta))*form_function(un, v)
     eqn += fd.Constant(theta)*form_function(unp1, v)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu'}
-    ssolver = fd.NonlinearVariationalSolver(sprob, solver_parameters=solver_parameters)
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
+    ssolver = fd.NonlinearVariationalSolver(sprob,
+                                            solver_parameters  # noqa: E251
+                                            =solver_parameters)  # noqa: E251
 
     for i in range(M):
         ssolver.solve()
@@ -58,17 +60,18 @@ def test_set_para_form():
     for i in range(M):
         assert(dt*np.abs(Pres.sub(i).dat.data[:]).max() < 1.0e-16)
 
-def test_set_para_form_mixed():
-    #checks that the all-at-once system is the same as solving
-    #timesteps sequentially using the mixed wave equation as an
-    #example by substituting the sequential solution and evaluating
-    #the residual
 
-    mesh = fd.PeriodicUnitSquareMesh(20,20)
+def test_set_para_form_mixed():
+    # checks that the all-at-once system is the same as solving
+    # timesteps sequentially using the mixed wave equation as an
+    # example by substituting the sequential solution and evaluating
+    # the residual
+
+    mesh = fd.PeriodicUnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
-    
+
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
@@ -77,23 +80,23 @@ def test_set_para_form_mixed():
     theta = 0.5
     alpha = 0.001
     M = 4
-    solver_parameters = {'ksp_type':'gmres', 'pc_type':'none',
-                         'ksp_rtol':1.0e-8, 'ksp_atol':1.0e-8,
-                         'ksp_monitor':None}
+    solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
+                         'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
+                         'ksp_monitor': None}
 
     def form_function(uu, up, vu, vp):
         return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
 
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up*vp)*fd.dx
-    
-    PD = asQ.paradiag(form_function=form_function,
-                           form_mass=form_mass, W=W, w0=w0, dt=dt,
-                           theta=theta, alpha=alpha, M=M,
-                           solver_parameters=solver_parameters,
-                           circ="none")
 
-    #sequential solver
+    PD = asQ.paradiag(form_function=form_function,
+                      form_mass=form_mass, W=W, w0=w0, dt=dt,
+                      theta=theta, alpha=alpha, M=M,
+                      solver_parameters=solver_parameters,
+                      circ="none")
+
+    # sequential solver
     un = fd.Function(W)
     unp1 = fd.Function(W)
 
@@ -103,15 +106,17 @@ def test_set_para_form_mixed():
     eqn = (1.0/dt)*form_mass(*(fd.split(unp1)), *(fd.split(v)))
     eqn -= (1.0/dt)*form_mass(*(fd.split(un)), *(fd.split(v)))
     eqn += fd.Constant((1-theta))*form_function(*(fd.split(un)),
-                                                   *(fd.split(v)))
+                                                *(fd.split(v)))
     eqn += fd.Constant(theta)*form_function(*(fd.split(unp1)),
-                                               *(fd.split(v)))
+                                            *(fd.split(v)))
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
-                         'pc_factor_mat_solver_type':'mumps',
-                         'mat_type':'aij'}
-    ssolver = fd.NonlinearVariationalSolver(sprob, solver_parameters=solver_parameters)
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij'}
+    ssolver = fd.NonlinearVariationalSolver(sprob,
+                                            solver_parameters  # noqa: E251
+                                            =solver_parameters)
 
     for i in range(M):
         ssolver.solve()
@@ -125,11 +130,12 @@ def test_set_para_form_mixed():
 
 
 def test_solve_para_form():
-    #checks that the all-at-once system is the same as solving timesteps sequentially
-    #using the heat equation as an example
-    #by solving the all-at-once system and comparing with the sequential solution
+    # checks that the all-at-once system is the same as solving
+    # timesteps sequentially using the heat equation as an example by
+    # solving the all-at-once system and comparing with the sequential
+    # solution
 
-    mesh = fd.UnitSquareMesh(20,20)
+    mesh = fd.UnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -138,34 +144,39 @@ def test_solve_para_form():
     theta = 0.5
     alpha = 0.001
     M = 4
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
-                         'pc_factor_mat_solver_type':'mumps',
-                         'mat_type':'aij'}
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij'}
 
     def form_function(u, v):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
         return u*v*fd.dx
-    
-    PD = asQ.paradiag(form_function=form_function, form_mass=form_mass, W=V, w0=u0, dt=dt, theta=theta,
-                           alpha=alpha, M=M, solver_parameters=solver_parameters, circ="none")
+
+    PD = asQ.paradiag(form_function=form_function,
+                      form_mass=form_mass, W=V, w0=u0, dt=dt,
+                      theta=theta, alpha=alpha, M=M,
+                      solver_parameters=solver_parameters,
+                      circ="none")
     PD.solve()
-    
-    #sequential solver
+
+    # sequential solver
     un = fd.Function(V)
     unp1 = fd.Function(V)
 
     un.assign(u0)
     v = fd.TestFunction(V)
-    
+
     eqn = (unp1 - un)*v*fd.dx
     eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
     eqn += fd.Constant(dt*theta)*form_function(unp1, v)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu'}
-    ssolver = fd.NonlinearVariationalSolver(sprob, solver_parameters=solver_parameters)
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
+    ssolver = fd.NonlinearVariationalSolver(sprob,
+                                            solver_parameters  # noqa: E251
+                                            =solver_parameters)
 
     err = fd.Function(V, name="err")
     pun = fd.Function(V, name="pun")
@@ -178,16 +189,16 @@ def test_solve_para_form():
 
 
 def test_solve_para_form_mixed():
-    #checks that the all-at-once system is the same as solving
-    #timesteps sequentially using the mixed wave equation as an
-    #example by substituting the sequential solution and evaluating
-    #the residual
+    # checks that the all-at-once system is the same as solving
+    # timesteps sequentially using the mixed wave equation as an
+    # example by substituting the sequential solution and evaluating
+    # the residual
 
-    mesh = fd.PeriodicUnitSquareMesh(20,20)
+    mesh = fd.PeriodicUnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
-    
+
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
@@ -196,23 +207,24 @@ def test_solve_para_form_mixed():
     theta = 0.5
     alpha = 0.001
     M = 4
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
-                         'pc_factor_mat_solver_type':'mumps',
-                         'mat_type':'aij'}
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij'}
+
     def form_function(uu, up, vu, vp):
         return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
 
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up*vp)*fd.dx
-    
+
     PD = asQ.paradiag(form_function=form_function,
-                           form_mass=form_mass, W=W, w0=w0, dt=dt,
-                           theta=theta, alpha=alpha, M=M,
-                           solver_parameters=solver_parameters,
-                           circ="none")
+                      form_mass=form_mass, W=W, w0=w0, dt=dt,
+                      theta=theta, alpha=alpha, M=M,
+                      solver_parameters=solver_parameters,
+                      circ="none")
     PD.solve()
 
-    #sequential solver
+    # sequential solver
     un = fd.Function(W)
     unp1 = fd.Function(W)
 
@@ -227,10 +239,12 @@ def test_solve_para_form_mixed():
                                                *(fd.split(v)))
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
-                         'pc_factor_mat_solver_type':'mumps',
-                         'mat_type':'aij'}
-    ssolver = fd.NonlinearVariationalSolver(sprob, solver_parameters=solver_parameters)
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij'}
+    ssolver = fd.NonlinearVariationalSolver(sprob,
+                                            solver_parameters  # noqa: E251
+                                            =solver_parameters)
     ssolver.solve()
 
     err = fd.Function(W, name="err")
@@ -245,12 +259,12 @@ def test_solve_para_form_mixed():
         err.assign(un-pun)
         assert(fd.norm(err) < 1.0e-15)
 
-        
+
 def test_relax():
-    #tests the relaxation method
-    #using the heat equation as an example
-    
-    mesh = fd.UnitSquareMesh(20,20)
+    # tests the relaxation method
+    # using the heat equation as an example
+
+    mesh = fd.UnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -259,40 +273,42 @@ def test_relax():
     theta = 0.5
     alpha = 0.001
     M = 4
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
-                         'pc_factor_mat_solver_type':'mumps',
-                         'mat_type':'aij'}
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij'}
 
-    #Solving U_t + F(U) = 0
-    #defining F(U)
+    # Solving U_t + F(U) = 0
+    # defining F(U)
     def form_function(u, v):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
-    #defining the structure of U_t
+
+    # defining the structure of U_t
     def form_mass(u, v):
         return u*v*fd.dx
-    
+
     PD = asQ.paradiag(form_function=form_function,
-                           form_mass=form_mass,
-                           W=V, w0=u0, dt=dt, theta=theta,
-                           alpha=alpha, M=M,
-                           solver_parameters=solver_parameters,
-                           circ="outside", tol=1.0e-12)
+                      form_mass=form_mass, W=V, w0=u0, dt=dt,
+                      theta=theta, alpha=alpha, M=M,
+                      solver_parameters=solver_parameters,
+                      circ="outside", tol=1.0e-12)
     PD.solve()
 
-    #sequential solver
+    # sequential solver
     un = fd.Function(V)
     unp1 = fd.Function(V)
 
     un.assign(u0)
     v = fd.TestFunction(V)
-    
+
     eqn = (unp1 - un)*v*fd.dx
     eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
     eqn += fd.Constant(dt*theta)*form_function(unp1, v)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu'}
-    ssolver = fd.NonlinearVariationalSolver(sprob, solver_parameters=solver_parameters)
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
+    ssolver = fd.NonlinearVariationalSolver(sprob,
+                                            solver_parameters  # noqa:
+                                            =solver_parameters)
 
     err = fd.Function(V, name="err")
     pun = fd.Function(V, name="pun")
@@ -305,16 +321,16 @@ def test_relax():
 
 
 def test_relax_mixed():
-    #checks that the all-at-once system is the same as solving
-    #timesteps sequentially using the mixed wave equation as an
-    #example by substituting the sequential solution and evaluating
-    #the residual
+    # checks that the all-at-once system is the same as solving
+    # timesteps sequentially using the mixed wave equation as an
+    # example by substituting the sequential solution and evaluating
+    # the residual
 
-    mesh = fd.PeriodicUnitSquareMesh(20,20)
+    mesh = fd.PeriodicUnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
-    
+
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
@@ -323,23 +339,24 @@ def test_relax_mixed():
     theta = 0.5
     alpha = 0.001
     M = 4
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
-                         'pc_factor_mat_solver_type':'mumps',
-                         'mat_type':'aij'}
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij'}
+
     def form_function(uu, up, vu, vp):
         return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
 
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up*vp)*fd.dx
-    
+
     PD = asQ.paradiag(form_function=form_function,
-                           form_mass=form_mass, W=W, w0=w0, dt=dt,
-                           theta=theta, alpha=alpha, M=M,
-                           solver_parameters=solver_parameters,
-                           circ="outside", tol=1.0e-12)
+                      form_mass=form_mass, W=W, w0=w0, dt=dt,
+                      theta=theta, alpha=alpha, M=M,
+                      solver_parameters=solver_parameters,
+                      circ="outside", tol=1.0e-12)
     PD.solve(verbose=True)
 
-    #sequential solver
+    # sequential solver
     un = fd.Function(W)
     unp1 = fd.Function(W)
 
@@ -354,10 +371,12 @@ def test_relax_mixed():
                                                *(fd.split(v)))
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
-                         'pc_factor_mat_solver_type':'mumps',
-                         'mat_type':'aij'}
-    ssolver = fd.NonlinearVariationalSolver(sprob, solver_parameters=solver_parameters)
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij'}
+    ssolver = fd.NonlinearVariationalSolver(sprob,
+                                            solver_parameters  # noqa:
+                                            =solver_parameters)
     ssolver.solve()
 
     err = fd.Function(W, name="err")
@@ -372,14 +391,15 @@ def test_relax_mixed():
         err.assign(un-pun)
         assert(fd.norm(err) < 1.0e-15)
 
+
 def test_diag_precon():
-    #Test PCDIAGFFT by using it
-    #within the relaxation method
-    #using the heat equation as an example
-    #we compare one iteration using just the diag PC
-    #with the direct solver
-    
-    mesh = fd.UnitSquareMesh(20,20)
+    # Test PCDIAGFFT by using it
+    # within the relaxation method
+    # using the heat equation as an example
+    # we compare one iteration using just the diag PC
+    # with the direct solver
+
+    mesh = fd.UnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -390,45 +410,41 @@ def test_diag_precon():
     M = 4
 
     diagfft_options = {
-        'ksp_type':'preonly',
-        'pc_type':'lu',
-        'pc_factor_mat_solver_type':'mumps',
-        'mat_type':'aij'}
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps',
+        'mat_type': 'aij'}
 
     solver_parameters = {
-        'snes_type':'ksponly',
-        'mat_type':'matfree',
-        'ksp_type':'preonly',
-        'ksp_rtol':1.0e-10,
-        'ksp_converged_reason':None,
-        'pc_type':'python',
-        'pc_python_type':'asQ.DiagFFTPC',
-        'diagfft':diagfft_options}
+        'snes_type': 'ksponly',
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'ksp_rtol': 1.0e-10,
+        'ksp_converged_reason': None,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC',
+        'diagfft': diagfft_options}
 
     def form_function(u, v):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
         return u*v*fd.dx
-    
+
     PD = asQ.paradiag(form_function=form_function,
-                           form_mass=form_mass, W=V,
-                           w0=u0, dt=dt, theta=theta,
-                           alpha=alpha, M=M,
-                           solver_parameters=solver_parameters,
-                           circ="outside", tol=1.0e-12,
-                           maxits=1)
+                      form_mass=form_mass, W=V, w0=u0, dt=dt,
+                      theta=theta, alpha=alpha, M=M,
+                      solver_parameters=solver_parameters,
+                      circ="outside", tol=1.0e-12, maxits=1)
     PD.solve(verbose=True)
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
-                         'pc_factor_mat_solver_type':'mumps',
-                         'mat_type':'aij'}
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij'}
     PDe = asQ.paradiag(form_function=form_function,
-                            form_mass=form_mass, W=V,
-                            w0=u0, dt=dt, theta=theta,
-                            alpha=alpha, M=M,
-                            solver_parameters=solver_parameters,
-                            circ="outside", tol=1.0e-12,
-                            maxits=1)
+                       form_mass=form_mass, W=V, w0=u0, dt=dt,
+                       theta=theta, alpha=alpha, M=M,
+                       solver_parameters=solver_parameters,
+                       circ="outside", tol=1.0e-12, maxits=1)
     PDe.solve(verbose=True)
     unD = fd.Function(V, name='diag')
     un = fd.Function(V, name='full')
@@ -445,12 +461,12 @@ def test_diag_precon():
 
 
 def test_diag_precon_mixed():
-    #checks that the all-at-once system is the same as solving
-    #timesteps sequentially using the mixed wave equation as an
-    #example by substituting the sequential solution and evaluating
-    #the residual
+    # checks that the all-at-once system is the same as solving
+    # timesteps sequentially using the mixed wave equation as an
+    # example by substituting the sequential solution and evaluating
+    # the residual
 
-    mesh = fd.PeriodicUnitSquareMesh(20,20)
+    mesh = fd.PeriodicUnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
@@ -463,41 +479,40 @@ def test_diag_precon_mixed():
     theta = 0.5
     alpha = 0.001
     M = 4
-    
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
-                        'pc_factor_mat_solver_type':'mumps',
-                        'mat_type':'aij'}
+
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij'}
+
     def form_function(uu, up, vu, vp):
         return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
 
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up*vp)*fd.dx
 
-    diagfft_options = {
-        'ksp_type':'gmres',
-        'pc_type':'lu',
-        'ksp_monitor':None,
-        'pc_factor_mat_solver_type':'mumps',
-        'mat_type':'aij'}
+    diagfft_options = {'ksp_type': 'gmres', 'pc_type': 'lu',
+                       'ksp_monitor': None,
+                       'pc_factor_mat_solver_type': 'mumps',
+                       'mat_type': 'aij'}
 
     solver_parameters_diag = {
-        'snes_type':'ksponly',
-        'mat_type':'matfree',
-        'ksp_type':'preonly',
-        'ksp_rtol':1.0e-10,
-        'ksp_converged_reason':None,
-        'pc_type':'python',
-        'pc_python_type':'asQ.DiagFFTPC',
-        'diagfft':diagfft_options}
+        'snes_type': 'ksponly',
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'ksp_rtol': 1.0e-10,
+        'ksp_converged_reason': None,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC',
+        'diagfft': diagfft_options}
 
     PD = asQ.paradiag(form_function=form_function,
-                            form_mass=form_mass, W=W, w0=w0, dt=dt,
-                            theta=theta, alpha=alpha, M=M,
-                            solver_parameters=solver_parameters_diag,
-                            circ="outside", tol=1.0e-12)
+                      form_mass=form_mass, W=W, w0=w0, dt=dt,
+                      theta=theta, alpha=alpha, M=M,
+                      solver_parameters=solver_parameters_diag,
+                      circ="outside", tol=1.0e-12)
     PD.solve(verbose=True)
 
-    #sequential solver
+    # sequential solver
     un = fd.Function(W)
     unp1 = fd.Function(W)
 
@@ -507,15 +522,17 @@ def test_diag_precon_mixed():
     eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
     eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
     eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
-                                                    *(fd.split(v)))
+                                                   *(fd.split(v)))
     eqn += fd.Constant(dt*theta)*form_function(*(fd.split(unp1)),
-                                                *(fd.split(v)))
+                                               *(fd.split(v)))
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type':'preonly', 'pc_type':'lu',
-                            'pc_factor_mat_solver_type':'mumps',
-                            'mat_type':'aij'}
-    ssolver = fd.NonlinearVariationalSolver(sprob, solver_parameters=solver_parameters)
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij'}
+    ssolver = fd.NonlinearVariationalSolver(sprob,
+                                            solver_parameters  # noqa:
+                                            =solver_parameters)
     ssolver.solve()
 
     err = fd.Function(W, name="err")
@@ -529,4 +546,3 @@ def test_diag_precon_mixed():
             puns[k].assign(walls[k])
         err.assign(un-pun)
         assert(fd.norm(err) < 1.0e-15)
-
