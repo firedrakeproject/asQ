@@ -609,3 +609,63 @@ def test_diag_precon_nl():
         un.assign(wallsE)
         err.assign(un-unD)
         assert(fd.norm(err) < 1.0e-12)
+
+
+def test_quasi():
+    # tests the quasi-Newton option
+    # using the heat equation as an example
+
+    mesh = fd.UnitSquareMesh(20, 20)
+    V = fd.FunctionSpace(mesh, "CG", 1)
+
+    x, y = fd.SpatialCoordinate(mesh)
+    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    dt = 0.01
+    theta = 0.5
+    alpha = 0.001
+    M = 4
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij',
+                         'snes_monitor':None}
+
+    # Solving U_t + F(U) = 0
+    # defining F(U)
+    def form_function(u, v):
+        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+
+    # defining the structure of U_t
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    PD = asQ.paradiag(form_function=form_function,
+                      form_mass=form_mass, W=V, w0=u0, dt=dt,
+                      theta=theta, alpha=alpha, M=M,
+                      solver_parameters=solver_parameters,
+                      circ="quasi")
+    PD.solve()
+
+    # sequential solver
+    un = fd.Function(V)
+    unp1 = fd.Function(V)
+
+    un.assign(u0)
+    v = fd.TestFunction(V)
+
+    eqn = (unp1 - un)*v*fd.dx
+    eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
+    eqn += fd.Constant(dt*theta)*form_function(unp1, v)
+
+    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
+    ssolver = fd.NonlinearVariationalSolver(sprob,
+                                            solver_parameters=solver_parameters)
+
+    err = fd.Function(V, name="err")
+    pun = fd.Function(V, name="pun")
+    for i in range(M):
+        ssolver.solve()
+        un.assign(unp1)
+        pun.assign(PD.w_all.sub(i))
+        err.assign(un-pun)
+        assert(fd.norm(err) < 1.0e-10)
