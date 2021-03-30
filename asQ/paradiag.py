@@ -294,10 +294,10 @@ class paradiag(object):
         :arg solver_parameters: options dictionary for nonlinear solver
         :arg circ: a string describing the option on where to use the
         alpha-circulant modification. "picard" - do a nonlinear wave
-        form relaxation method. "jacobian" - do a modified Newton
+        form relaxation method. "quasi" - do a modified Newton
         method with alpha-circulant modification added to the
-        Jacobian. "preconditioner" - only make the alpha-circulant
-        modification in the preconditioner.
+        Jacobian. To make the alpha circulant modification only in the 
+        preconditioner, simply set ksp_type:preonly in the solve options.
         :arg jac_average: a string describing the option for when to
         average the jacobian. "newton" - make a quasi-Newton method by
         time averaging the Jacobian. "preconditioner" - only do the
