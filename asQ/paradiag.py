@@ -277,7 +277,7 @@ class DiagFFTPC(fd.PCBase):
 class paradiag(object):
     def __init__(self, form_function, form_mass, W, w0, dt, theta,
                  alpha, M, solver_parameters=None,
-                 circ="outside",
+                 circ="picard",
                  jac_average="newton", tol=1.0e-6, maxits=10):
         """A class to implement paradiag timestepping.
 
@@ -293,7 +293,7 @@ class paradiag(object):
         :arg M: integer, the number of timesteps
         :arg solver_parameters: options dictionary for nonlinear solver
         :arg circ: a string describing the option on where to use the
-        alpha-circulant modification. "outside" - do a nonlinear wave
+        alpha-circulant modification. "picard" - do a nonlinear wave
         form relaxation method. "jacobian" - do a modified Newton
         method with alpha-circulant modification added to the
         Jacobian. "preconditioner" - only make the alpha-circulant
@@ -335,7 +335,7 @@ class paradiag(object):
 
         # function containing the last timestep
         # from the previous iteration
-        if self.circ == "outside":
+        if self.circ == "picard":
             self.w_prev = fd.Function(self.W)
 
         self._set_para_form()
@@ -370,7 +370,7 @@ class paradiag(object):
         theta = fd.Constant(self.theta)
         alpha = fd.Constant(self.alpha)
         wMs = w_all_cpts[self.ncpts*(M-1):]
-        if self.circ == "outside":
+        if self.circ == "picard":
             if self.ncpts == 1:
                 wMkm1s = [self.w_prev]
             else:
@@ -380,7 +380,7 @@ class paradiag(object):
             # previous time level
             if n == 0:
                 w0ss = fd.split(self.w0)
-                if self.circ == "outside":
+                if self.circ == "picard":
                     w0s = [w0ss[i] + alpha*(wMs[i] - wMkm1s[i])
                            for i in range(self.ncpts)]
                 else:
@@ -406,7 +406,7 @@ class paradiag(object):
         Solve the system (either in one shot or as a relaxation method).
         """
         M = self.M
-        if self.circ == "outside":
+        if self.circ == "picard":
             # Relaxation method
             wMs = fd.split(self.w_all)[self.ncpts*(M-1):]
             residual = 2*self.tol

@@ -286,7 +286,7 @@ def test_relax():
                       form_mass=form_mass, W=V, w0=u0, dt=dt,
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters,
-                      circ="outside", tol=1.0e-12)
+                      circ="picard", tol=1.0e-12)
     PD.solve()
 
     # sequential solver
@@ -348,7 +348,7 @@ def test_relax_mixed():
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters,
-                      circ="outside", tol=1.0e-12)
+                      circ="picard", tol=1.0e-12)
     PD.solve(verbose=True)
 
     # sequential solver
@@ -429,7 +429,7 @@ def test_diag_precon():
                       form_mass=form_mass, W=V, w0=u0, dt=dt,
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters,
-                      circ="outside", tol=1.0e-12, maxits=1)
+                      circ="picard", tol=1.0e-12, maxits=1)
     PD.solve(verbose=True)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
                          'pc_factor_mat_solver_type': 'mumps',
@@ -438,7 +438,7 @@ def test_diag_precon():
                        form_mass=form_mass, W=V, w0=u0, dt=dt,
                        theta=theta, alpha=alpha, M=M,
                        solver_parameters=solver_parameters,
-                       circ="outside", tol=1.0e-12, maxits=1)
+                       circ="picard", tol=1.0e-12, maxits=1)
     PDe.solve(verbose=True)
     unD = fd.Function(V, name='diag')
     un = fd.Function(V, name='full')
@@ -503,7 +503,7 @@ def test_diag_precon_mixed():
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters_diag,
-                      circ="outside", tol=1.0e-12)
+                      circ="picard", tol=1.0e-12)
     PD.solve(verbose=True)
 
     # sequential solver
@@ -585,7 +585,7 @@ def test_diag_precon_nl():
                       form_mass=form_mass, W=V, w0=u0, dt=dt,
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters,
-                      circ="outside", tol=1.0e-12, maxits=1)
+                      circ="picard", tol=1.0e-12, maxits=1)
     PD.solve(verbose=True)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
                          'pc_factor_mat_solver_type': 'mumps',
@@ -595,7 +595,7 @@ def test_diag_precon_nl():
                        form_mass=form_mass, W=V, w0=u0, dt=dt,
                        theta=theta, alpha=alpha, M=M,
                        solver_parameters=solver_parameters,
-                       circ="outside", tol=1.0e-12, maxits=1)
+                       circ="picard", tol=1.0e-12, maxits=1)
     PDe.solve(verbose=True)
     unD = fd.Function(V, name='diag')
     un = fd.Function(V, name='full')
