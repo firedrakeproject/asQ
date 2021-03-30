@@ -350,6 +350,11 @@ class paradiag(object):
                "form_mass": self.form_mass,
                "form_function": self.form_function,
                "w_all": self.w_all}
+
+        if self.circ=="quasi":
+            J = fd.derivative(self.para_form, self.w_all)
+            wMs = w_all_cpts[self.ncpts*(M-1):]
+            extra_term = self.form_mass(
         vproblem = fd.NonlinearVariationalProblem(self.para_form, self.w_all)
         self.vsolver = fd.NonlinearVariationalSolver(vproblem,
                                                      solver_parameters=solver_parameters,
