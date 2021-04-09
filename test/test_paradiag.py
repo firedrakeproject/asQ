@@ -669,3 +669,98 @@ def test_quasi():
         pun.assign(PD.w_all.sub(i))
         err.assign(un-pun)
         assert(fd.norm(err) < 1.0e-10)
+
+
+
+def test_diag_precon_nl_mixed():
+    # Test PCDIAGFFT by using it
+    # within the relaxation method
+    # using the NONLINEAR heat equation as an example
+    # we compare one iteration using just the diag PC
+    # with the direct solver
+
+    mesh = fd.PeriodicUnitSquareMesh(20, 20)
+    V = fd.FunctionSpace(mesh, "BDM", 1)
+    Q = fd.FunctionSpace(mesh, "DG", 0)
+    W = V * Q
+
+    x, y = fd.SpatialCoordinate(mesh)
+    w0 = fd.Function(W)
+    u0, p0 = w0.split()
+    p0.interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
+    dt = 0.01
+    theta = 0.5
+    alpha = 0.001
+    M = 4
+    c = fd.Constant(10)
+    eps = fd.Constant(0.001)
+
+    def form_function(uu, up, vu, vp):
+        return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
+                - fd.div(uu) * vp) * fd.dx
+
+    def form_mass(uu, up, vu, vp):
+        return (fd.inner(uu, vu) + up * vp) * fd.dx
+
+    diagfft_options = {
+        'ksp_type': 'gmres',
+        'pc_type': 'lu',
+        # 'ksp_monitor': None,
+        'pc_factor_mat_solver_type': 'mumps',
+        'mat_type': 'aij'}
+
+    solver_parameters_diag = {
+        'snes_monitor': None,
+        'snes_converged_reason': None,
+        'mat_type': 'matfree',
+        'ksp_rtol': 1.0e-10,
+        'ksp_max_it': 6,
+        # 'ksp_converged_reason': None,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC',
+        'diagfft': diagfft_options}
+
+    PD = asQ.paradiag(form_function=form_function,
+                      form_mass=form_mass, W=W, w0=w0, dt=dt,
+                      theta=theta, alpha=alpha, M=M,
+                      solver_parameters=solver_parameters_diag,
+                      circ="picard", tol=1.0e-12,
+                      maxits=1)
+    PD.solve(verbose=True)
+
+    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
+                         'pc_factor_mat_solver_type': 'mumps',
+                         'mat_type': 'aij',
+                         # 'snes_monitor':None,
+                         # 'snes_converged_reason':None,
+                         }
+    PDe = asQ.paradiag(form_function=form_function,
+                       form_mass=form_mass, W=W, w0=w0, dt=dt,
+                       theta=theta, alpha=alpha, M=M,
+                       solver_parameters=solver_parameters,
+                       circ="picard", tol=1.0e-12,
+                       maxits=1)
+    PDe.solve(verbose=True)
+
+    # define functions
+    un = fd.Function(W, name='full')
+    unD = fd.Function(W, name='diag')
+    err = fd.Function(W, name='error')
+    # write initial conditions
+    un.assign(w0)
+    unD.assign(w0)
+    # split
+    pun = fd.Function(W, name='pun')
+    punD = fd.Function(W, name='punD')
+    puns = pun.split()
+    punDs = punD.split()
+
+    for i in range(M):
+        walls = PD.w_all.split()[2 * i:2 * i + 2]
+        wallsE = PDe.w_all.split()[2 * i:2 * i + 2]
+        for k in range(2):
+            puns[k].assign(walls[k])
+            punDs[k].assign(wallsE[k])
+        err.assign(punD - pun)
+        print(fd.norm(err))
+        assert (fd.norm(err) < 1.0e-15)
