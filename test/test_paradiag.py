@@ -12,7 +12,7 @@ def test_set_para_form():
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    u0 = fd.Function(V).interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
@@ -22,10 +22,10 @@ def test_set_para_form():
                          'ksp_monitor': None}
 
     def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+        return fd.inner(fd.grad(u), fd.grad(v)) * fd.dx
 
     def form_mass(u, v):
-        return u*v*fd.dx
+        return u * v * fd.dx
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=V, w0=u0,
@@ -41,9 +41,9 @@ def test_set_para_form():
     un.assign(u0)
     v = fd.TestFunction(V)
 
-    eqn = (unp1 - un)*v/dt*fd.dx
-    eqn += fd.Constant((1-theta))*form_function(un, v)
-    eqn += fd.Constant(theta)*form_function(unp1, v)
+    eqn = (unp1 - un) * v / dt * fd.dx
+    eqn += fd.Constant((1 - theta)) * form_function(un, v)
+    eqn += fd.Constant(theta) * form_function(unp1, v)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
@@ -57,7 +57,7 @@ def test_set_para_form():
 
     Pres = fd.assemble(PD.para_form)
     for i in range(M):
-        assert(dt*np.abs(Pres.sub(i).dat.data[:]).max() < 1.0e-16)
+        assert (dt * np.abs(Pres.sub(i).dat.data[:]).max() < 1.0e-16)
 
 
 def test_set_para_form_mixed():
@@ -74,7 +74,7 @@ def test_set_para_form_mixed():
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
-    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    p0.interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
@@ -84,10 +84,10 @@ def test_set_para_form_mixed():
                          'ksp_monitor': None}
 
     def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
+        return (fd.div(vu) * up - fd.div(uu) * vp) * fd.dx
 
     def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
+        return (fd.inner(uu, vu) + up * vp) * fd.dx
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
@@ -102,12 +102,12 @@ def test_set_para_form_mixed():
     un.assign(w0)
     v = fd.TestFunction(W)
 
-    eqn = (1.0/dt)*form_mass(*(fd.split(unp1)), *(fd.split(v)))
-    eqn -= (1.0/dt)*form_mass(*(fd.split(un)), *(fd.split(v)))
-    eqn += fd.Constant((1-theta))*form_function(*(fd.split(un)),
-                                                *(fd.split(v)))
-    eqn += fd.Constant(theta)*form_function(*(fd.split(unp1)),
-                                            *(fd.split(v)))
+    eqn = (1.0 / dt) * form_mass(*(fd.split(unp1)), *(fd.split(v)))
+    eqn -= (1.0 / dt) * form_mass(*(fd.split(un)), *(fd.split(v)))
+    eqn += fd.Constant((1 - theta)) * form_function(*(fd.split(un)),
+                                                    *(fd.split(v)))
+    eqn += fd.Constant(theta) * form_function(*(fd.split(unp1)),
+                                              *(fd.split(v)))
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
@@ -119,12 +119,12 @@ def test_set_para_form_mixed():
     for i in range(M):
         ssolver.solve()
         for k in range(2):
-            PD.w_all.sub(2*i+k).assign(unp1.sub(k))
+            PD.w_all.sub(2 * i + k).assign(unp1.sub(k))
         un.assign(unp1)
 
     Pres = fd.assemble(PD.para_form)
     for i in range(M):
-        assert(dt*np.abs(Pres.sub(i).dat.data[:]).max() < 1.0e-16)
+        assert (dt * np.abs(Pres.sub(i).dat.data[:]).max() < 1.0e-16)
 
 
 def test_solve_para_form():
@@ -137,7 +137,7 @@ def test_solve_para_form():
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    u0 = fd.Function(V).interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
@@ -147,10 +147,10 @@ def test_solve_para_form():
                          'mat_type': 'aij'}
 
     def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+        return fd.inner(fd.grad(u), fd.grad(v)) * fd.dx
 
     def form_mass(u, v):
-        return u*v*fd.dx
+        return u * v * fd.dx
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=V, w0=u0, dt=dt,
@@ -166,9 +166,9 @@ def test_solve_para_form():
     un.assign(u0)
     v = fd.TestFunction(V)
 
-    eqn = (unp1 - un)*v*fd.dx
-    eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
-    eqn += fd.Constant(dt*theta)*form_function(unp1, v)
+    eqn = (unp1 - un) * v * fd.dx
+    eqn += fd.Constant(dt * (1 - theta)) * form_function(un, v)
+    eqn += fd.Constant(dt * theta) * form_function(unp1, v)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
@@ -181,8 +181,8 @@ def test_solve_para_form():
         ssolver.solve()
         un.assign(unp1)
         pun.assign(PD.w_all.sub(i))
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
+        err.assign(un - pun)
+        assert (fd.norm(err) < 1.0e-15)
 
 
 def test_solve_para_form_mixed():
@@ -199,7 +199,7 @@ def test_solve_para_form_mixed():
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
-    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    p0.interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
@@ -209,10 +209,10 @@ def test_solve_para_form_mixed():
                          'mat_type': 'aij'}
 
     def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
+        return (fd.div(vu) * up - fd.div(uu) * vp) * fd.dx
 
     def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
+        return (fd.inner(uu, vu) + up * vp) * fd.dx
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
@@ -230,10 +230,10 @@ def test_solve_para_form_mixed():
 
     eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
     eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
-    eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
+    eqn += fd.Constant(dt * (1 - theta)) * form_function(*(fd.split(un)),
+                                                         *(fd.split(v)))
+    eqn += fd.Constant(dt * theta) * form_function(*(fd.split(unp1)),
                                                    *(fd.split(v)))
-    eqn += fd.Constant(dt*theta)*form_function(*(fd.split(unp1)),
-                                               *(fd.split(v)))
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
@@ -249,11 +249,11 @@ def test_solve_para_form_mixed():
     for i in range(M):
         ssolver.solve()
         un.assign(unp1)
-        walls = PD.w_all.split()[2*i:2*i+2]
+        walls = PD.w_all.split()[2 * i:2 * i + 2]
         for k in range(2):
             puns[k].assign(walls[k])
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
+        err.assign(un - pun)
+        assert (fd.norm(err) < 1.0e-15)
 
 
 def test_relax():
@@ -264,7 +264,7 @@ def test_relax():
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    u0 = fd.Function(V).interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
@@ -276,11 +276,11 @@ def test_relax():
     # Solving U_t + F(U) = 0
     # defining F(U)
     def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+        return fd.inner(fd.grad(u), fd.grad(v)) * fd.dx
 
     # defining the structure of U_t
     def form_mass(u, v):
-        return u*v*fd.dx
+        return u * v * fd.dx
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=V, w0=u0, dt=dt,
@@ -296,9 +296,9 @@ def test_relax():
     un.assign(u0)
     v = fd.TestFunction(V)
 
-    eqn = (unp1 - un)*v*fd.dx
-    eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
-    eqn += fd.Constant(dt*theta)*form_function(unp1, v)
+    eqn = (unp1 - un) * v * fd.dx
+    eqn += fd.Constant(dt * (1 - theta)) * form_function(un, v)
+    eqn += fd.Constant(dt * theta) * form_function(unp1, v)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
@@ -311,8 +311,8 @@ def test_relax():
         ssolver.solve()
         un.assign(unp1)
         pun.assign(PD.w_all.sub(i))
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
+        err.assign(un - pun)
+        assert (fd.norm(err) < 1.0e-15)
 
 
 def test_relax_mixed():
@@ -329,7 +329,7 @@ def test_relax_mixed():
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
-    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    p0.interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
@@ -339,10 +339,10 @@ def test_relax_mixed():
                          'mat_type': 'aij'}
 
     def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
+        return (fd.div(vu) * up - fd.div(uu) * vp) * fd.dx
 
     def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
+        return (fd.inner(uu, vu) + up * vp) * fd.dx
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
@@ -360,10 +360,10 @@ def test_relax_mixed():
 
     eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
     eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
-    eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
+    eqn += fd.Constant(dt * (1 - theta)) * form_function(*(fd.split(un)),
+                                                         *(fd.split(v)))
+    eqn += fd.Constant(dt * theta) * form_function(*(fd.split(unp1)),
                                                    *(fd.split(v)))
-    eqn += fd.Constant(dt*theta)*form_function(*(fd.split(unp1)),
-                                               *(fd.split(v)))
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
@@ -379,11 +379,11 @@ def test_relax_mixed():
     for i in range(M):
         ssolver.solve()
         un.assign(unp1)
-        walls = PD.w_all.split()[2*i:2*i+2]
+        walls = PD.w_all.split()[2 * i:2 * i + 2]
         for k in range(2):
             puns[k].assign(walls[k])
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
+        err.assign(un - pun)
+        assert (fd.norm(err) < 1.0e-15)
 
 
 def test_diag_precon():
@@ -397,7 +397,7 @@ def test_diag_precon():
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    u0 = fd.Function(V).interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.01
@@ -420,10 +420,10 @@ def test_diag_precon():
         'diagfft': diagfft_options}
 
     def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+        return fd.inner(fd.grad(u), fd.grad(v)) * fd.dx
 
     def form_mass(u, v):
-        return u*v*fd.dx
+        return u * v * fd.dx
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=V, w0=u0, dt=dt,
@@ -450,8 +450,8 @@ def test_diag_precon():
         wallsE = PDe.w_all.split()[i]
         unD.assign(walls)
         un.assign(wallsE)
-        err.assign(un-unD)
-        assert(fd.norm(err) < 1.0e-13)
+        err.assign(un - unD)
+        assert (fd.norm(err) < 1.0e-13)
 
 
 def test_diag_precon_mixed():
@@ -468,7 +468,7 @@ def test_diag_precon_mixed():
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
-    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    p0.interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
@@ -479,10 +479,10 @@ def test_diag_precon_mixed():
                          'mat_type': 'aij'}
 
     def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
+        return (fd.div(vu) * up - fd.div(uu) * vp) * fd.dx
 
     def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
+        return (fd.inner(uu, vu) + up * vp) * fd.dx
 
     diagfft_options = {'ksp_type': 'gmres', 'pc_type': 'lu',
                        'ksp_monitor': None,
@@ -515,10 +515,10 @@ def test_diag_precon_mixed():
 
     eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
     eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
-    eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
+    eqn += fd.Constant(dt * (1 - theta)) * form_function(*(fd.split(un)),
+                                                         *(fd.split(v)))
+    eqn += fd.Constant(dt * theta) * form_function(*(fd.split(unp1)),
                                                    *(fd.split(v)))
-    eqn += fd.Constant(dt*theta)*form_function(*(fd.split(unp1)),
-                                               *(fd.split(v)))
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
@@ -534,11 +534,11 @@ def test_diag_precon_mixed():
     for i in range(M):
         ssolver.solve()
         un.assign(unp1)
-        walls = PD.w_all.split()[2*i:2*i+2]
+        walls = PD.w_all.split()[2 * i:2 * i + 2]
         for k in range(2):
             puns[k].assign(walls[k])
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
+        err.assign(un - pun)
+        assert (fd.norm(err) < 1.0e-15)
 
 
 def test_diag_precon_nl():
@@ -551,7 +551,7 @@ def test_diag_precon_nl():
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    u0 = fd.Function(V).interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.01
@@ -576,10 +576,10 @@ def test_diag_precon_nl():
         'diagfft': diagfft_options}
 
     def form_function(u, v):
-        return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
+        return fd.inner((1. + c * fd.inner(u, u)) * fd.grad(u), fd.grad(v)) * fd.dx
 
     def form_mass(u, v):
-        return u*v*fd.dx
+        return u * v * fd.dx
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=V, w0=u0, dt=dt,
@@ -607,8 +607,8 @@ def test_diag_precon_nl():
         wallsE = PDe.w_all.split()[i]
         unD.assign(walls)
         un.assign(wallsE)
-        err.assign(un-unD)
-        assert(fd.norm(err) < 1.0e-12)
+        err.assign(un - unD)
+        assert (fd.norm(err) < 1.0e-12)
 
 
 def test_quasi():
@@ -619,7 +619,7 @@ def test_quasi():
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    u0 = fd.Function(V).interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
@@ -632,11 +632,11 @@ def test_quasi():
     # Solving U_t + F(U) = 0
     # defining F(U)
     def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+        return fd.inner(fd.grad(u), fd.grad(v)) * fd.dx
 
     # defining the structure of U_t
     def form_mass(u, v):
-        return u*v*fd.dx
+        return u * v * fd.dx
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=V, w0=u0, dt=dt,
@@ -652,9 +652,9 @@ def test_quasi():
     un.assign(u0)
     v = fd.TestFunction(V)
 
-    eqn = (unp1 - un)*v*fd.dx
-    eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
-    eqn += fd.Constant(dt*theta)*form_function(unp1, v)
+    eqn = (unp1 - un) * v * fd.dx
+    eqn += fd.Constant(dt * (1 - theta)) * form_function(un, v)
+    eqn += fd.Constant(dt * theta) * form_function(unp1, v)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
@@ -667,15 +667,14 @@ def test_quasi():
         ssolver.solve()
         un.assign(unp1)
         pun.assign(PD.w_all.sub(i))
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-10)
-
+        err.assign(un - pun)
+        assert (fd.norm(err) < 1.0e-10)
 
 
 def test_diag_precon_nl_mixed():
     # Test PCDIAGFFT by using it
     # within the relaxation method
-    # using the NONLINEAR heat equation as an example
+    # using the NONLINEAR wave equation as an example
     # we compare one iteration using just the diag PC
     # with the direct solver
 
