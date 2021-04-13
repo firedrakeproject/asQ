@@ -723,7 +723,7 @@ def test_diag_precon_nl_mixed():
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters_diag,
-                      circ="picard", tol=1.0e-12,
+                      circ="quasi", tol=1.0e-12,
                       maxits=1)
     PD.solve(verbose=True)
 
@@ -737,7 +737,7 @@ def test_diag_precon_nl_mixed():
                        form_mass=form_mass, W=W, w0=w0, dt=dt,
                        theta=theta, alpha=alpha, M=M,
                        solver_parameters=solver_parameters,
-                       circ="picard", tol=1.0e-12,
+                       circ="quasi", tol=1.0e-12,
                        maxits=1)
     PDe.solve(verbose=True)
 
