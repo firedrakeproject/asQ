@@ -180,17 +180,27 @@ class DiagFFTPC(fd.PCBase):
 
             # The linear operator
             J = fd.derivative(L, self.u0)
-            Jsolver = fd.LinearSolver(fd.assemble(J),
-                                      options_prefix=prefix)
-            problem = fd.LinearVariationalProblem(a=J, L=0, u=self.Jprob_out,
-                                                  bcs=[],
-                                                  form_compiler_parameters=None,
-                                                  constant_jacobian=False)
-            mat_type = self.block_mat_type
-            ctx = fd.solving_utils._SNESContext(problem, mat_type,
-                                                mat_type, appctx=appctx,
-                                                options_prefix=prefix)
-            Jsolver._ctx = ctx
+            opts = fd.PETSc.Options()
+            if opts.hasName(prefix + "pc_type"):
+                pc_type = opts[prefix + "pc_type"]
+            else:
+                pc_type = None
+
+            if pc_type == "python":
+                Jsolver = fd.LinearSolver(fd.assemble(J, mat_type="matfree"),
+                                          options_prefix=prefix)
+                problem = fd.LinearVariationalProblem(a=J, L=0,
+                                                      u=self.Jprob_out,
+                                                      bcs=[],
+                                                      form_compiler_parameters=None,
+                                                      constant_jacobian=False)
+                ctx = fd.solving_utils._SNESContext(problem, "python",
+                                                    "python", appctx=appctx,
+                                                    options_prefix=prefix)
+                Jsolver._ctx = ctx
+            else:
+                Jsolver = fd.LinearSolver(fd.assemble(J),
+                                          options_prefix=prefix)
             self.Js.append(J)
             self.Jsolvers.append(Jsolver)
 
@@ -292,7 +302,7 @@ class paradiag(object):
                  alpha, M, solver_parameters=None,
                  circ="picard",
                  jac_average="newton", tol=1.0e-6, maxits=10,
-                 ctx={}, block_mat_type="aij"):
+                 ctx={}):
         """A class to implement paradiag timestepping.
 
         :arg form_function: a function that returns a linear form
@@ -320,8 +330,6 @@ class paradiag(object):
         :arg maxits: integer, the maximum number of iterations for the
         relaxation method, if used.
         :arg ctx: application context for solvers.
-        :arg block_mat_type: set the type of the diagonal block systems.
-        Default is aij.
         """
 
         self.form_function = form_function
@@ -368,7 +376,6 @@ class paradiag(object):
         ctx["form_mass"] = self.form_mass
         ctx["form_function"] = self.form_function
         ctx["w_all"] = self.w_all
-        ctx["block_mat_type"] = block_mat_type
 
         if self.circ == "quasi":
             J = fd.derivative(self.para_form, self.w_all)
