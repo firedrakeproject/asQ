@@ -180,12 +180,12 @@ class DiagFFTPC(fd.PCBase):
 
             # The linear operator
             J = fd.derivative(L, self.u0)
-            Jsolver = fd.LinearSolver(fd.assemble(J, appctx=appctx),
+            Jsolver = fd.LinearSolver(fd.assemble(J),
                                       options_prefix=prefix)
             problem = fd.LinearVariationalProblem(a=J, L=0, u=self.Jprob_out,
                                                   bcs=[],
                                                   form_compiler_parameters=None,
-                                                  constant_jacobian=True)
+                                                  constant_jacobian=False)
             ctx = fd.solving_utils._SNESContext(problem, "matfree",
                                                 "matfree", appctx=appctx,
                                                 options_prefix=prefix)
@@ -206,7 +206,7 @@ class DiagFFTPC(fd.PCBase):
                 self.u0.sub(0).assign(self.u0.sub(0) + self.w_all.split()[i])
 
             solver = self.Jsolvers[i]
-            fd.assemble(self.Js[i], tensor=solver.A, appctx=self.appctx)
+            fd.assemble(self.Js[i], tensor=solver.A)
         self.u0 /= self.M
 
     def apply(self, pc, x, y):
@@ -248,7 +248,10 @@ class DiagFFTPC(fd.PCBase):
                 self.Jprob_in.sub(1).assign(self.xfi.split()[i])
 
             # solve the block system
-            self.Jsolvers[i].solve(self.Jprob_out, self.Jprob_in)
+            solver = self.Jsolvers[i]
+            ctx = self.Jsolvers[i]._ctx
+            with fd.dmhooks.add_hooks(solver.ksp.dm, solver, appctx=ctx):
+                self.Jsolvers[i].solve(self.Jprob_out, self.Jprob_in)
 
             # copy the data from solver output
             if self.ncpts > 1:
