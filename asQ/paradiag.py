@@ -161,6 +161,14 @@ class DiagFFTPC(fd.PCBase):
         self.Js = []
         form_mass = appctx.get("form_mass", None)
         form_function = appctx.get("form_function", None)
+
+        opts = fd.PETSc.Options()
+        inner_params = dict((k[len(prefix):], v)
+                            for k, v in opts.getAll().items()
+                            if k.startswith(prefix))
+        mat_type = inner_params.get("mat_type", None)
+        self.mat_type = mat_type
+
         for i in range(M):
             D1i = fd.Constant(np.imag(self.D1[i]))
             D1r = fd.Constant(np.real(self.D1[i]))
@@ -180,17 +188,21 @@ class DiagFFTPC(fd.PCBase):
 
             # The linear operator
             J = fd.derivative(L, self.u0)
-            Jsolver = fd.LinearSolver(fd.assemble(J),
-                                      options_prefix=prefix)
-            problem = fd.LinearVariationalProblem(a=J, L=0, u=self.Jprob_out,
-                                                  bcs=[],
-                                                  form_compiler_parameters=None,
-                                                  constant_jacobian=False)
-            mat_type = self.block_mat_type
-            ctx = fd.solving_utils._SNESContext(problem, mat_type,
-                                                mat_type, appctx=appctx,
-                                                options_prefix=prefix)
-            Jsolver._ctx = ctx
+
+            if mat_type == "matfree":
+                Jsolver = fd.LinearSolver(fd.assemble(J, mat_type="matfree"),
+                                          solver_parameters=inner_params)
+                problem = fd.LinearVariationalProblem(a=J, L=0, u=self.Jprob_out,
+                                                      bcs=[],
+                                                      form_compiler_parameters=None,
+                                                      constant_jacobian=False)
+                ctx = fd.solving_utils._SNESContext(problem, "matfree",
+                                                    "matfree", appctx=appctx,
+                                                    options_prefix=prefix)
+                Jsolver._ctx = ctx
+            else:
+                Jsolver = fd.LinearSolver(fd.assemble(J),
+                                          parameters=inner_parameters)
             self.Js.append(J)
             self.Jsolvers.append(Jsolver)
 
@@ -207,7 +219,10 @@ class DiagFFTPC(fd.PCBase):
                 self.u0.sub(0).assign(self.u0.sub(0) + self.w_all.split()[i])
 
             solver = self.Jsolvers[i]
-            fd.assemble(self.Js[i], tensor=solver.A)
+            if self.mat_type == "matfree":
+                fd.assemble(self.Js[i], tensor=solver.A, mat_type="matfree")
+            else:
+                fd.assemble(self.Js[i], tensor=solver.A)
         self.u0 /= self.M
 
     def apply(self, pc, x, y):
@@ -251,7 +266,10 @@ class DiagFFTPC(fd.PCBase):
             # solve the block system
             solver = self.Jsolvers[i]
             ctx = self.Jsolvers[i]._ctx
-            with fd.dmhooks.add_hooks(solver.ksp.dm, solver, appctx=ctx):
+            if self.mat_type == "matfree":
+                with fd.dmhooks.add_hooks(solver.ksp.dm, solver, appctx=ctx):
+                    self.Jsolvers[i].solve(self.Jprob_out, self.Jprob_in)
+            else:
                 self.Jsolvers[i].solve(self.Jprob_out, self.Jprob_in)
 
             # copy the data from solver output
