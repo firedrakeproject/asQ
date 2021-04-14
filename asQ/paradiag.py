@@ -18,6 +18,7 @@ class DiagFFTPC(fd.PCBase):
         _, P = pc.getOperators()
         context = P.getPythonContext()
         appctx = context.appctx
+        self.appctx = appctx
 
         # all at once solution passed through the appctx
         self.w_all = appctx.get("w_all", None)
@@ -179,7 +180,7 @@ class DiagFFTPC(fd.PCBase):
 
             # The linear operator
             J = fd.derivative(L, self.u0)
-            Jsolver = fd.LinearSolver(fd.assemble(J),
+            Jsolver = fd.LinearSolver(fd.assemble(J, appctx=appctx),
                                       options_prefix=prefix)
             self.Js.append(J)
             self.Jsolvers.append(Jsolver)
@@ -197,7 +198,7 @@ class DiagFFTPC(fd.PCBase):
                 self.u0.sub(0).assign(self.u0.sub(0) + self.w_all.split()[i])
 
             solver = self.Jsolvers[i]
-            fd.assemble(self.Js[i], tensor=solver.A)
+            fd.assemble(self.Js[i], tensor=solver.A, appctx=self.appctx)
         self.u0 /= self.M
 
     def apply(self, pc, x, y):
