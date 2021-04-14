@@ -278,7 +278,8 @@ class paradiag(object):
     def __init__(self, form_function, form_mass, W, w0, dt, theta,
                  alpha, M, solver_parameters=None,
                  circ="picard",
-                 jac_average="newton", tol=1.0e-6, maxits=10):
+                 jac_average="newton", tol=1.0e-6, maxits=10,
+                 ctx={}):
         """A class to implement paradiag timestepping.
 
         :arg form_function: a function that returns a linear form
@@ -305,6 +306,7 @@ class paradiag(object):
         :arg tol: float, the tolerance for the relaxation method (if used)
         :arg maxits: integer, the maximum number of iterations for the
         relaxation method, if used.
+        :arg ctx: application context for solvers.
         """
 
         self.form_function = form_function
@@ -343,13 +345,14 @@ class paradiag(object):
         # passing stuff to the diag preconditioner using the appctx
         def getW():
             return W
-        ctx = {"get_blockV": getW,
-               "alpha": self.alpha,
-               "theta": self.theta,
-               "dt": self.dt,
-               "form_mass": self.form_mass,
-               "form_function": self.form_function,
-               "w_all": self.w_all}
+
+        ctx["get_blockV"] = getW
+        ctx["alpha"] = self.alpha
+        ctx["theta"] = self.theta
+        ctx["dt"] = self.dt
+        ctx["form_mass"] = self.form_mass
+        ctx["form_function"] = self.form_function
+        ctx["w_all"] = self.w_all
 
         if self.circ == "quasi":
             J = fd.derivative(self.para_form, self.w_all)
