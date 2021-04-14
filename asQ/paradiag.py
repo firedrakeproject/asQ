@@ -182,6 +182,14 @@ class DiagFFTPC(fd.PCBase):
             J = fd.derivative(L, self.u0)
             Jsolver = fd.LinearSolver(fd.assemble(J, appctx=appctx),
                                       options_prefix=prefix)
+            problem = fd.LinearVariationalProblem(a=J, L=0, u=self.Jprob_out,
+                                                  bcs=[],
+                                                  form_compiler_parameters=None,
+                                                  constant_jacobian=True)
+            ctx = fd.solving_utils._SNESContext(problem, "matfree",
+                                                "matfree", appctx=appctx,
+                                                options_prefix=prefix)
+            Jsolver._ctx = ctx
             self.Js.append(J)
             self.Jsolvers.append(Jsolver)
 
