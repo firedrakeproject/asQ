@@ -202,7 +202,7 @@ class DiagFFTPC(fd.PCBase):
                 Jsolver._ctx = ctx
             else:
                 Jsolver = fd.LinearSolver(fd.assemble(J),
-                                          parameters=inner_parameters)
+                                          solver_parameters=inner_params)
             self.Js.append(J)
             self.Jsolvers.append(Jsolver)
 
@@ -265,8 +265,8 @@ class DiagFFTPC(fd.PCBase):
 
             # solve the block system
             solver = self.Jsolvers[i]
-            ctx = self.Jsolvers[i]._ctx
             if self.mat_type == "matfree":
+                ctx = self.Jsolvers[i]._ctx
                 with fd.dmhooks.add_hooks(solver.ksp.dm, solver, appctx=ctx):
                     self.Jsolvers[i].solve(self.Jprob_out, self.Jprob_in)
             else:
