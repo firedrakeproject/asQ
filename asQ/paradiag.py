@@ -3,6 +3,114 @@ import firedrake as fd
 from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc
 
+
+class HelmholtzPC(fd.PCBase):
+
+    needs_python_pmat = True
+
+    """A matrix free operator that inverts the mass matrix in the provided space.
+
+    Internally this creates a PETSc KSP object that can be controlled
+    by options using the extra options prefix ``Mp_``.
+
+    For Stokes problems, to be spectrally equivalent to the Schur
+    complement, the mass matrix should be weighted by the viscosity.
+    This can be provided (defaulting to constant viscosity) by
+    providing a field defining the viscosity in the application
+    context, keyed on ``"mu"``.
+    """
+    def initialize(self, pc):
+        from firedrake import TrialFunction, TestFunction, dx, assemble, inner, parameters
+        prefix = pc.getOptionsPrefix()
+        options_prefix = prefix + "Hp_"
+        # we assume P has things stuffed inside of it
+        _, P = pc.getOperators()
+        context = P.getPythonContext()
+
+        test, trial = context.a.arguments()
+
+        if test.function_space() != trial.function_space():
+            raise ValueError("MassInvPC only makes sense if test and trial space are the same")
+
+        V = test.function_space()
+        mesh = V.mesh()
+
+        # Input/Output wrapper Functions
+        self.xf = fd.Function(V)  # input
+        self.yf = fd.Function(V)  # output
+
+        mu = context.appctx.get("mu", 1.0)
+        sgr = context.appctx.get("sgr", 1.0)
+        sgi = context.appctx.get("sgi", 0.0)
+
+        self.sgr = sgr
+        self.sgi = sgi
+        # from IPython import embed; embed()
+
+        u = fd.TrialFunction(V)
+        v = fd.TestFunction(V)
+
+        vr = v[0]
+        vi = v[1]
+        ur = u[0]
+        ui = u[1]
+        xr = self.xf[0]
+        xi = self.xf[1]
+
+        def get_laplace(gamma,phi):
+            h = fd.avg(fd.CellVolume(mesh))/fd.FacetArea(mesh)
+            eta = fd.Constant(10)
+            mu = eta/h
+            n = fd.FacetNormal(mesh)
+            if (V.ufl_element().degree() == 0):
+                a = 0
+            else:
+                a = inner(fd.grad(gamma), fd.grad(phi)) * fd.dx
+            a += (-inner(2 * fd.avg(fd.outer(phi, n)), fd.avg(fd.grad(gamma)))
+                  - inner(fd.avg(fd.grad(phi)), 2 * fd.avg(fd.outer(gamma, n)))
+                  + mu * inner(2 * fd.avg(fd.outer(phi, n)), 2 * fd.avg(fd.outer(gamma, n) ))) * fd.dS
+            return a
+
+        a = vr * (sgr * ur - sgi * ui) * dx + get_laplace(vr, ur)
+        a += vi * (sgi * ur + sgr * ui) * dx + get_laplace(vi, ui)
+
+        # from IPython import embed; embed()
+
+        L = get_laplace(xr, vr) + get_laplace(xi, vi)
+
+        Hprob = fd.LinearVariationalProblem(a, L, self.yf)
+        self.solver = fd.LinearVariationalSolver(Hprob, options_prefix = options_prefix)
+
+    def update(self, pc):
+        pass
+
+    def apply(self, pc, x, y):
+        # copy petsc vec into Function
+        with self.xf.dat.vec_wo as v:
+            x.copy(v)
+
+            # print(self.sgr.values())
+            # print(self.sgi.values())
+
+        self.solver.solve()
+
+        # copy Function into petsc vec
+        with self.yf.dat.vec_ro as v:
+            v.copy(y)
+
+
+
+    # Mass matrix is symmetric
+    applyTranspose = apply
+
+    # def view(self, pc, viewer=None):
+    #     super(MassInvPC, self).view(pc, viewer)
+    #     viewer.printfASCII("KSP solver for M^-1\n")
+    #     self.ksp.view(viewer)
+
+    # from IPython import embed; embed()
+
+
 class DiagFFTPC(fd.PCBase):
 
     r"""A preconditioner for all-at-once systems with alpha-circulant
@@ -387,6 +495,9 @@ class paradiag(object):
         ctx["form_function"] = self.form_function
         ctx["w_all"] = self.w_all
         ctx["block_mat_type"] = block_mat_type
+
+
+        # from IPython import embed; embed()
 
         if self.circ == "quasi":
             J = fd.derivative(self.para_form, self.w_all)
