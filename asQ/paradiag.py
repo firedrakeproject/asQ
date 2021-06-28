@@ -45,7 +45,6 @@ class HelmholtzPC(fd.PCBase):
 
         self.sgr = sgr
         self.sgi = sgi
-        # from IPython import embed; embed()
 
         u = fd.TrialFunction(V)
         v = fd.TestFunction(V)
@@ -63,18 +62,19 @@ class HelmholtzPC(fd.PCBase):
             mu = eta/h
             n = fd.FacetNormal(mesh)
             if (V.ufl_element().degree() == 0):
-                a = 0
+                ad = 0
             else:
-                a = inner(fd.grad(gamma), fd.grad(phi)) * fd.dx
-            a += (-inner(2 * fd.avg(fd.outer(phi, n)), fd.avg(fd.grad(gamma)))
-                  - inner(fd.avg(fd.grad(phi)), 2 * fd.avg(fd.outer(gamma, n)))
-                  + mu * inner(2 * fd.avg(fd.outer(phi, n)), 2 * fd.avg(fd.outer(gamma, n) ))) * fd.dS
-            return a
+                ad = inner(fd.grad(gamma), fd.grad(phi)) * fd.dx
+            ad += (- inner(2 * fd.avg(phi*n),
+                          fd.avg(fd.grad(gamma)))
+                  - inner(fd.avg(fd.grad(phi)),
+                          2 * fd.avg(gamma*n))
+                  + mu * inner(2 * fd.avg(phi*n),
+                               2 * fd.avg(gamma*n))) * fd.dS
+            return ad
 
         a = vr * (sgr * ur - sgi * ui) * dx + get_laplace(vr, ur)
         a += vi * (sgi * ur + sgr * ui) * dx + get_laplace(vi, ui)
-
-        # from IPython import embed; embed()
 
         L = get_laplace(xr, vr) + get_laplace(xi, vi)
 
@@ -89,26 +89,14 @@ class HelmholtzPC(fd.PCBase):
         with self.xf.dat.vec_wo as v:
             x.copy(v)
 
-            # print(self.sgr.values())
-            # print(self.sgi.values())
-
         self.solver.solve()
 
         # copy Function into petsc vec
         with self.yf.dat.vec_ro as v:
             v.copy(y)
 
-
-
-    # Mass matrix is symmetric
-    applyTranspose = apply
-
-    # def view(self, pc, viewer=None):
-    #     super(MassInvPC, self).view(pc, viewer)
-    #     viewer.printfASCII("KSP solver for M^-1\n")
-    #     self.ksp.view(viewer)
-
-    # from IPython import embed; embed()
+    def applyTranspose(self, pc, x, y):
+        raise NotImplementedError
 
 
 class DiagFFTPC(fd.PCBase):
