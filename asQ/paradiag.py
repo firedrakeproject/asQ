@@ -27,6 +27,9 @@ class HelmholtzPC(fd.PCBase):
         _, P = pc.getOperators()
         context = P.getPythonContext()
 
+        # appctx = context.appctx
+        # self.appctx = appctx
+
         test, trial = context.a.arguments()
 
         if test.function_space() != trial.function_space():
@@ -39,12 +42,15 @@ class HelmholtzPC(fd.PCBase):
         self.xf = fd.Function(V)  # input
         self.yf = fd.Function(V)  # output
 
+        # from IPython import embed; embed()
+
         mu = context.appctx.get("mu", 1.0)
         sgr = context.appctx.get("sgr", 1.0)
         sgi = context.appctx.get("sgi", 0.0)
 
         self.sgr = sgr
         self.sgi = sgi
+
         # from IPython import embed; embed()
 
         u = fd.TrialFunction(V)
@@ -68,18 +74,21 @@ class HelmholtzPC(fd.PCBase):
                 a = inner(fd.grad(gamma), fd.grad(phi)) * fd.dx
             a += (-inner(2 * fd.avg(fd.outer(phi, n)), fd.avg(fd.grad(gamma)))
                   - inner(fd.avg(fd.grad(phi)), 2 * fd.avg(fd.outer(gamma, n)))
-                  + mu * inner(2 * fd.avg(fd.outer(phi, n)), 2 * fd.avg(fd.outer(gamma, n) ))) * fd.dS
+                  + mu * inner(2 * fd.avg(fd.outer(phi, n)), 2 * fd.avg(fd.outer(gamma, n)))) * fd.dS
             return a
 
+        # changed + to - sign in first terms
         a = vr * (sgr * ur - sgi * ui) * dx + get_laplace(vr, ur)
         a += vi * (sgi * ur + sgr * ui) * dx + get_laplace(vi, ui)
 
         # from IPython import embed; embed()
 
-        L = get_laplace(xr, vr) + get_laplace(xi, vi)
+        L = get_laplace(xr, vr) + get_laplace(xi, vi) #+ xr*vr*dx + xi*vi*dx
 
         Hprob = fd.LinearVariationalProblem(a, L, self.yf)
-        self.solver = fd.LinearVariationalSolver(Hprob, options_prefix = options_prefix)
+        v_basis = fd.VectorSpaceBasis(constant=True)
+
+        self.solver = fd.LinearVariationalSolver(Hprob, options_prefix=options_prefix)
 
     def update(self, pc):
         pass
@@ -277,11 +286,27 @@ class DiagFFTPC(fd.PCBase):
         mat_type = inner_params.get("mat_type", None)
         self.mat_type = mat_type
 
+        #pass sigma into PC:
+        # sgr = fd.Constant(0)
+        # sgi = fd.Constant(0)
+
+
         for i in range(M):
             D1i = fd.Constant(np.imag(self.D1[i]))
             D1r = fd.Constant(np.real(self.D1[i]))
             D2i = fd.Constant(np.imag(self.D2[i]))
             D2r = fd.Constant(np.real(self.D2[i]))
+
+            # pass sigma into PC:
+            sigma = (self.D1[i]/self.D2[i])**2
+            # sgr.assign(np.real(sigma))
+            # sgi.assign(np.imag(sigma))
+            appctx["sgr"] = np.real(sigma)
+            appctx["sgi"] = np.imag(sigma)
+
+            # from IPython import embed; embed()
+            # print(np.real(sigma))
+            # print(np.imag(sigma))
 
             L = (
                 D1r*form_mass(*usr, *vsr)
@@ -495,6 +520,9 @@ class paradiag(object):
         ctx["form_function"] = self.form_function
         ctx["w_all"] = self.w_all
         ctx["block_mat_type"] = block_mat_type
+        # add sigma variables here
+        # ctx["sgr"] = sgr
+        # ctx["sgi"] = sgi
 
 
         # from IPython import embed; embed()
