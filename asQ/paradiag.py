@@ -4,7 +4,7 @@ from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc
 
 
-class IPHelmholtzPC(fd.PCBase):
+class HelmholtzPC(fd.PCBase):
 
     needs_python_pmat = True
 
@@ -29,14 +29,14 @@ class IPHelmholtzPC(fd.PCBase):
         self.yf = fd.Function(V)  # output
 
         mu = context.appctx.get("mu", 1.0)
-        D1r = context.appctx.get("D1r", None)
-        D1i = context.appctx.get("D1i", None)
+        D2r = context.appctx.get("D2r", None)
+        D2i = context.appctx.get("D2i", None)
         sr = context.appctx.get("sr", None)
         si = context.appctx.get("si", None)
         gamma = context.appctx.get("gamma", None)
 
-        self.D1r = D1r
-        self.D1i = D1i
+        self.D2r = D2r
+        self.D2i = D2i
         self.sr = sr
         self.si = si
 
