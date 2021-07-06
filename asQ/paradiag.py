@@ -4,21 +4,10 @@ from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc
 
 
-class HelmholtzPC(fd.PCBase):
+class IPHelmholtzPC(fd.PCBase):
 
     needs_python_pmat = True
 
-    """A matrix free operator that inverts the mass matrix in the provided space.
-
-    Internally this creates a PETSc KSP object that can be controlled
-    by options using the extra options prefix ``Mp_``.
-
-    For Stokes problems, to be spectrally equivalent to the Schur
-    complement, the mass matrix should be weighted by the viscosity.
-    This can be provided (defaulting to constant viscosity) by
-    providing a field defining the viscosity in the application
-    context, keyed on ``"mu"``.
-    """
     def initialize(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, assemble, inner, parameters
         prefix = pc.getOptionsPrefix()
@@ -26,9 +15,6 @@ class HelmholtzPC(fd.PCBase):
         # we assume P has things stuffed inside of it
         _, P = pc.getOperators()
         context = P.getPythonContext()
-
-        # appctx = context.appctx
-        # self.appctx = appctx
 
         test, trial = context.a.arguments()
 
@@ -42,18 +28,30 @@ class HelmholtzPC(fd.PCBase):
         self.xf = fd.Function(V)  # input
         self.yf = fd.Function(V)  # output
 
-        # from IPython import embed; embed()
-
         mu = context.appctx.get("mu", 1.0)
-        sgr = context.appctx.get("sgr", 1.0)
-        sgi = context.appctx.get("sgi", 0.0)
+        D1r = context.appctx.get("D1r", None)
+        D1i = context.appctx.get("D1i", None)
+        sr = context.appctx.get("sr", None)
+        si = context.appctx.get("si", None)
+        gamma = context.appctx.get("gamma", None)
 
-        self.sgr = sgr
-        self.sgi = sgi
+        self.D1r = D1r
+        self.D1i = D1i
+        self.sr = sr
+        self.si = si
 
         u = fd.TrialFunction(V)
         v = fd.TestFunction(V)
 
+        #mass solve
+        m = fd.inner(u,v)*fd.dx
+        sp = {
+            "ksp_type":"preonly",
+            "pc_type": "bjacobi",
+            "sub_pc_type":"ilu"
+        }
+        self.mSolver = fd.LinearSolver(assemble(m),
+                                       solver_parameters=sp)
         vr = v[0]
         vi = v[1]
         ur = u[0]
@@ -61,33 +59,46 @@ class HelmholtzPC(fd.PCBase):
         xr = self.xf[0]
         xi = self.xf[1]
 
-        def get_laplace(gamma,phi):
+        def get_laplace(q,phi):
             h = fd.avg(fd.CellVolume(mesh))/fd.FacetArea(mesh)
-            eta = fd.Constant(10)
+            eta = fd.Constant(10.)
             mu = eta/h
             n = fd.FacetNormal(mesh)
-            if (V.ufl_element().degree() == 0):
-                ad = 0
-            else:
-                ad = inner(fd.grad(gamma), fd.grad(phi)) * fd.dx
-            ad += (- inner(2 * fd.avg(phi*n),
-                          fd.avg(fd.grad(gamma)))
+            ad = (- inner(2 * fd.avg(phi*n),
+                          fd.avg(fd.grad(q)))
                   - inner(fd.avg(fd.grad(phi)),
-                          2 * fd.avg(gamma*n))
+                          2 * fd.avg(q*n))
                   + mu * inner(2 * fd.avg(phi*n),
-                               2 * fd.avg(gamma*n))) * fd.dS
+                               2 * fd.avg(q*n))) * fd.dS
+            ad += inner(fd.grad(q), fd.grad(phi)) * fd.dx
             return ad
 
-        # changed + to - sign in first terms
-        a = vr * (sgr * ur - sgi * ui) * dx + get_laplace(vr, ur)
-        a += vi * (sgi * ur + sgr * ui) * dx + get_laplace(vi, ui)
+        D2u_r = D2r*ur - D2i*ui
+        D2u_i = D2i*ur + D2r*ui
+        su_r = sr*ur - si*ui
+        su_i = si*ur + sr*ui
 
-        L = get_laplace(xr, vr) + get_laplace(xi, vi)
+        self.D2r = D2r
+        self.D2i = D2i
+        self.sr = sr
+        self.si = si
 
-        Hprob = fd.LinearVariationalProblem(a, L, self.yf)
-        v_basis = fd.VectorSpaceBasis(constant=True)
+        a = vr * D2u_r * dx + get_laplace(vr, su_r)
+        a += vi * D2u_i * dx + get_laplace(vi, su_i)
+        L = get_laplace(xr, vr/gamma) + get_laplace(xi, vi/gamma)
 
-        self.solver = fd.LinearVariationalSolver(Hprob, options_prefix=options_prefix)
+        Hprob = fd.LinearVariationalProblem(a, L, self.yf,
+                                            constant_jacobian=False)
+        Hparameters = {
+            "ksp_type":"preonly",
+            "pc_type": "lu",
+            "pc_factor_mat_solver_type": "mumps"
+        }
+        nullspace = fd.VectorSpaceBasis(constant=True)
+        self.solver = fd.LinearVariationalSolver(Hprob,
+                                                 #nullspace = nullspace,
+                                                 solver_parameters
+                                                 = Hparameters)
 
     def update(self, pc):
         pass
@@ -97,6 +108,11 @@ class HelmholtzPC(fd.PCBase):
         with self.xf.dat.vec_wo as v:
             x.copy(v)
 
+        #solve mass matrix on xf, put solution in yf
+        self.mSolver.solve(self.yf, self.xf)
+        #copy into yf for RHS of Helmholtz operator
+        self.xf.assign(self.yf)
+        #Do Helmholtz solve
         self.solver.solve()
 
         # copy Function into petsc vec
