@@ -289,11 +289,23 @@ class DiagFFTPC(fd.PCBase):
         mat_type = inner_params.get("mat_type", None)
         self.mat_type = mat_type
 
-        #pass sigma into PC:
-        # sgr = fd.Constant(0)
-        # sgi = fd.Constant(0)
+        #setting up the Projector for the mass solves
+        #only required because we can't pass appctx through
+        #LinearSolver. Once Cofunction is working then we'll use
+        #that.
 
+        solver_parameters = {
+            'mat_type':'aij',
+            'ksp_type':'cg',
+            'pc_type':'bjacobi',
+            'sub_pc_type':'ilu'
+        }
+        self.xtemp = fd.Function(self.blockV)
+        self.ytemp = fd.Function(self.blockV)
+        self.Proj = fd.Projector(self.xtemp, self.ytemp,
+                                 solver_parameters=solver_parameters)
 
+        #building the block problem solvers
         for i in range(M):
             D1i = fd.Constant(np.imag(self.D1[i]))
             D1r = fd.Constant(np.real(self.D1[i]))
@@ -301,9 +313,7 @@ class DiagFFTPC(fd.PCBase):
             D2r = fd.Constant(np.real(self.D2[i]))
 
             # pass sigma into PC:
-            sigma = (self.D1[i]/self.D2[i])**2
-            # sgr.assign(np.real(sigma))
-            # sgi.assign(np.imag(sigma))
+            sigma = self.D1[i]**2/self.D2[i]
             appctx["sgr"] = np.real(sigma)
             appctx["sgi"] = np.imag(sigma)
 
@@ -311,7 +321,7 @@ class DiagFFTPC(fd.PCBase):
             # print(np.real(sigma))
             # print(np.imag(sigma))
 
-            L = (
+            a = (
                 D1r*form_mass(*usr, *vsr)
                 - D1i*form_mass(*usi, *vsr)
                 + D2r*form_function(*usr, *vsr)
@@ -323,23 +333,17 @@ class DiagFFTPC(fd.PCBase):
             )
 
             # The linear operator
-            J = fd.derivative(L, self.u0)
+            J = fd.derivative(a, self.u0)
 
-            if mat_type == "matfree":
-                Jsolver = fd.LinearSolver(fd.assemble(J, mat_type="matfree"),
-                                          solver_parameters=inner_params)
-                problem = fd.LinearVariationalProblem(a=J, L=0, u=self.Jprob_out,
-                                                      bcs=[],
-                                                      form_compiler_parameters=None,
-                                                      constant_jacobian=False)
-                ctx = fd.solving_utils._SNESContext(problem, "matfree",
-                                                    "matfree", appctx=appctx,
-                                                    options_prefix=prefix)
-                Jsolver._ctx = ctx
-            else:
-                Jsolver = fd.LinearSolver(fd.assemble(J),
-                                          solver_parameters=inner_params)
-            self.Js.append(J)
+            # The rhs
+            v = fd.TestFunction(self.CblockV)
+            L = fd.inner(v, self.Jblock_in)*fd.dx
+
+            jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out)
+            Jsolver = fd.LinearVariationalSolver(jprob,
+                                                 solver_parameters=inner_params.
+                                                 appctx=appctx,
+                                                 options_prefix=prefix)
             self.Jsolvers.append(Jsolver)
 
     def update(self, pc):
@@ -353,12 +357,6 @@ class DiagFFTPC(fd.PCBase):
                         u0s[cpt].sub(0) + self.w_all.split()[self.ncpts*i+cpt])
             else:
                 self.u0.sub(0).assign(self.u0.sub(0) + self.w_all.split()[i])
-
-            solver = self.Jsolvers[i]
-            if self.mat_type == "matfree":
-                fd.assemble(self.Js[i], tensor=solver.A, mat_type="matfree")
-            else:
-                fd.assemble(self.Js[i], tensor=solver.A)
         self.u0 /= self.M
 
     def apply(self, pc, x, y):
@@ -387,6 +385,10 @@ class DiagFFTPC(fd.PCBase):
         # Do the block solves
 
         for i in range(self.M):
+            # Do a project for Riesz map, to be superceded
+            # when we get Cofunction
+            FINISH ME BY ADDING A PROJECTOR
+            
             # copy the data into solver input
             if self.ncpts > 1:
                 Jins = self.Jprob_in.split()
