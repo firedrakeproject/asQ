@@ -393,6 +393,9 @@ def test_diag_precon():
     # we compare one iteration using just the diag PC
     # with the direct solver
 
+    import petsc4py.PETSc as PETSc
+    PETSc.Sys.popErrorHandler()
+    
     mesh = fd.UnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "CG", 1)
 

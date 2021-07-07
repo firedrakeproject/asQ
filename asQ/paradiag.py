@@ -28,12 +28,17 @@ class HelmholtzPC(fd.PCBase):
         self.xf = fd.Function(V)  # input
         self.yf = fd.Function(V)  # output
 
-        mu = context.appctx.get("mu", 1.0)
+        eta = context.appctx.get("mu", 10.0)
         D2r = context.appctx.get("D2r", None)
+        assert(D2r)
         D2i = context.appctx.get("D2i", None)
+        assert(D2i)
         sr = context.appctx.get("sr", None)
+        assert(sr)
         si = context.appctx.get("si", None)
+        assert(si)
         gamma = context.appctx.get("gamma", None)
+        assert(gamma)
 
         self.D2r = D2r
         self.D2i = D2i
@@ -61,7 +66,6 @@ class HelmholtzPC(fd.PCBase):
 
         def get_laplace(q,phi):
             h = fd.avg(fd.CellVolume(mesh))/fd.FacetArea(mesh)
-            eta = fd.Constant(10.)
             mu = eta/h
             n = fd.FacetNormal(mesh)
             ad = (- inner(2 * fd.avg(phi*n),
@@ -300,13 +304,14 @@ class DiagFFTPC(fd.PCBase):
             'pc_type':'bjacobi',
             'sub_pc_type':'ilu'
         }
-        self.xtemp = fd.Function(self.blockV)
-        self.ytemp = fd.Function(self.blockV)
-        self.Proj = fd.Projector(self.xtemp, self.ytemp,
+        #input for the projector
+        self.xtemp = fd.Function(self.CblockV)
+        self.Proj = fd.Projector(self.xtemp, self.Jprob_in,
                                  solver_parameters=solver_parameters)
 
         #building the block problem solvers
         for i in range(M):
+            print(i, M)
             D1i = fd.Constant(np.imag(self.D1[i]))
             D1r = fd.Constant(np.real(self.D1[i]))
             D2i = fd.Constant(np.imag(self.D2[i]))
@@ -316,10 +321,6 @@ class DiagFFTPC(fd.PCBase):
             sigma = self.D1[i]**2/self.D2[i]
             appctx["sgr"] = np.real(sigma)
             appctx["sgi"] = np.imag(sigma)
-
-            # from IPython import embed; embed()
-            # print(np.real(sigma))
-            # print(np.imag(sigma))
 
             a = (
                 D1r*form_mass(*usr, *vsr)
@@ -337,11 +338,12 @@ class DiagFFTPC(fd.PCBase):
 
             # The rhs
             v = fd.TestFunction(self.CblockV)
-            L = fd.inner(v, self.Jblock_in)*fd.dx
+            L = fd.inner(v, self.Jprob_in)*fd.dx
 
             jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out)
             Jsolver = fd.LinearVariationalSolver(jprob,
-                                                 solver_parameters=inner_params.
+                                                 solver_parameters=
+                                                 inner_params,
                                                  appctx=appctx,
                                                  options_prefix=prefix)
             self.Jsolvers.append(Jsolver)
@@ -354,9 +356,11 @@ class DiagFFTPC(fd.PCBase):
                 u0s = self.u0.split()
                 for cpt in range(self.ncpts):
                     u0s[cpt].sub(0).assign(
-                        u0s[cpt].sub(0) + self.w_all.split()[self.ncpts*i+cpt])
+                        u0s[cpt].sub(0) + \
+                        self.w_all.split()[self.ncpts*i+cpt])
             else:
-                self.u0.sub(0).assign(self.u0.sub(0) + self.w_all.split()[i])
+                self.u0.sub(0).assign(self.u0.sub(0) + \
+                                      self.w_all.split()[i])
         self.u0 /= self.M
 
     def apply(self, pc, x, y):
@@ -384,31 +388,24 @@ class DiagFFTPC(fd.PCBase):
 
         # Do the block solves
 
-        for i in range(self.M):
-            # Do a project for Riesz map, to be superceded
-            # when we get Cofunction
-            FINISH ME BY ADDING A PROJECTOR
-            
+        for i in range(self.M):            
             # copy the data into solver input
             if self.ncpts > 1:
-                Jins = self.Jprob_in.split()
+                Jins = self.xtemp.split()
                 for cpt in range(self.ncpts):
                     Jins[cpt].sub(0).assign(
                         self.xfr.split()[self.ncpts*i+cpt])
                     Jins[cpt].sub(1).assign(
                         self.xfi.split()[self.ncpts*i+cpt])
             else:
-                self.Jprob_in.sub(0).assign(self.xfr.split()[i])
-                self.Jprob_in.sub(1).assign(self.xfi.split()[i])
+                self.xtemp.sub(0).assign(self.xfr.split()[i])
+                self.xtemp.sub(1).assign(self.xfi.split()[i])
+            # Do a project for Riesz map, to be superceded
+            # when we get Cofunction
+            self.Proj.project()
 
             # solve the block system
-            solver = self.Jsolvers[i]
-            if self.mat_type == "matfree":
-                ctx = self.Jsolvers[i]._ctx
-                with fd.dmhooks.add_hooks(solver.ksp.dm, solver, appctx=ctx):
-                    self.Jsolvers[i].solve(self.Jprob_out, self.Jprob_in)
-            else:
-                self.Jsolvers[i].solve(self.Jprob_out, self.Jprob_in)
+            self.Jsolvers[i].solve()
 
             # copy the data from solver output
             if self.ncpts > 1:
