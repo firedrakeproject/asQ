@@ -404,6 +404,11 @@ class DiagFFTPC(fd.PCBase):
             # when we get Cofunction
             self.Proj.project()
 
+            VecCheck = fd.assemble(self.Jprob_in*fd.dx)
+            print(VecCheck.data.data[:].max(),
+                  VecCheck.data.data[:].min(),
+                  fd.norm(VecCheck))
+
             # solve the block system
             self.Jsolvers[i].solve()
 
