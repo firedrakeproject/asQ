@@ -311,7 +311,6 @@ class DiagFFTPC(fd.PCBase):
 
         #building the block problem solvers
         for i in range(M):
-            print(i, M)
             D1i = fd.Constant(np.imag(self.D1[i]))
             D1r = fd.Constant(np.real(self.D1[i]))
             D2i = fd.Constant(np.imag(self.D2[i]))
@@ -404,10 +403,12 @@ class DiagFFTPC(fd.PCBase):
             # when we get Cofunction
             self.Proj.project()
 
-            VecCheck = fd.assemble(self.Jprob_in*fd.dx)
-            print(VecCheck.data.data[:].max(),
-                  VecCheck.data.data[:].min(),
-                  fd.norm(VecCheck))
+            v = fd.TestFunction(self.CblockV)
+            VecCheck = fd.assemble(fd.inner(v, self.Jprob_in)*fd.dx)
+            print(VecCheck.sub(0).dat.data.max(),
+                  VecCheck.sub(0).dat.data.min(),
+                  VecCheck.sub(1).dat.data.max(),
+                  VecCheck.sub(1).dat.data.min())
 
             # solve the block system
             self.Jsolvers[i].solve()
