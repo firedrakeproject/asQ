@@ -326,7 +326,7 @@ class DiagFFTPC(fd.PCBase):
             appctx["sgi"] = np.imag(sigma)
             appctx["D2r"] = D2r
             appctx["D2i"] = D2i
-            
+
             A = (
                 D1r*form_mass(*usr, *vsr)
                 - D1i*form_mass(*usi, *vsr)
@@ -339,7 +339,7 @@ class DiagFFTPC(fd.PCBase):
             )
 
             # The linear operator
-            J = fd.derivative(a, self.u0)
+            J = fd.derivative(A, self.u0)
 
             # The rhs
             v = fd.TestFunction(self.CblockV)

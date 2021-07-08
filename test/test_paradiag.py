@@ -2,7 +2,6 @@ import asQ
 import firedrake as fd
 import numpy as np
 
-
 def test_set_para_form():
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the heat equation as an example by
@@ -393,9 +392,6 @@ def test_diag_precon():
     # we compare one iteration using just the diag PC
     # with the direct solver
 
-    import petsc4py.PETSc as PETSc
-    PETSc.Sys.popErrorHandler()
-    
     mesh = fd.UnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
