@@ -293,21 +293,25 @@ class DiagFFTPC(fd.PCBase):
         mat_type = inner_params.get("mat_type", None)
         self.mat_type = mat_type
 
-        #setting up the Projector for the mass solves
-        #only required because we can't pass appctx through
-        #LinearSolver. Once Cofunction is working then we'll use
-        #that.
+        #setting up the Riesz map.
 
+        #doing some generic solver parameters that
+        #work for all combinations of mixed etc
+        #scalable but not optimal
         solver_parameters = {
-            'mat_type':'aij',
             'ksp_type':'cg',
             'pc_type':'bjacobi',
-            'sub_pc_type':'ilu'
+            'sub_pc_type':'ilu',
+            'ksp_rtol':1.0e-12,
+            'ksp_atol':1.0e-50
         }
-        #input for the projector
+        #input for the Riesz map
         self.xtemp = fd.Function(self.CblockV)
-        self.Proj = fd.Projector(self.xtemp, self.Jprob_in,
-                                 solver_parameters=solver_parameters)
+        v = fd.TestFunction(self.CblockV)
+        u = fd.TrialFunction(self.CblockV)
+        a = fd.assemble(fd.inner(u, v)*fd.dx, mat_type='aij')
+        self.Proj = fd.LinearSolver(a, solver_parameters=
+                                    solver_parameters)
 
         #building the block problem solvers
         for i in range(M):
@@ -389,6 +393,7 @@ class DiagFFTPC(fd.PCBase):
 
         for i in range(self.M):            
             # copy the data into solver input
+            self.xtemp.assign(0.)
             if self.ncpts > 1:
                 Jins = self.xtemp.split()
                 for cpt in range(self.ncpts):
@@ -401,14 +406,7 @@ class DiagFFTPC(fd.PCBase):
                 self.xtemp.sub(1).assign(self.xfi.split()[i])
             # Do a project for Riesz map, to be superceded
             # when we get Cofunction
-            self.Proj.project()
-
-            v = fd.TestFunction(self.CblockV)
-            VecCheck = fd.assemble(fd.inner(v, self.Jprob_in)*fd.dx)
-            print(VecCheck.sub(0).dat.data.max(),
-                  VecCheck.sub(0).dat.data.min(),
-                  VecCheck.sub(1).dat.data.max(),
-                  VecCheck.sub(1).dat.data.min())
+            self.Proj.solve(self.Jprob_in, self.xtemp)
 
             # solve the block system
             self.Jsolvers[i].solve()
@@ -619,7 +617,7 @@ class paradiag(object):
                        for i in range(self.ncpts)]
                 residual = fd.assemble(self.form_mass(*err, *err))**0.5
                 if verbose:
-                    print(its, residual)
+                    print('residual', its, residual)
 
                 # copy the last time slice into w_prev
                 wMs = self.w_all.split()[self.ncpts*(M-1):]
