@@ -37,8 +37,6 @@ class HelmholtzPC(fd.PCBase):
         assert(sr)
         si = context.appctx.get("si", None)
         assert(si)
-        gamma = context.appctx.get("gamma", None)
-        assert(gamma)
 
         self.D2r = D2r
         self.D2i = D2i
@@ -89,7 +87,9 @@ class HelmholtzPC(fd.PCBase):
 
         a = vr * D2u_r * dx + get_laplace(vr, su_r)
         a += vi * D2u_i * dx + get_laplace(vi, su_i)
-        L = get_laplace(xr, vr/gamma) + get_laplace(xi, vi/gamma)
+        #should scale the RHS by 1/gamma
+        #but this doesn't matter as long as we use GMRES on the inside
+        L = get_laplace(xr, vr) + get_laplace(xi, vi)
 
         Hprob = fd.LinearVariationalProblem(a, L, self.yf,
                                             constant_jacobian=False)
@@ -324,8 +324,10 @@ class DiagFFTPC(fd.PCBase):
             sigma = self.D1[i]**2/self.D2[i]
             appctx["sgr"] = np.real(sigma)
             appctx["sgi"] = np.imag(sigma)
-
-            a = (
+            appctx["D2r"] = D2r
+            appctx["D2i"] = D2i
+            
+            A = (
                 D1r*form_mass(*usr, *vsr)
                 - D1i*form_mass(*usi, *vsr)
                 + D2r*form_function(*usr, *vsr)
@@ -526,12 +528,6 @@ class paradiag(object):
         ctx["form_function"] = self.form_function
         ctx["w_all"] = self.w_all
         ctx["block_mat_type"] = block_mat_type
-        # add sigma variables here
-        # ctx["sgr"] = sgr
-        # ctx["sgi"] = sgi
-
-
-        # from IPython import embed; embed()
 
         if self.circ == "quasi":
             J = fd.derivative(self.para_form, self.w_all)
