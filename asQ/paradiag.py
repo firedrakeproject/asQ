@@ -93,11 +93,6 @@ class HelmholtzPC(fd.PCBase):
 
         Hprob = fd.LinearVariationalProblem(a, L, self.yf,
                                             constant_jacobian=False)
-        Hparameters = {
-            "ksp_type":"preonly",
-            "pc_type": "lu",
-            "pc_factor_mat_solver_type": "mumps"
-        }
         nullspace = fd.VectorSpaceBasis(constant=True)
         self.solver = fd.LinearVariationalSolver(Hprob,
                                                  #nullspace = nullspace,

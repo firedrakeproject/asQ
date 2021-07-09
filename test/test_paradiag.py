@@ -655,10 +655,20 @@ def test_quasi():
     theta = 0.5
     alpha = 0.001
     M = 4
+
+    mass_options = {
+        'ksp_type': 'cg',
+        'pc_type': 'bjacobi',
+        'pc_sub_type': 'icc',
+        'ksp_atol': 1.0e-50,
+        'ksp_rtol': 1.0e-12
+    }
+
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
                          'pc_factor_mat_solver_type': 'mumps',
                          'mat_type': 'aij',
-                         'snes_monitor': None}
+                         'snes_monitor': None,
+                         'mass': mass_options}
 
     # Solving U_t + F(U) = 0
     # defining F(U)
