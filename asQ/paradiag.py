@@ -95,9 +95,7 @@ class HelmholtzPC(fd.PCBase):
                                             constant_jacobian=False)
         nullspace = fd.VectorSpaceBasis(constant=True)
         self.solver = fd.LinearVariationalSolver(Hprob,
-                                                 #nullspace = nullspace,
-                                                 solver_parameters
-                                                 = Hparameters)
+                                                 options_prefix=options_prefix)
 
     def update(self, pc):
         pass
