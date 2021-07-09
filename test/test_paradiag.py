@@ -579,11 +579,21 @@ def test_diag_precon_nl():
     M = 4
     c = fd.Constant(0.1)
 
+    mass_options = {
+        'ksp_type': 'cg',
+        'pc_type': 'bjacobi',
+        'pc_sub_type': 'icc',
+        'ksp_atol': 1.0e-50,
+        'ksp_rtol': 1.0e-12
+    }
+    
     diagfft_options = {
         'ksp_type': 'preonly',
         'pc_type': 'lu',
         'pc_factor_mat_solver_type': 'mumps',
-        'mat_type': 'aij'}
+        'mat_type': 'aij',
+        'mass': mass_options
+    }
 
     solver_parameters = {
         'snes_monitor': None,
