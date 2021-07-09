@@ -392,9 +392,6 @@ def test_diag_precon():
     # we compare one iteration using just the diag PC
     # with the direct solver
 
-    import petsc4py.PETSc as PETSc
-    PETSc.Sys.popErrorHandler() 
-
     mesh = fd.UnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
@@ -494,6 +491,20 @@ def test_diag_precon_mixed():
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up*vp)*fd.dx
 
+    mass_options = {
+        'ksp_type': 'preonly',
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'additive',
+        'fieldsplit_0_ksp_type': 'cg',
+        'fieldsplit_0_pc_type': 'bjacobi',
+        'fieldsplit_0_sub_pc_type': 'icc',
+        'fieldsplit_0_ksp_atol': 1.0e-50,
+        'fieldsplit_0_ksp_rtol': 1.0e-12,
+        'fieldsplit_0_ksp_type': 'preonly',
+        'fieldsplit_0_pc_type': 'bjacobi',
+        'fieldsplit_0_sub_pc_type': 'icc'
+    }
+    
     diagfft_options = {'ksp_type': 'gmres', 'pc_type': 'lu',
                        'ksp_monitor': None,
                        'pc_factor_mat_solver_type': 'mumps',
