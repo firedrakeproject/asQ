@@ -293,25 +293,13 @@ class DiagFFTPC(fd.PCBase):
         mat_type = inner_params.get("mat_type", None)
         self.mat_type = mat_type
 
-        #setting up the Riesz map.
-
-        #doing some generic solver parameters that
-        #work for all combinations of mixed etc
-        #scalable but not optimal
-        solver_parameters = {
-            'ksp_type':'cg',
-            'pc_type':'bjacobi',
-            'sub_pc_type':'ilu',
-            'ksp_rtol':1.0e-12,
-            'ksp_atol':1.0e-50
-        }
+        #setting up the Riesz map
         #input for the Riesz map
         self.xtemp = fd.Function(self.CblockV)
         v = fd.TestFunction(self.CblockV)
         u = fd.TrialFunction(self.CblockV)
-        a = fd.assemble(fd.inner(u, v)*fd.dx, mat_type='aij')
-        self.Proj = fd.LinearSolver(a, solver_parameters=
-                                    solver_parameters)
+        a = fd.assemble(fd.inner(u, v)*fd.dx)
+        self.Proj = fd.LinearSolver(a, options_prefix=prefix+"mass_")
 
         #building the block problem solvers
         for i in range(M):
@@ -347,8 +335,6 @@ class DiagFFTPC(fd.PCBase):
 
             jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out)
             Jsolver = fd.LinearVariationalSolver(jprob,
-                                                 solver_parameters=
-                                                 inner_params,
                                                  appctx=appctx,
                                                  options_prefix=prefix)
             self.Jsolvers.append(Jsolver)
@@ -411,6 +397,7 @@ class DiagFFTPC(fd.PCBase):
             self.Proj.solve(self.Jprob_in, self.xtemp)
 
             # solve the block system
+
             self.Jsolvers[i].solve()
 
             # copy the data from solver output
@@ -619,7 +606,7 @@ class paradiag(object):
                 wMs = self.w_all.split()[self.ncpts*(M-1):]
                 for i in range(self.ncpts):
                     self.w_prev.sub(i).assign(wMs[i])
-            if its == self.maxits:
+            if its == self.maxits and verbose:
                 print("Exited due to maxits.", its)
         else:
             # One shot

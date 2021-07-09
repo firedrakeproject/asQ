@@ -392,6 +392,9 @@ def test_diag_precon():
     # we compare one iteration using just the diag PC
     # with the direct solver
 
+    import petsc4py.PETSc as PETSc
+    PETSc.Sys.popErrorHandler() 
+
     mesh = fd.UnitSquareMesh(20, 20)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
@@ -402,18 +405,26 @@ def test_diag_precon():
     alpha = 0.01
     M = 4
 
+    mass_options = {
+        'ksp_type': 'cg',
+        'pc_type': 'bjacobi',
+        'pc_sub_type': 'icc',
+        'ksp_atol': 1.0e-50,
+        'ksp_rtol': 1.0e-12
+    }
+
     diagfft_options = {
         'ksp_type': 'preonly',
         'pc_type': 'lu',
         'pc_factor_mat_solver_type': 'mumps',
-        'mat_type': 'aij'}
+        'mat_type': 'aij',
+        'mass': mass_options}
 
     solver_parameters = {
         'snes_type': 'ksponly',
         'mat_type': 'matfree',
         'ksp_type': 'preonly',
         'ksp_rtol': 1.0e-10,
-        'ksp_converged_reason': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
         'diagfft': diagfft_options}
@@ -429,7 +440,7 @@ def test_diag_precon():
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters,
                       circ="picard", tol=1.0e-12, maxits=1)
-    PD.solve(verbose=True)
+    PD.solve()
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
                          'pc_factor_mat_solver_type': 'mumps',
                          'mat_type': 'aij'}
@@ -438,7 +449,7 @@ def test_diag_precon():
                        theta=theta, alpha=alpha, M=M,
                        solver_parameters=solver_parameters,
                        circ="picard", tol=1.0e-12, maxits=1)
-    PDe.solve(verbose=True)
+    PDe.solve()
     unD = fd.Function(V, name='diag')
     un = fd.Function(V, name='full')
     err = fd.Function(V, name='error')
