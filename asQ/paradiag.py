@@ -111,7 +111,6 @@ class HelmholtzPC(fd.PCBase):
         self.xf.assign(self.yf)
         #Do Helmholtz solve
         self.solver.solve()
-
         # copy Function into petsc vec
         with self.yf.dat.vec_ro as v:
             v.copy(y)
