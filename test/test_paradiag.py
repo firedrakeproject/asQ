@@ -515,7 +515,6 @@ def test_diag_precon_mixed():
         'mat_type': 'matfree',
         'ksp_type': 'preonly',
         'ksp_rtol': 1.0e-10,
-        'ksp_converged_reason': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
         'diagfft': diagfft_options}
@@ -722,9 +721,9 @@ def test_diag_precon_mixed_helmpc():
     import petsc4py.PETSc as PETSc
     PETSc.Sys.popErrorHandler() 
     
-    mesh = fd.PeriodicUnitSquareMesh(20, 20)
-    V = fd.FunctionSpace(mesh, "BDM", 1)
-    Q = fd.FunctionSpace(mesh, "DG", 0)
+    mesh = fd.PeriodicUnitSquareMesh(10, 10)
+    V = fd.FunctionSpace(mesh, "BDM", 2)
+    Q = fd.FunctionSpace(mesh, "DG", 1)
     W = V * Q
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -742,6 +741,24 @@ def test_diag_precon_mixed_helmpc():
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up*vp)*fd.dx
 
+    
+    diag_parameters = {
+        "mat_type": "matfree",
+        "ksp_type": "fgmres",
+        "ksp_converged_reason": None,
+        "ksp_atol": 1.0e-12,
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_type": "schur",
+        "pc_fieldsplit_schur_fact_type": "full",
+        "pc_fieldsplit_off_diag_use_amat": True,
+    }
+
+    Hparameters = {
+        "ksp_type":"preonly",
+        "pc_type": "lu",
+        "pc_factor_mat_solver_type": "mumps"
+    }
+
     mass_options = {
         'ksp_type': 'preonly',
         'pc_type': 'fieldsplit',
@@ -755,38 +772,44 @@ def test_diag_precon_mixed_helmpc():
         'fieldsplit_0_pc_type': 'bjacobi',
         'fieldsplit_0_sub_pc_type': 'icc'
     }
-
-    # change the bottom right part:
-    Hparameters = {
-        "ksp_type":"preonly",
-        "pc_type": "lu",
-        "pc_factor_mat_solver_type": "mumps"
-    }
     
-    diagfft_options = {'ksp_type': 'gmres',
-                       'ksp_monitor': None,
-                       "mat_type": 'matfree',
-                       "pc_type": "python",
-                       "pc_python_type": "asQ.HelmholtzPC",
-                       "Hp": Hparameters,
-                       "mass": mass_options}
+    bottomright = {
+        "ksp_type": "gmres",
+        "ksp_gmres_modifiedgramschmidt": None,
+        "ksp_max_it": 3,
+        "pc_type": "python",
+        "pc_python_type": "asQ.HelmholtzPC",
+        "Hp": Hparameters,
+        "mass": mass_options
+    }
 
+    diag_parameters["fieldsplit_1"] = bottomright
+
+    topleft_LU = {
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.AssembledPC",
+        "assembled_pc_type": "lu",
+        "assembled_pc_factor_mat_solver_type": "mumps"
+    }
+
+    diag_parameters["fieldsplit_0"] = topleft_LU
+    
     solver_parameters_diag = {
         'snes_type': 'ksponly',
         'mat_type': 'matfree',
         'ksp_type': 'preonly',
         'ksp_rtol': 1.0e-10,
-        'ksp_converged_reason': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft': diagfft_options}
+        'diagfft': diag_parameters}
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters_diag,
                       circ="picard", tol=1.0e-12)
-    PD.solve(verbose=True)
+    PD.solve()
 
     # sequential solver
     un = fd.Function(W)
@@ -820,4 +843,4 @@ def test_diag_precon_mixed_helmpc():
         for k in range(2):
             puns[k].assign(walls[k])
         err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)        
+        assert(fd.norm(err) < 1.0e-13)

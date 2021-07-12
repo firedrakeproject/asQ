@@ -28,7 +28,7 @@ class HelmholtzPC(fd.PCBase):
         self.xf = fd.Function(V)  # input
         self.yf = fd.Function(V)  # output
 
-        eta = context.appctx.get("mu", 10.0)
+        eta = context.appctx.get("eta", fd.Constant(20.0))
         D2r = context.appctx.get("D2r", None)
         assert(D2r)
         D2i = context.appctx.get("D2i", None)
@@ -49,9 +49,8 @@ class HelmholtzPC(fd.PCBase):
         #mass solve
         m = fd.inner(u,v)*fd.dx
         sp = {
-            "ksp_type":"preonly",
             "pc_type": "bjacobi",
-            "sub_pc_type":"ilu"
+            "sub_pc_type":"lu"
         }
         self.mSolver = fd.LinearSolver(assemble(m),
                                        solver_parameters=sp)
@@ -298,13 +297,14 @@ class DiagFFTPC(fd.PCBase):
             D1r = fd.Constant(np.real(self.D1[i]))
             D2i = fd.Constant(np.imag(self.D2[i]))
             D2r = fd.Constant(np.real(self.D2[i]))
-
+            
             # pass sigma into PC:
             sigma = self.D1[i]**2/self.D2[i]
-            appctx["sr"] = np.real(sigma)
-            appctx["si"] = np.imag(sigma)
-            appctx["D2r"] = D2r
-            appctx["D2i"] = D2i
+            appctx_h = appctx.copy()
+            appctx_h["sr"] = fd.Constant(np.real(sigma))
+            appctx_h["si"] = fd.Constant(np.imag(sigma))
+            appctx_h["D2r"] = D2r
+            appctx_h["D2i"] = D2i
 
             A = (
                 D1r*form_mass(*usr, *vsr)
@@ -326,7 +326,7 @@ class DiagFFTPC(fd.PCBase):
 
             jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out)
             Jsolver = fd.LinearVariationalSolver(jprob,
-                                                 appctx=appctx,
+                                                 appctx=appctx_h,
                                                  options_prefix=prefix)
             self.Jsolvers.append(Jsolver)
 
@@ -370,7 +370,7 @@ class DiagFFTPC(fd.PCBase):
 
         # Do the block solves
 
-        for i in range(self.M):            
+        for i in range(self.M):
             # copy the data into solver input
             self.xtemp.assign(0.)
             if self.ncpts > 1:
