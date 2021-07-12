@@ -765,6 +765,7 @@ def test_diag_precon_mixed_helmpc():
     
     diagfft_options = {'ksp_type': 'gmres',
                        'ksp_monitor': None,
+                       "mat_type": 'matfree',
                        "pc_type": "python",
                        "pc_python_type": "asQ.HelmholtzPC",
                        "Hp": Hparameters,

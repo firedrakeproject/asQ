@@ -292,7 +292,6 @@ class DiagFFTPC(fd.PCBase):
         u = fd.TrialFunction(self.CblockV)
         a = fd.assemble(fd.inner(u, v)*fd.dx)
         self.Proj = fd.LinearSolver(a, options_prefix=prefix+"mass_")
-
         #building the block problem solvers
         for i in range(M):
             D1i = fd.Constant(np.imag(self.D1[i]))
@@ -302,8 +301,8 @@ class DiagFFTPC(fd.PCBase):
 
             # pass sigma into PC:
             sigma = self.D1[i]**2/self.D2[i]
-            appctx["sgr"] = np.real(sigma)
-            appctx["sgi"] = np.imag(sigma)
+            appctx["sr"] = np.real(sigma)
+            appctx["si"] = np.imag(sigma)
             appctx["D2r"] = D2r
             appctx["D2i"] = D2i
 
