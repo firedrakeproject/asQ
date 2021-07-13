@@ -726,6 +726,7 @@ def test_diag_precon_mixed_helmpc():
     Q = fd.FunctionSpace(mesh, "DG", 1)
     W = V * Q
 
+    gamma = fd.Constant(1.0e5)
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
@@ -736,12 +737,15 @@ def test_diag_precon_mixed_helmpc():
     M = 4
 
     def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
+        eqn = (- fd.div(vu)*up + fd.div(uu)*vp)*fd.dx
+        eqn += gamma*fd.div(vu)*fd.div(uu)*fd.dx
+        return eqn
 
     def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
+        eqn = (fd.inner(uu, vu) + up*vp)*fd.dx
+        eqn += gamma*fd.div(vu)*up*fd.dx
+        return eqn
 
-    
     diag_parameters = {
         "mat_type": "matfree",
         "ksp_type": "fgmres",
@@ -809,7 +813,7 @@ def test_diag_precon_mixed_helmpc():
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters_diag,
                       circ="picard", tol=1.0e-12)
-    PD.solve()
+    PD.solve(verbose=True)
 
     # sequential solver
     un = fd.Function(W)
@@ -818,6 +822,15 @@ def test_diag_precon_mixed_helmpc():
     un.assign(w0)
     v = fd.TestFunction(W)
 
+    def form_function(uu, up, vu, vp):
+        eqn = (- fd.div(vu)*up + fd.div(uu)*vp)*fd.dx
+        return eqn
+
+    def form_mass(uu, up, vu, vp):
+        eqn = (fd.inner(uu, vu) + up*vp)*fd.dx
+        return eqn
+
+    
     eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
     eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
     eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
@@ -843,4 +856,5 @@ def test_diag_precon_mixed_helmpc():
         for k in range(2):
             puns[k].assign(walls[k])
         err.assign(un-pun)
+        print(fd.norm(err))
         assert(fd.norm(err) < 1.0e-13)

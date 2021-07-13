@@ -590,7 +590,10 @@ class paradiag(object):
                 # compute the residual
                 err = [wMs[i] - self.w_prev.sub(i)
                        for i in range(self.ncpts)]
-                residual = fd.assemble(self.form_mass(*err, *err))**0.5
+                res_form = fd.inner(err[0], err[0])*fd.dx
+                for i in range(len(err)-1):
+                    res_form += fd.inner(err[i], err[i])*fd.dx
+                residual = fd.assemble(res_form)**0.5
                 if verbose:
                     print('residual', its, residual)
 
