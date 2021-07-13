@@ -37,7 +37,8 @@ class HelmholtzPC(fd.PCBase):
         assert(sr)
         si = context.appctx.get("si", None)
         assert(si)
-
+        r = fd.Constant(context.appctx.get("helmcoeff", 1.0))
+        
         self.D2r = D2r
         self.D2i = D2i
         self.sr = sr
