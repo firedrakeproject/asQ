@@ -731,10 +731,10 @@ def test_diag_precon_mixed_helmpc():
     w0 = fd.Function(W)
     u0, p0 = w0.split()
     p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    dt = 0.01
+    dt = 0.1
     theta = 0.5
     alpha = 0.01
-    M = 4
+    M = 10
 
     def form_function(uu, up, vu, vp):
         eqn = (- fd.div(vu)*up + fd.div(uu)*vp)*fd.dx
@@ -779,6 +779,7 @@ def test_diag_precon_mixed_helmpc():
     bottomright = {
         "ksp_type": "gmres",
         "ksp_max_it": 30,
+        "ksp_rtol": 1.0e-8,
         "ksp_converged_reason": None,
         "pc_type": "python",
         "pc_python_type": "asQ.HelmholtzPC",
