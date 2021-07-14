@@ -726,14 +726,14 @@ def test_diag_precon_mixed_helmpc():
     Q = fd.FunctionSpace(mesh, "DG", 1)
     W = V * Q
 
-    gamma = fd.Constant(1.0e5)
+    gamma = fd.Constant(1.0e4)
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
     p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
     dt = 0.01
     theta = 0.5
-    alpha = 0.001
+    alpha = 0.01
     M = 4
 
     def form_function(uu, up, vu, vp):
@@ -748,8 +748,7 @@ def test_diag_precon_mixed_helmpc():
 
     diag_parameters = {
         "mat_type": "matfree",
-        "ksp_type": "fgmres",
-        "ksp_converged_reason": None,
+        "ksp_type": "preonly",
         "ksp_atol": 1.0e-12,
         "pc_type": "fieldsplit",
         "pc_fieldsplit_type": "schur",
@@ -779,8 +778,8 @@ def test_diag_precon_mixed_helmpc():
     
     bottomright = {
         "ksp_type": "gmres",
-        "ksp_gmres_modifiedgramschmidt": None,
-        "ksp_max_it": 3,
+        "ksp_max_it": 30,
+        "ksp_converged_reason": None,
         "pc_type": "python",
         "pc_python_type": "asQ.HelmholtzPC",
         "Hp": Hparameters,
@@ -800,10 +799,15 @@ def test_diag_precon_mixed_helmpc():
     diag_parameters["fieldsplit_0"] = topleft_LU
     
     solver_parameters_diag = {
-        'snes_type': 'ksponly',
+        #'snes_type': 'ksponly',
         'mat_type': 'matfree',
-        'ksp_type': 'preonly',
-        'ksp_rtol': 1.0e-10,
+        'ksp_type': 'fgmres',
+        "ksp_gmres_modifiedgramschmidt": None,
+        'ksp_converged_reason': None,
+        'ksp_monitor': None,
+        'ksp_max_it': 60,
+        'ksp_rtol': 1.0e-5,
+        'ksp_atol': 1.0e-30,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
         'diagfft': diag_parameters}
@@ -812,7 +816,7 @@ def test_diag_precon_mixed_helmpc():
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters_diag,
-                      circ="picard", tol=1.0e-12)
+                      circ="quasi")
     PD.solve(verbose=True)
 
     # sequential solver
