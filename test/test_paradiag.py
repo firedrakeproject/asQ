@@ -718,9 +718,6 @@ def test_diag_precon_mixed_helmpc():
     # the residual
     # using the Helm PC
 
-    import petsc4py.PETSc as PETSc
-    PETSc.Sys.popErrorHandler() 
-    
     mesh = fd.PeriodicUnitSquareMesh(10, 10)
     V = fd.FunctionSpace(mesh, "BDM", 2)
     Q = fd.FunctionSpace(mesh, "DG", 1)
@@ -779,7 +776,7 @@ def test_diag_precon_mixed_helmpc():
     bottomright = {
         "ksp_type": "gmres",
         "ksp_max_it": 30,
-        "ksp_rtol": 1.0e-8,
+        "ksp_rtol": 1.0e-4,
         "ksp_converged_reason": None,
         "pc_type": "python",
         "pc_python_type": "asQ.HelmholtzPC",
@@ -801,6 +798,7 @@ def test_diag_precon_mixed_helmpc():
     
     solver_parameters_diag = {
         #'snes_type': 'ksponly',
+        'snes_monitor': None,
         'mat_type': 'matfree',
         'ksp_type': 'fgmres',
         "ksp_gmres_modifiedgramschmidt": None,
@@ -818,7 +816,7 @@ def test_diag_precon_mixed_helmpc():
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters_diag,
                       circ="quasi")
-    PD.solve(verbose=True)
+    PD.solve()
 
     # sequential solver
     un = fd.Function(W)
@@ -861,5 +859,4 @@ def test_diag_precon_mixed_helmpc():
         for k in range(2):
             puns[k].assign(walls[k])
         err.assign(un-pun)
-        print(fd.norm(err))
-        assert(fd.norm(err) < 1.0e-13)
+        assert(fd.norm(err) < 1.0e-10)
