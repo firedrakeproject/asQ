@@ -416,9 +416,7 @@ class DiagFFTPC(fd.PCBase):
             parray = 1j*v.array.reshape((self.M, self.blockV.dim()))
         with self.xfr.dat.vec_ro as v:
             parray += v.array.reshape((self.M, self.blockV.dim()))
-
         parray = ((1.0/self.Gam)*ifft(parray, axis=0).T).T
-
         # get array of basis coefficients
         with self.yf.dat.vec_wo as v:
             v.array[:] = parray.reshape((self.M*self.blockV.dim(),)).real
@@ -514,12 +512,14 @@ class paradiag(object):
         ctx["block_mat_type"] = block_mat_type
 
         if self.circ == "quasi":
+            alphaC = fd.Constant(self.alpha)
+            thetaC = fd.Constant(self.theta)
             J = fd.derivative(self.para_form, self.w_all)
             test_fns = fd.TestFunctions(self.W_all)
             dws = test_fns[self.ncpts*(M-1):]
             wMs = fd.split(self.w_all)[self.ncpts*(M-1):]
-            extra_term = - self.alpha*self.form_mass(*wMs, *dws)
-            extra_term += self.alpha*self.theta*self.dt \
+            extra_term = - alphaC*self.form_mass(*wMs, *dws)
+            extra_term += alphaC*thetaC*self.dt \
                 * self.form_function(*wMs, *dws)
             J += fd.derivative(extra_term, self.w_all)
             vproblem = fd.NonlinearVariationalProblem(self.para_form,
