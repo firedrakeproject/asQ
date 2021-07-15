@@ -301,11 +301,16 @@ class DiagFFTPC(fd.PCBase):
             
             # pass sigma into PC:
             sigma = self.D1[i]**2/self.D2[i]
+            sigma_inv = self.D2[i]**2/self.D1[i]
             appctx_h = appctx.copy()
             appctx_h["sr"] = fd.Constant(np.real(sigma))
             appctx_h["si"] = fd.Constant(np.imag(sigma))
+            appctx_h["sinvr"] = fd.Constant(np.real(sigma_inv))
+            appctx_h["sinvi"] = fd.Constant(np.imag(sigma_inv))
             appctx_h["D2r"] = D2r
             appctx_h["D2i"] = D2i
+            appctx_h["D1r"] = D1r
+            appctx_h["D1i"] = D1i
 
             A = (
                 D1r*form_mass(*usr, *vsr)
