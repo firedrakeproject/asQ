@@ -1,122 +1,6 @@
 import numpy as np
 import firedrake as fd
 from scipy.fft import fft, ifft
-from firedrake.petsc import PETSc
-
-
-class HelmholtzPC(fd.PCBase):
-
-    needs_python_pmat = True
-
-    def initialize(self, pc):
-        from firedrake import TrialFunction, TestFunction, dx, assemble, inner, parameters
-        prefix = pc.getOptionsPrefix()
-        options_prefix = prefix + "Hp_"
-        # we assume P has things stuffed inside of it
-        _, P = pc.getOperators()
-        context = P.getPythonContext()
-
-        test, trial = context.a.arguments()
-
-        if test.function_space() != trial.function_space():
-            raise ValueError("MassInvPC only makes sense if test and trial space are the same")
-
-        V = test.function_space()
-        mesh = V.mesh()
-
-        # Input/Output wrapper Functions
-        self.xf = fd.Function(V)  # input
-        self.yf = fd.Function(V)  # output
-
-        eta = context.appctx.get("eta", fd.Constant(20.0))
-        D2r = context.appctx.get("D2r", None)
-        assert(D2r)
-        D2i = context.appctx.get("D2i", None)
-        assert(D2i)
-        sr = context.appctx.get("sr", None)
-        assert(sr)
-        si = context.appctx.get("si", None)
-        assert(si)
-        r = fd.Constant(context.appctx.get("helmcoeff", 1.0))
-        
-        self.D2r = D2r
-        self.D2i = D2i
-        self.sr = sr
-        self.si = si
-
-        u = fd.TrialFunction(V)
-        v = fd.TestFunction(V)
-
-        #mass solve
-        m = fd.inner(u,v)*fd.dx
-        sp = {
-            "pc_type": "bjacobi",
-            "sub_pc_type":"lu"
-        }
-        self.mSolver = fd.LinearSolver(assemble(m),
-                                       solver_parameters=sp)
-        vr = v[0]
-        vi = v[1]
-        ur = u[0]
-        ui = u[1]
-        xr = self.xf[0]
-        xi = self.xf[1]
-
-        def get_laplace(q,phi):
-            h = fd.avg(fd.CellVolume(mesh))/fd.FacetArea(mesh)
-            mu = eta/h
-            n = fd.FacetNormal(mesh)
-            ad = (- inner(2 * fd.avg(phi*n),
-                          fd.avg(fd.grad(q)))
-                  - inner(fd.avg(fd.grad(phi)),
-                          2 * fd.avg(q*n))
-                  + mu * inner(2 * fd.avg(phi*n),
-                               2 * fd.avg(q*n))) * fd.dS
-            ad += inner(fd.grad(q), fd.grad(phi)) * fd.dx
-            return ad
-
-        D2u_r = D2r*ur - D2i*ui
-        D2u_i = D2i*ur + D2r*ui
-        su_r = sr*ur - si*ui
-        su_i = si*ur + sr*ui
-
-        self.D2r = D2r
-        self.D2i = D2i
-        self.sr = sr
-        self.si = si
-
-        a = vr * D2u_r * dx + get_laplace(vr, su_r)
-        a += vi * D2u_i * dx + get_laplace(vi, su_i)
-        #should scale the RHS by 1/gamma
-        #but this doesn't matter as long as we use GMRES on the inside
-        L = get_laplace(xr, vr) + get_laplace(xi, vi)
-
-        Hprob = fd.LinearVariationalProblem(a, L, self.yf,
-                                            constant_jacobian=False)
-        nullspace = fd.VectorSpaceBasis(constant=True)
-        self.solver = fd.LinearVariationalSolver(Hprob,
-                                                 options_prefix=options_prefix)
-
-    def update(self, pc):
-        pass
-
-    def apply(self, pc, x, y):
-        # copy petsc vec into Function
-        with self.xf.dat.vec_wo as v:
-            x.copy(v)
-
-        #solve mass matrix on xf, put solution in yf
-        self.mSolver.solve(self.yf, self.xf)
-        #copy into yf for RHS of Helmholtz operator
-        self.xf.assign(self.yf)
-        #Do Helmholtz solve
-        self.solver.solve()
-        # copy Function into petsc vec
-        with self.yf.dat.vec_ro as v:
-            v.copy(y)
-
-    def applyTranspose(self, pc, x, y):
-        raise NotImplementedError
 
 
 class DiagFFTPC(fd.PCBase):
@@ -285,14 +169,14 @@ class DiagFFTPC(fd.PCBase):
         mat_type = inner_params.get("mat_type", None)
         self.mat_type = mat_type
 
-        #setting up the Riesz map
-        #input for the Riesz map
+        # setting up the Riesz map
+        # input for the Riesz map
         self.xtemp = fd.Function(self.CblockV)
         v = fd.TestFunction(self.CblockV)
         u = fd.TrialFunction(self.CblockV)
         a = fd.assemble(fd.inner(u, v)*fd.dx)
         self.Proj = fd.LinearSolver(a, options_prefix=prefix+"mass_")
-        #building the block problem solvers
+        # building the block problem solvers
         for i in range(M):
             D1i = fd.Constant(np.imag(self.D1[i]))
             D1r = fd.Constant(np.real(self.D1[i]))
@@ -330,10 +214,11 @@ class DiagFFTPC(fd.PCBase):
             v = fd.TestFunction(self.CblockV)
             L = fd.inner(v, self.Jprob_in)*fd.dx
 
+            block_prefix = prefix+str(i)+'_'
             jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out)
             Jsolver = fd.LinearVariationalSolver(jprob,
                                                  appctx=appctx_h,
-                                                 options_prefix=prefix)
+                                                 options_prefix=block_prefix)
             self.Jsolvers.append(Jsolver)
 
     def update(self, pc):
@@ -394,7 +279,7 @@ class DiagFFTPC(fd.PCBase):
             self.Proj.solve(self.Jprob_in, self.xtemp)
 
             # solve the block system
-
+            self.Jprob_out.assign(0.)
             self.Jsolvers[i].solve()
 
             # copy the data from solver output

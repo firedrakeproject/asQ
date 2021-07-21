@@ -151,6 +151,7 @@ sparameters = {
     "mat_type":"matfree",
     "ksp_type": "fgmres",
     "ksp_max_it": 50,
+    "ksp_converged_reason": None,
     "ksp_gmres_modifiedgramschmidt": None,
     "ksp_rtol": 1e-8,
     "pc_type": "fieldsplit",
@@ -279,8 +280,10 @@ solver_parameters_diag = {
     'ksp_rtol': 1.0e-5,
     'ksp_atol': 1.0e-30,
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft': sparameters}
+    'pc_python_type': 'asQ.DiagFFTPC'}
+
+for i in range(M):
+    solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
     
 dt = 60*60*args.dt
 dT.assign(dt)
