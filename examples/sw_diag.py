@@ -140,8 +140,8 @@ class HelmholtzPC(fd.AuxiliaryOperatorPC):
         su_r = sr*ur - si*ui
         su_i = si*ur + sr*ui
         
-        a = vr * D1u_r * fd.dx + get_laplace(vr, su_r)
-        a += vi * D1u_i * fd.dx + get_laplace(vi, su_i)
+        a = vr * D1u_r * fd.dx + get_laplace(vr, g*H*su_r)
+        a += vi * D1u_i * fd.dx + get_laplace(vi, g*H*su_i)
 
         #Returning None as bcs
         return (a, None)
