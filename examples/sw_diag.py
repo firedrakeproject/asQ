@@ -140,8 +140,8 @@ class HelmholtzPC(fd.AuxiliaryOperatorPC):
         su_r = sr*ur - si*ui
         su_i = si*ur + sr*ui
         
-        a = vr * D1u_r * fd.dx + g*H*get_laplace(vr, su_r)
-        a += vi * D1u_i * fd.dx + g*H*get_laplace(vi, su_i)
+        a = vr * D1u_r * fd.dx + get_laplace(vr, g*H*su_r)
+        a += vi * D1u_i * fd.dx + get_laplace(vi, g*H*su_i)
 
         #Returning None as bcs
         return (a, None)
@@ -151,6 +151,7 @@ sparameters = {
     "mat_type":"matfree",
     "ksp_type": "fgmres",
     "ksp_max_it": 50,
+    "ksp_converged_reason": None,
     "ksp_gmres_modifiedgramschmidt": None,
     "ksp_rtol": 1e-8,
     "pc_type": "fieldsplit",
@@ -279,8 +280,10 @@ solver_parameters_diag = {
     'ksp_rtol': 1.0e-5,
     'ksp_atol': 1.0e-30,
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft': sparameters}
+    'pc_python_type': 'asQ.DiagFFTPC'}
+
+for i in range(M):
+    solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
     
 dt = 60*60*args.dt
 # dT.assign(dt)
