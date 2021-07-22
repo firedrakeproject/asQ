@@ -18,6 +18,7 @@ class DiagFFTPC(fd.PCBase):
         _, P = pc.getOperators()
         context = P.getPythonContext()
         appctx = context.appctx
+        self.appctx = appctx
 
         # all at once solution passed through the appctx
         self.w_all = appctx.get("w_all", None)
@@ -160,13 +161,35 @@ class DiagFFTPC(fd.PCBase):
         self.Js = []
         form_mass = appctx.get("form_mass", None)
         form_function = appctx.get("form_function", None)
+
+        # setting up the Riesz map
+        # input for the Riesz map
+        self.xtemp = fd.Function(self.CblockV)
+        v = fd.TestFunction(self.CblockV)
+        u = fd.TrialFunction(self.CblockV)
+        a = fd.assemble(fd.inner(u, v)*fd.dx)
+        self.Proj = fd.LinearSolver(a, options_prefix=prefix+"mass_")
+        # building the block problem solvers
         for i in range(M):
             D1i = fd.Constant(np.imag(self.D1[i]))
             D1r = fd.Constant(np.real(self.D1[i]))
             D2i = fd.Constant(np.imag(self.D2[i]))
             D2r = fd.Constant(np.real(self.D2[i]))
 
-            L = (
+            # pass sigma into PC:
+            sigma = self.D1[i]**2/self.D2[i]
+            sigma_inv = self.D2[i]**2/self.D1[i]
+            appctx_h = appctx.copy()
+            appctx_h["sr"] = fd.Constant(np.real(sigma))
+            appctx_h["si"] = fd.Constant(np.imag(sigma))
+            appctx_h["sinvr"] = fd.Constant(np.real(sigma_inv))
+            appctx_h["sinvi"] = fd.Constant(np.imag(sigma_inv))
+            appctx_h["D2r"] = D2r
+            appctx_h["D2i"] = D2i
+            appctx_h["D1r"] = D1r
+            appctx_h["D1i"] = D1i
+
+            A = (
                 D1r*form_mass(*usr, *vsr)
                 - D1i*form_mass(*usi, *vsr)
                 + D2r*form_function(*usr, *vsr)
@@ -178,10 +201,17 @@ class DiagFFTPC(fd.PCBase):
             )
 
             # The linear operator
-            J = fd.derivative(L, self.u0)
-            Jsolver = fd.LinearSolver(fd.assemble(J),
-                                      options_prefix=prefix)
-            self.Js.append(J)
+            J = fd.derivative(A, self.u0)
+
+            # The rhs
+            v = fd.TestFunction(self.CblockV)
+            L = fd.inner(v, self.Jprob_in)*fd.dx
+
+            block_prefix = prefix+str(i)+'_'
+            jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out)
+            Jsolver = fd.LinearVariationalSolver(jprob,
+                                                 appctx=appctx_h,
+                                                 options_prefix=block_prefix)
             self.Jsolvers.append(Jsolver)
 
     def update(self, pc):
@@ -191,13 +221,11 @@ class DiagFFTPC(fd.PCBase):
             if self.ncpts > 1:
                 u0s = self.u0.split()
                 for cpt in range(self.ncpts):
-                    u0s[cpt].sub(0).assign(
-                        u0s[cpt].sub(0) + self.w_all.split()[self.ncpts*i+cpt])
+                    u0s[cpt].sub(0).assign(u0s[cpt].sub(0)
+                                           + self.w_all.split()[self.ncpts*i+cpt])
             else:
-                self.u0.sub(0).assign(self.u0.sub(0) + self.w_all.split()[i])
-
-            solver = self.Jsolvers[i]
-            fd.assemble(self.Js[i], tensor=solver.A)
+                self.u0.sub(0).assign(self.u0.sub(0)
+                                      + self.w_all.split()[i])
         self.u0 /= self.M
 
     def apply(self, pc, x, y):
@@ -227,19 +255,24 @@ class DiagFFTPC(fd.PCBase):
 
         for i in range(self.M):
             # copy the data into solver input
+            self.xtemp.assign(0.)
             if self.ncpts > 1:
-                Jins = self.Jprob_in.split()
+                Jins = self.xtemp.split()
                 for cpt in range(self.ncpts):
                     Jins[cpt].sub(0).assign(
                         self.xfr.split()[self.ncpts*i+cpt])
                     Jins[cpt].sub(1).assign(
                         self.xfi.split()[self.ncpts*i+cpt])
             else:
-                self.Jprob_in.sub(0).assign(self.xfr.split()[i])
-                self.Jprob_in.sub(1).assign(self.xfi.split()[i])
+                self.xtemp.sub(0).assign(self.xfr.split()[i])
+                self.xtemp.sub(1).assign(self.xfi.split()[i])
+            # Do a project for Riesz map, to be superceded
+            # when we get Cofunction
+            self.Proj.solve(self.Jprob_in, self.xtemp)
 
             # solve the block system
-            self.Jsolvers[i].solve(self.Jprob_out, self.Jprob_in)
+            self.Jprob_out.assign(0.)
+            self.Jsolvers[i].solve()
 
             # copy the data from solver output
             if self.ncpts > 1:
@@ -260,9 +293,7 @@ class DiagFFTPC(fd.PCBase):
             parray = 1j*v.array.reshape((self.M, self.blockV.dim()))
         with self.xfr.dat.vec_ro as v:
             parray += v.array.reshape((self.M, self.blockV.dim()))
-
         parray = ((1.0/self.Gam)*ifft(parray, axis=0).T).T
-
         # get array of basis coefficients
         with self.yf.dat.vec_wo as v:
             v.array[:] = parray.reshape((self.M*self.blockV.dim(),)).real
@@ -278,7 +309,8 @@ class paradiag(object):
     def __init__(self, form_function, form_mass, W, w0, dt, theta,
                  alpha, M, solver_parameters=None,
                  circ="picard",
-                 jac_average="newton", tol=1.0e-6, maxits=10):
+                 jac_average="newton", tol=1.0e-6, maxits=10,
+                 ctx={}, block_mat_type="aij"):
         """A class to implement paradiag timestepping.
 
         :arg form_function: a function that returns a linear form
@@ -305,6 +337,9 @@ class paradiag(object):
         :arg tol: float, the tolerance for the relaxation method (if used)
         :arg maxits: integer, the maximum number of iterations for the
         relaxation method, if used.
+        :arg ctx: application context for solvers.
+        :arg block_mat_type: set the type of the diagonal block systems.
+        Default is aij.
         """
 
         self.form_function = form_function
@@ -343,21 +378,26 @@ class paradiag(object):
         # passing stuff to the diag preconditioner using the appctx
         def getW():
             return W
-        ctx = {"get_blockV": getW,
-               "alpha": self.alpha,
-               "theta": self.theta,
-               "dt": self.dt,
-               "form_mass": self.form_mass,
-               "form_function": self.form_function,
-               "w_all": self.w_all}
+
+        ctx["get_blockV"] = getW
+        ctx["alpha"] = self.alpha
+        ctx["theta"] = self.theta
+        ctx["dt"] = self.dt
+        ctx["form_mass"] = self.form_mass
+        ctx["form_function"] = self.form_function
+        ctx["w_all"] = self.w_all
+        ctx["block_mat_type"] = block_mat_type
 
         if self.circ == "quasi":
+            alphaC = fd.Constant(self.alpha)
+            thetaC = fd.Constant(self.theta)
+            dtC = fd.Constant(self.dt)
             J = fd.derivative(self.para_form, self.w_all)
             test_fns = fd.TestFunctions(self.W_all)
             dws = test_fns[self.ncpts*(M-1):]
             wMs = fd.split(self.w_all)[self.ncpts*(M-1):]
-            extra_term = - self.alpha*self.form_mass(*wMs, *dws)
-            extra_term += self.alpha*self.theta*self.dt \
+            extra_term = - alphaC*self.form_mass(*wMs, *dws)
+            extra_term += alphaC*thetaC*dtC \
                 * self.form_function(*wMs, *dws)
             J += fd.derivative(extra_term, self.w_all)
             vproblem = fd.NonlinearVariationalProblem(self.para_form,
@@ -433,15 +473,18 @@ class paradiag(object):
                 # compute the residual
                 err = [wMs[i] - self.w_prev.sub(i)
                        for i in range(self.ncpts)]
-                residual = fd.assemble(self.form_mass(*err, *err))**0.5
+                res_form = fd.inner(err[0], err[0])*fd.dx
+                for i in range(len(err)-1):
+                    res_form += fd.inner(err[i], err[i])*fd.dx
+                residual = fd.assemble(res_form)**0.5
                 if verbose:
-                    print(its, residual)
+                    print('residual', its, residual)
 
                 # copy the last time slice into w_prev
                 wMs = self.w_all.split()[self.ncpts*(M-1):]
                 for i in range(self.ncpts):
                     self.w_prev.sub(i).assign(wMs[i])
-            if its == self.maxits:
+            if its == self.maxits and verbose:
                 print("Exited due to maxits.", its)
         else:
             # One shot
