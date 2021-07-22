@@ -162,13 +162,6 @@ class DiagFFTPC(fd.PCBase):
         form_mass = appctx.get("form_mass", None)
         form_function = appctx.get("form_function", None)
 
-        opts = fd.PETSc.Options()
-        inner_params = dict((k[len(prefix):], v)
-                            for k, v in opts.getAll().items()
-                            if k.startswith(prefix))
-        mat_type = inner_params.get("mat_type", None)
-        self.mat_type = mat_type
-
         # setting up the Riesz map
         # input for the Riesz map
         self.xtemp = fd.Function(self.CblockV)
