@@ -417,7 +417,9 @@ def test_diag_precon():
         'ksp_converged_reason': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft': diagfft_options}
+    }
+    for i in range(M):
+        solver_parameters["diagfft_"+str(i)+"_"] = diagfft_options
 
     def form_function(u, v):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
@@ -486,6 +488,7 @@ def test_diag_precon_mixed():
 
     diagfft_options = {'ksp_type': 'gmres', 'pc_type': 'lu',
                        'ksp_monitor': None,
+                       'ksp_converged_reason': None,
                        'pc_factor_mat_solver_type': 'mumps',
                        'mat_type': 'aij'}
 
@@ -497,7 +500,9 @@ def test_diag_precon_mixed():
         'ksp_converged_reason': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft': diagfft_options}
+    }
+    for i in range(M):
+        solver_parameters_diag["diagfft_"+str(i)+"_"] = diagfft_options
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
@@ -561,6 +566,8 @@ def test_diag_precon_nl():
     diagfft_options = {
         'ksp_type': 'preonly',
         'pc_type': 'lu',
+        'ksp_monitor': None,
+        'ksp_converged_reason': None,
         'pc_factor_mat_solver_type': 'mumps',
         'mat_type': 'aij'}
 
@@ -573,7 +580,9 @@ def test_diag_precon_nl():
         'ksp_converged_reason': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft': diagfft_options}
+    }
+    for i in range(M):
+        solver_parameters["diagfft_"+str(i)+"_"] = diagfft_options
 
     def form_function(u, v):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
@@ -704,7 +713,8 @@ def test_diag_precon_nl_mixed():
     diagfft_options = {
         'ksp_type': 'gmres',
         'pc_type': 'lu',
-        # 'ksp_monitor': None,
+        'ksp_monitor': None,
+        'ksp_converged_reason': None,
         'pc_factor_mat_solver_type': 'mumps',
         'mat_type': 'aij'}
 
@@ -717,7 +727,9 @@ def test_diag_precon_nl_mixed():
         # 'ksp_converged_reason': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft': diagfft_options}
+    }
+    for i in range(M):
+        solver_parameters_diag["diagfft_"+str(i)+"_"] = diagfft_options
 
     PD = asQ.paradiag(form_function=form_function,
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
