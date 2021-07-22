@@ -7,7 +7,7 @@ PETSc.Sys.popErrorHandler()
 import argparse
 parser = argparse.ArgumentParser(description='Williamson 5 testcase for approximate Schur complement solver.')
 parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve. Default 1.')
-parser.add_argument('--ref_level', type=int, default=3, help='Refinement level of icosahedral grid. Default 3.')
+parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid. Default 3.')
 parser.add_argument('--nsteps', type=int, default=10, help='Number of timesteps. Default 4.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient. Default 0.0001.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours. Default 0.05.')
@@ -286,7 +286,7 @@ for i in range(M):
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
     
 dt = 60*60*args.dt
-dT.assign(dt)
+# dT.assign(dt)
 t = 0.
 
 x = fd.SpatialCoordinate(mesh)
@@ -294,7 +294,7 @@ u_0 = 20.0  # maximum amplitude of the zonal wind [m/s]
 u_max = fd.Constant(u_0)
 u_expr = fd.as_vector([-u_max*x[1]/R0, u_max*x[0]/R0, 0.0])
 eta_expr = - ((R0 * Omega * u_max + u_max*u_max/2.0)*(x[2]*x[2]/(R0*R0)))/g
-W = V1 * V2
+# W = V1 * V2
 w0 = fd.Function(W)
 un, etan = w0.split()
 un.project(u_expr)
@@ -320,3 +320,18 @@ PD = asQ.paradiag(form_function=form_function,
                   solver_parameters=solver_parameters_diag,
                   circ="quasi")
 PD.solve()
+
+
+# write output:
+file0 = fd.File("output/output1.pvd")
+pun = fd.Function(W, name="pun")
+puns = pun.split()
+
+for i in range(M):
+    walls = PD.w_all.split()[2 * i:2 * i + 2]
+    for k in range(2):
+        puns[k].assign(walls[k])
+    u_out = puns[0]
+    h_out = puns[1]
+    file0.write(u_out, h_out)
+
