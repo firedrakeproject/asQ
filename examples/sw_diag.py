@@ -3,7 +3,7 @@ from petsc4py import PETSc
 import asQ
 PETSc.Sys.popErrorHandler()
 
-#get command arguments
+# get command arguments
 import argparse
 parser = argparse.ArgumentParser(description='Williamson 5 testcase for approximate Schur complement solver.')
 parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve. Default 1.')
@@ -32,11 +32,11 @@ nrefs = args.ref_level - base_level
 name = args.filename
 deg = args.coords_degree
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
-#distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.FACET, 2)}
+
 if args.tlblock == "mg":
     basemesh = fd.IcosahedralSphereMesh(radius=R0,
                                         refinement_level=base_level, degree=deg,
-                                        distribution_parameters = distribution_parameters)
+                                        distribution_parameters=distribution_parameters)
     mh = fd.MeshHierarchy(basemesh, nrefs)
     for mesh in mh:
         x = fd.SpatialCoordinate(mesh)
@@ -45,7 +45,7 @@ if args.tlblock == "mg":
 else:
     mesh = fd.IcosahedralSphereMesh(radius=R0,
                                     refinement_level=args.ref_level, degree=deg,
-                                    distribution_parameters = distribution_parameters)
+                                    distribution_parameters=distribution_parameters)
     x = fd.SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
 R0 = fd.Constant(R0)
@@ -55,8 +55,10 @@ outward_normals = fd.CellNormal(mesh)
 
 M = args.nsteps
 
+
 def perp(u):
     return fd.cross(outward_normals, u)
+
 
 degree = args.degree
 V1 = fd.FunctionSpace(mesh, "BDFM", degree+1)
@@ -75,17 +77,17 @@ c = fd.sqrt(g*H)
 dT = fd.Constant(0.)
 # D = eta + b
 
+
 def both(u):
     return 2*fd.avg(u)
+
 
 def form_function(u, h, v, q):
     K = 0.5*fd.inner(u, u)
     n = fd.FacetNormal(mesh)
     uup = 0.5 * (fd.dot(u, n) + abs(fd.dot(u, n)))
-    dS = fd.dS
-    dx = fd.dx
     Upwind = 0.5 * (fd.sign(fd.dot(u, n)) + 1)
-    
+
     eqn = (
         fd.inner(v, f*perp(u))*fd.dx
         - fd.inner(perp(fd.grad(fd.inner(v, perp(u)))), u)*fd.dx
@@ -97,12 +99,14 @@ def form_function(u, h, v, q):
                       - uup('-')*h('-'))*fd.dS
     )
     return eqn
-    
+
+
 def form_mass(u, h, v, q):
     return fd.inner(u, v)*fd.dx + h*q*fd.dx
 
+
 class HelmholtzPC(fd.AuxiliaryOperatorPC):
-    
+
     def form(self, pc, v, u):
         _, P = pc.getOperators()
         context = P.getPythonContext()
@@ -111,7 +115,7 @@ class HelmholtzPC(fd.AuxiliaryOperatorPC):
         vi = v[1]
         ur = u[0]
         ui = u[1]
-        
+
         eta = fd.Constant(context.appctx.get("eta", 10.))
         D1r = context.appctx.get("D1r", None)
         assert(D1r)
@@ -121,8 +125,8 @@ class HelmholtzPC(fd.AuxiliaryOperatorPC):
         assert(sr)
         si = context.appctx.get("sinvi", None)
         assert(si)
-        r = fd.Constant(context.appctx.get("helmcoeff", 1.0))
-        def get_laplace(q,phi):
+
+        def get_laplace(q, phi):
             h = fd.avg(fd.CellVolume(mesh))/fd.FacetArea(mesh)
             mu = eta/h
             n = fd.FacetNormal(mesh)
@@ -134,21 +138,22 @@ class HelmholtzPC(fd.AuxiliaryOperatorPC):
                                   2 * fd.avg(q*n))) * fd.dS
             ad += fd.inner(fd.grad(q), fd.grad(phi)) * fd.dx
             return ad
-        
+
         D1u_r = D1r*ur - D1i*ui
         D1u_i = D1i*ur + D1r*ui
         su_r = sr*ur - si*ui
         su_i = si*ur + sr*ui
-        
+
         a = vr * D1u_r * fd.dx + get_laplace(vr, g*H*su_r)
         a += vi * D1u_i * fd.dx + get_laplace(vi, g*H*su_i)
 
-        #Returning None as bcs
+        # Returning None as bcs
         return (a, None)
 
-#Parameters for the diag
+
+# Parameters for the diag
 sparameters = {
-    "mat_type":"matfree",
+    "mat_type": "matfree",
     "ksp_type": "fgmres",
     "ksp_max_it": 50,
     "ksp_converged_reason": None,
@@ -207,10 +212,6 @@ topleft_MG = {
     "mg_levels_patch_pc_patch_multiplicative": False,
     "mg_levels_patch_pc_patch_symmetrise_sweep": False,
     "mg_levels_patch_pc_patch_construct_dim": 0,
-    #"mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
-    #"mg_levels_patch_pc_patch_dense_inverse": True,
-    #"mg_levels_patch_pc_patch_precompute_element_tensors": True,
-    #"mg_levels_patch_sub_pc_factor_mat_solver_type": "petsc",
     "mg_levels_patch_sub_ksp_type": "preonly",
     "mg_levels_patch_sub_pc_type": "lu",
 }
@@ -257,7 +258,7 @@ elif args.tlblock == "patch":
 elif args.tlblock == "ilu":
     sparameters["fieldsplit_0"] = topleft_ILU
 else:
-    assert(args.tlblock=="lu")
+    assert(args.tlblock == "lu")
     sparameters["fieldsplit_0"] = topleft_LU
 
 lu_parameters = {
@@ -269,7 +270,6 @@ lu_parameters = {
 }
 
 solver_parameters_diag = {
-    #'snes_type': 'ksponly',
     'snes_monitor': None,
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
@@ -284,7 +284,7 @@ solver_parameters_diag = {
 
 for i in range(M):
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
-    
+
 dt = 60*60*args.dt
 # dT.assign(dt)
 t = 0.
@@ -334,4 +334,3 @@ for i in range(M):
     u_out = puns[0]
     h_out = puns[1]
     file0.write(u_out, h_out)
-

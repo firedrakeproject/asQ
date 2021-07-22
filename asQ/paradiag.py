@@ -182,7 +182,7 @@ class DiagFFTPC(fd.PCBase):
             D1r = fd.Constant(np.real(self.D1[i]))
             D2i = fd.Constant(np.imag(self.D2[i]))
             D2r = fd.Constant(np.real(self.D2[i]))
-            
+
             # pass sigma into PC:
             sigma = self.D1[i]**2/self.D2[i]
             sigma_inv = self.D2[i]**2/self.D1[i]
@@ -228,12 +228,11 @@ class DiagFFTPC(fd.PCBase):
             if self.ncpts > 1:
                 u0s = self.u0.split()
                 for cpt in range(self.ncpts):
-                    u0s[cpt].sub(0).assign(
-                        u0s[cpt].sub(0) + \
-                        self.w_all.split()[self.ncpts*i+cpt])
+                    u0s[cpt].sub(0).assign(u0s[cpt].sub(0)
+                                           + self.w_all.split()[self.ncpts*i+cpt])
             else:
-                self.u0.sub(0).assign(self.u0.sub(0) + \
-                                      self.w_all.split()[i])
+                self.u0.sub(0).assign(self.u0.sub(0)
+                                      + self.w_all.split()[i])
         self.u0 /= self.M
 
     def apply(self, pc, x, y):
