@@ -236,7 +236,8 @@ class DiagFFTPC(fd.PCBase):
 
         # get array of basis coefficients
         with self.xf.dat.vec_ro as v:
-            parray = v.array.reshape((self.M, self.blockV.dim()))
+            # parray = v.array.reshape((self.M, self.blockV.dim()))
+            parray = v.array.reshape((self.M, int(np.size(v.array) / self.M)))
         # This produces an array whose rows are time slices
         # and columns are finite element basis coefficients
 
@@ -246,10 +247,12 @@ class DiagFFTPC(fd.PCBase):
 
         # Copy into xfi, xfr
         with self.xfr.dat.vec_wo as v:
-            v.array[:] = parray.real.reshape((self.NM,))
+            # v.array[:] = parray.real.reshape((self.NM,))
+            v.array[:] = parray.real.reshape((np.size(v.array),))
 
         with self.xfi.dat.vec_wo as v:
-            v.array[:] = parray.imag.reshape((self.NM,))
+            # v.array[:] = parray.imag.reshape((self.NM,))
+            v.array[:] = parray.imag.reshape((np.size(v.array),))
 
         # Do the block solves
 
@@ -290,13 +293,16 @@ class DiagFFTPC(fd.PCBase):
         # Undiagonalise
         # get array of basis coefficients
         with self.xfi.dat.vec_ro as v:
-            parray = 1j*v.array.reshape((self.M, self.blockV.dim()))
+            # parray = 1j*v.array.reshape((self.M, self.blockV.dim()))
+            parray = 1j*v.array.reshape((self.M, int(np.size(v.array)/self.M)))
         with self.xfr.dat.vec_ro as v:
-            parray += v.array.reshape((self.M, self.blockV.dim()))
+            # parray += v.array.reshape((self.M, self.blockV.dim()))
+            parray += v.array.reshape((self.M, int(np.size(v.array)/self.M)))
         parray = ((1.0/self.Gam)*ifft(parray, axis=0).T).T
         # get array of basis coefficients
         with self.yf.dat.vec_wo as v:
-            v.array[:] = parray.reshape((self.M*self.blockV.dim(),)).real
+            # v.array[:] = parray.reshape((self.M*self.blockV.dim(),)).real
+            v.array[:] = parray.reshape((self.M*int(np.size(v.array)/self.M),)).real
 
         with self.yf.dat.vec_ro as v:
             v.copy(y)
