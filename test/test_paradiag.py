@@ -781,3 +781,4 @@ def test_diag_precon_nl_mixed():
 @pytest.mark.parallel(nprocs=3)
 def test_diag_precon_nl_mixed_parallel():
     test_diag_precon_nl_mixed()
+
