@@ -1,7 +1,8 @@
 import numpy as np
 import firedrake as fd
 from scipy.fft import fft, ifft
-
+from firedrake.petsc import PETSc, OptionsManager
+from pyop2.mpi import MPI
 
 class DiagFFTPC(fd.PCBase):
 
@@ -306,13 +307,15 @@ class DiagFFTPC(fd.PCBase):
 
 
 class paradiag(object):
-    def __init__(self, form_function, form_mass, W, w0, dt, theta,
+    def __init__(self, ensemble,
+                 form_function, form_mass, W, w0, dt, theta,
                  alpha, M, solver_parameters=None,
                  circ="picard",
                  jac_average="newton", tol=1.0e-6, maxits=10,
                  ctx={}, block_mat_type="aij"):
         """A class to implement paradiag timestepping.
 
+        : arg ensemble: the ensemble communicator
         :arg form_function: a function that returns a linear form
         on W providing f(w) for the ODE w_t + f(w) = 0.
         :arg form_mass: a function that returns a linear form
@@ -322,7 +325,8 @@ class paradiag(object):
         :arg dt: float, the timestep size.
         :arg theta: float, implicit timestepping parameter
         :arg alpha: float, circulant matrix parameter
-        :arg M: integer, the number of timesteps
+        :arg M: a list of integers, the number of timesteps
+        assigned to each process
         :arg solver_parameters: options dictionary for nonlinear solver
         :arg circ: a string describing the option on where to use the
         alpha-circulant modification. "picard" - do a nonlinear wave
@@ -343,11 +347,14 @@ class paradiag(object):
         """
 
         self.form_function = form_function
+        self.ensemble = ensemble
         self.form_mass = form_mass
         self.W = W
         self.ncpts = len(W.split())
         self.w0 = w0
         self.dt = dt
+        if isinstance(M, int):
+            M = [M]
         self.M = M
         self.theta = theta
         self.alpha = alpha
@@ -356,9 +363,15 @@ class paradiag(object):
         self.circ = circ
         self.jac_average = jac_average
 
-        # function space for the all-at-once system
+        # checks that the ensemble communicator is set up correctly
+        nM = len(M) # the expected number of time ranks
+        assert(ensemble.ensemble_comm.size == n)
+        rT = ensemble.ensemble_comm.rank # the time rank
+
+        # function space for the component of the
+        # all-at-once system assigned to this process
         # implemented as a massive mixed function space
-        self.W_all = np.prod([self.W for i in range(M)])
+        self.W_all = np.prod([self.W for i in range(M[rT])])
 
         # function containing the all-at-once solution
         self.w_all = fd.Function(self.W_all)
@@ -368,10 +381,26 @@ class paradiag(object):
             for k in range(self.ncpts):
                 w_alls[self.ncpts*i+k].assign(self.w0.sub(k))
 
-        # function containing the last timestep
+        # functions containing the last and next steps for parallel
+        # communication timestep
         # from the previous iteration
-        if self.circ == "picard":
-            self.w_prev = fd.Function(self.W)
+        self.w_recv = fd.Function(self.W)
+        self.w_send = fd.Function(self.W)
+
+        # set up the Vecs X (for coeffs and F for residuals)
+        nlocal = self.w_all.node_set.size
+        nglobal = self.w_all.dim()
+        self.X = PETSc.Vec().create(comm=COMM_WORLD)
+        self.X.setSizes((nlocal, nglobal))
+        self.X.setFromOptions()
+        self.F = X.copy()
+
+        # set up the snes
+        self.snes = PETSc.SNES().create(comm=COMM_WORLD)
+        opts = OptionsManager(solver_parameters, 'paradiag')
+        self.snes.setOptionsPrefix('paradiag')
+        print("NEEDS A JACOBIAN!")
+        opts.set_from_options(self.snes)
 
         self._set_para_form()
 
@@ -460,6 +489,8 @@ class paradiag(object):
         """
         Solve the system (either in one shot or as a relaxation method).
         """
+
+        NEEDS SNES
         M = self.M
         if self.circ == "picard":
             # Relaxation method
