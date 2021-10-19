@@ -440,7 +440,8 @@ class paradiag(object):
         for i in range(M):
             for k in range(self.ncpts):
                 w_alls[self.ncpts*i+k].assign(self.w0.sub(k))
-
+        self.w_alls = w_alls
+                
         # function to assemble the nonlinear residual
         self.F_all = fd.Function(self.W_all)
                 
@@ -518,22 +519,27 @@ class paradiag(object):
         mpi_requests = []
         #Communication stage                
         #send
+        usends = self.usend.split()
         r = ensemble.ensemble_comm.rank # the time rank
+        for k in range(self.ncpts):
+            usends[k].assign(w_alls[self.ncpts*(self.M[r]-1)+k])
         if r < n-1:
-            self.usend.assign(self.ulist[-1])
             request_send = ens_comm.isend(self.usend, dest=r+1, tag=r)
-            mpi_requests.extend(request_send)
+        else:
+            request_send = ens_comm.isend(self.usend, dest=0, tag=r)
+        mpi_requests.extend(request_send)
         #receive
         if r > 0:
             request_recv = ens_comm.irecv(self.urecv, source=r-1, tag=r-1)
-            mpi_requests.extend(request_recv)
         else:
-            self.urecv.assign(self.u0)
+            request_recv = ens_comm.irecv(self.urecv, source=n-1, tag=n-1)
+        mpi_requests.extend(request_recv)
 
         #wait for the data [we should really do this after internal
         #assembly but have avoided that for now]
         MPI.Request.Waitall(mpi_requests)
-            
+
+        THIS IS THE NEXT BIT
         if self.ensemble.ensemble_comm.rank=0:
             if self.circ == "picard":
             #self.w_recv will get updated with the last time value
