@@ -385,7 +385,7 @@ class paradiag(object):
         :arg theta: float, implicit timestepping parameter
         :arg alpha: float, circulant matrix parameter
         :arg M: a list of integers, the number of timesteps
-        assigned to each process
+        assigned to each rank
         :arg solver_parameters: options dictionary for nonlinear solver
         :arg circ: a string describing the option on where to use the
         alpha-circulant modification. "picard" - do a nonlinear wave
@@ -426,14 +426,14 @@ class paradiag(object):
         nM = len(M) # the expected number of time ranks
         assert(ensemble.ensemble_comm.size == n)
         rT = ensemble.ensemble_comm.rank # the time rank
-
+        self.rT = rT
         # function space for the component of the
         # all-at-once system assigned to this process
         # implemented as a massive mixed function space
         self.W_all = np.prod([self.W for i in range(M[rT])])
 
         # function containing the part of the
-        # all-at-once solution assigned to this processor
+        # all-at-once solution assigned to this rank
         self.w_all = fd.Function(self.W_all)
         w_alls = self.w_all.split()
         # initialise it from the initial condition
@@ -469,8 +469,8 @@ class paradiag(object):
         # set up the snes
         self.snes = PETSc.SNES().create(comm=COMM_WORLD)
         opts = OptionsManager(solver_parameters, 'paradiag')
-        self.snes.setOptionsPrefix('paradiag')
-        self.snes.setFunction(self._paradiag_assemble_function, self.F)
+        self.snes.setOptionsPrefix('paradiag's)
+        self.snes.setFunction(self._assemble_function, self.F)
         print("NEEDS A JACOBIAN!")
         opts.set_from_options(self.snes)
 
@@ -516,6 +516,9 @@ class paradiag(object):
         """
         n = self.ensemble.ensemble_comm.size
 
+        with self.w_all.dat.vec_wo as v:
+            v.array[:] = X.array_r
+        
         mpi_requests = []
         #Communication stage                
         #send
@@ -539,29 +542,17 @@ class paradiag(object):
         #assembly but have avoided that for now]
         MPI.Request.Waitall(mpi_requests)
 
-        THIS IS THE NEXT BIT
         if self.ensemble.ensemble_comm.rank=0:
-            if self.circ == "picard":
-            #self.w_recv will get updated with the last time value
-            #of the last iterate in this case
-            if self.ncpts == 1:
-                wMkm1s = [self.w_recv]
-            else:
-                wMkm1s = fd.split(self.w_recv)
+        THE PICARD ITERATION NEEDS SETTING UP
         if self.circ == "picard":
-            w0s = [w0ss[i] + alpha*(wMs[i] - wMkm1s[i])
-                   for i in range(self.ncpts)]
-        else:
-            w0s = w0ss
+            self.urecv.assign(self.w0 + alpha*(self.urecv - self.uprev))
             
-        with self.w_all.dat.vec_wo as v:
-            v.array[:] = X.array_r
-
         #assembly stage
         fd.assemble(self.para_form, tensor=self.F_all)
 
         with self.F.dat.vec_ro as v:
             v.copy(Fvec)
+
 
     def _set_para_form_old(self):
         """
@@ -569,7 +560,6 @@ class paradiag(object):
         Specific to the theta-centred Crank-Nicholson method
         """
 
-        M = self.M
         w_all_cpts = fd.split(self.w_all)
 
         test_fns = fd.TestFunctions(self.W_all)
@@ -615,7 +605,7 @@ class paradiag(object):
         Specific to the theta-centred Crank-Nicholson method
         """
 
-        M = self.M
+        M = self.M[self.rT]
         w_all_cpts = fd.split(self.w_all)
 
         test_fns = fd.TestFunctions(self.W_all)
@@ -629,7 +619,7 @@ class paradiag(object):
             # previous time level
             if n == 0:
                 #self.w_recv will contain the adjacent data
-                w0ss = fd.split(self.w_recv)
+                w0s = fd.split(self.w_recv)
             else:
                 w0s = w_all_cpts[self.ncpts*(n-1):self.ncpts*n]
             # current time level
