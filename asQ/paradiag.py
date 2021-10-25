@@ -543,8 +543,8 @@ class paradiag(object):
         MPI.Request.Waitall(mpi_requests)
 
         if self.ensemble.ensemble_comm.rank=0:
-        THE PICARD ITERATION NEEDS SETTING UP
         if self.circ == "picard":
+            raise NotImplementedError
             self.urecv.assign(self.w0 + alpha*(self.urecv - self.uprev))
             
         #assembly stage
