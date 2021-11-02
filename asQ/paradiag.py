@@ -478,7 +478,7 @@ class paradiag(object):
         #copy initial data into the PETSc vec
         with self.w_all.dat.vec_ro as v:
             v.copy(self.X)
-        self.F = X.copy()
+        self.F = self.X.copy()
 
         # construct the nonlinear form
         self._set_para_form()
