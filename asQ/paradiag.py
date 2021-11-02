@@ -441,7 +441,8 @@ class paradiag(object):
 
         # checks that the ensemble communicator is set up correctly
         nM = len(M) # the expected number of time ranks
-        assert(ensemble.ensemble_comm.size == n)
+        assert(ensemble.ensemble_comm.size == nM,
+               ensemble.ensemble_comm.size, nM)
         rT = ensemble.ensemble_comm.rank # the time rank
         self.rT = rT
         # function space for the component of the
@@ -454,7 +455,7 @@ class paradiag(object):
         self.w_all = fd.Function(self.W_all)
         w_alls = self.w_all.split()
         # initialise it from the initial condition
-        for i in range(M):
+        for i in range(M[rT]):
             for k in range(self.ncpts):
                 w_alls[self.ncpts*i+k].assign(self.w0.sub(k))
         self.w_alls = w_alls
@@ -469,9 +470,9 @@ class paradiag(object):
         self.w_send = fd.Function(self.W)
 
         # set up the Vecs X (for coeffs and F for residuals)
-        nlocal = self.w_all.node_set.size
-        nglobal = self.w_all.dim()
-        self.X = PETSc.Vec().create(comm=COMM_WORLD)
+        nlocal = W.node_set.size
+        nglobal = W.dim()
+        self.X = PETSc.Vec().create(comm=fd.COMM_WORLD)
         self.X.setSizes((nlocal, nglobal))
         self.X.setFromOptions()
         #copy initial data into the PETSc vec
@@ -483,14 +484,14 @@ class paradiag(object):
         self._set_para_form()
 
         # set up the snes
-        self.snes = PETSc.SNES().create(comm=COMM_WORLD)
+        self.snes = PETSc.SNES().create(comm=fd.COMM_WORLD)
         opts = OptionsManager(solver_parameters, 'paradiag')
         self.snes.setOptionsPrefix('paradiag')
         self.snes.setFunction(self._assemble_function, self.F)
 
         # set up the Jacobian
         mctx = JacobianMatrix(self)
-        Jacmat = PETSc.Mat().create(comm=COMM_WORLD)
+        Jacmat = PETSc.Mat().create(comm=fd.COMM_WORLD)
         Jacmat.setType("python")
         Jacmat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
         Jacmat.setPythonContext(mctx)

@@ -3,7 +3,6 @@ import firedrake as fd
 import numpy as np
 import pytest
 
-@pytest.mark.parallel(nprocs=4)
 def test_snes():
     # tests the basic snes setup
     # using the heat equation
@@ -20,7 +19,7 @@ def test_snes():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = 4
+    M = [2, 2, 2, 2]
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
@@ -31,9 +30,12 @@ def test_snes():
     def form_mass(u, v):
         return u*v*fd.dx
 
-    PD = asQ.paradiag(ensemble,
-                      form_function, form_mass, W, w0, dt, theta,
-                      alpha, M, solver_parameters=solver_parameters,
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=V, w0=u0,
+                      dt=dt, theta=theta,
+                      alpha=alpha,
+                      M=M, solver_parameters=solver_parameters,
                       circ="none",
                       jac_average="newton", tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
