@@ -470,8 +470,8 @@ class paradiag(object):
         self.w_send = fd.Function(self.W)
 
         # set up the Vecs X (for coeffs and F for residuals)
-        nlocal = W.node_set.size
-        nglobal = W.dim()
+        nlocal = M[rT]*W.node_set.size #local times x local space
+        nglobal = np.prod(M)*W.dim() # global times x global space
         self.X = PETSc.Vec().create(comm=fd.COMM_WORLD)
         self.X.setSizes((nlocal, nglobal))
         self.X.setFromOptions()
