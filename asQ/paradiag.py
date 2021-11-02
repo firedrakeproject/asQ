@@ -594,7 +594,10 @@ class paradiag(object):
                 #self.w_recv will contain the adjacent data
                 if self.rT == 0:
                     #need the initial data
-                    w0s = fd.split(self.w0 + self.Circ*alpha*self.w_recv)
+                    w0list = fd.split(self.w0)
+                    wrecvlist = fd.split(self.w_recv)
+                    w0s = [w0list[i] + self.Circ*alpha*wrecvlist[i]
+                           for i in range(self.ncpts)]
                 else:
                     w0s = fd.split(self.w_recv)
             else:
