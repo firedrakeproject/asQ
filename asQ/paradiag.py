@@ -626,5 +626,5 @@ class paradiag(object):
             raise NotImplementedError
         else:
             # One shot
-            self.snes.solve(self.X)
+            self.snes.solve(None, self.X)
             self.update(self.X)
