@@ -3,6 +3,7 @@ import firedrake as fd
 import numpy as np
 import pytest
 
+@pytest.mark.parallel(nprocs=4)
 def test_snes():
     # tests the basic snes setup
     # using the heat equation
