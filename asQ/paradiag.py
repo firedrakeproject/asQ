@@ -312,16 +312,16 @@ class JacobianMatrix(object):
         r"""
         :param paradiag: The paradiag object
         """
-        self.u = Function(paradiag.W_all) #Where we copy the input function
-        self.F = Function(paradiag.W_all) #Where we copy the output residual
-        self.F_prev = Function(paradiag.W_all) #Where we compute the
+        self.u = fd.Function(paradiag.W_all) #Where we copy the input function
+        self.F = fd.Function(paradiag.W_all) #Where we copy the output residual
+        self.F_prev = fd.Function(paradiag.W_all) #Where we compute the
                                                #part of the output
                                                #residual from neighbouring
                                                #contributions
-        self.u0 = Function(paradiag.W_all) #Where we keep the state
-        self.Fsingle = Function(paradiag.W)
-        self.urecv = Function(paradiag.W) #will contain the previous time value i.e. 3*r-1
-        self.usend = Function(paradiag.W) #will contain the next time value i.e. 3*(r+1)
+        self.u0 = fd.Function(paradiag.W_all) #Where we keep the state
+        self.Fsingle = fd.Function(paradiag.W)
+        self.urecv = fd.Function(paradiag.W) #will contain the previous time value i.e. 3*r-1
+        self.usend = fd.Function(paradiag.W) #will contain the next time value i.e. 3*(r+1)
         self.ulist = self.u.split()
         self.r = paradiag.ensemble.ensemble_comm.rank
         self.n = paradiag.ensemble.ensemble_comm.size
