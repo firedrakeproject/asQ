@@ -1,6 +1,7 @@
 import asQ
 import firedrake as fd
 import numpy as np
+import pytest
 
 @pytest.mark.parallel(nprocs=4)
 def test_snes():
@@ -30,12 +31,12 @@ def test_snes():
     def form_mass(u, v):
         return u*v*fd.dx
 
-    PD = paradiag(ensemble,
-                  form_function, form_mass, W, w0, dt, theta,
-                  alpha, M, solver_parameters=solver_parameters,
-                  circ="none",
-                  jac_average="newton", tol=1.0e-6, maxits=None,
-                  ctx={}, block_mat_type="aij")
+    PD = asQ.paradiag(ensemble,
+                      form_function, form_mass, W, w0, dt, theta,
+                      alpha, M, solver_parameters=solver_parameters,
+                      circ="none",
+                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
     PD.solve()
 
 

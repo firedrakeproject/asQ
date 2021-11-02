@@ -485,7 +485,7 @@ class paradiag(object):
         # set up the snes
         self.snes = PETSc.SNES().create(comm=COMM_WORLD)
         opts = OptionsManager(solver_parameters, 'paradiag')
-        self.snes.setOptionsPrefix('paradiag's)
+        self.snes.setOptionsPrefix('paradiag')
         self.snes.setFunction(self._assemble_function, self.F)
 
         # set up the Jacobian
@@ -559,10 +559,6 @@ class paradiag(object):
         the nonlinear residual.
         """
         self.update(X)
-
-        if self.ensemble.ensemble_comm.rank=0:
-        if self.circ == "picard":
-            raise NotImplementedError
 
         #Set the flag for the circulant option
         if self.circ == "picard":
