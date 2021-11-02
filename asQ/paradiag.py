@@ -363,9 +363,11 @@ class JacobianMatrix(object):
         #assembly but have avoided that for now]
         MPI.Request.Waitall(mpi_requests)
 
-        if self.ensemble.ensemble_comm.rank=0:
+        #Set the flag for the circulant option
         if self.circ == "quasi":
-            raise NotImplementedError
+            self.Circ.assign(1.0)
+        else:
+            self.Circ.assign(0.0)
 
         #assembly stage
         fd.assemble(fd.action(self.Jform, self.u), tensor=self.F)
@@ -433,6 +435,9 @@ class paradiag(object):
         self.maxits = maxits
         self.circ = circ
         self.jac_average = jac_average
+
+        # A coefficient that switches the alpha-circulant term on
+        self.Circ = fd.Constant(1.0)
 
         # checks that the ensemble communicator is set up correctly
         nM = len(M) # the expected number of time ranks
@@ -558,7 +563,12 @@ class paradiag(object):
         if self.ensemble.ensemble_comm.rank=0:
         if self.circ == "picard":
             raise NotImplementedError
-            
+
+        #Set the flag for the circulant option
+        if self.circ == "picard":
+            self.Circ.assign(1.0)
+        else:
+            self.Circ.assign(0.0)
         #assembly stage
         fd.assemble(self.para_form, tensor=self.F_all)
 
@@ -585,7 +595,11 @@ class paradiag(object):
             # previous time level
             if n == 0:
                 #self.w_recv will contain the adjacent data
-                w0s = fd.split(self.w_recv)
+                if self.rT == 0:
+                    #need the initial data
+                    w0s = fd.split(self.w0 + self.Circ*alpha*self.w_recv)
+                else:
+                    w0s = fd.split(self.w_recv)
             else:
                 w0s = w_all_cpts[self.ncpts*(n-1):self.ncpts*n]
             # current time level
