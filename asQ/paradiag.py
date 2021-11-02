@@ -500,7 +500,7 @@ class paradiag(object):
             J.assemble()
             P.assemble()
 
-        snes.setJacobian(form_jacobian, J=Jacmat, P=Jacmat)
+        self.snes.setJacobian(form_jacobian, J=Jacmat, P=Jacmat)
 
         # complete the snes setup
         opts.set_from_options(self.snes)
