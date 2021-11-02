@@ -469,6 +469,9 @@ class paradiag(object):
         self.X = PETSc.Vec().create(comm=COMM_WORLD)
         self.X.setSizes((nlocal, nglobal))
         self.X.setFromOptions()
+        #copy initial data into the PETSc vec
+        with self.w_all.dat.vec_ro as v:
+            v.copy(self.X)
         self.F = X.copy()
 
         # construct the nonlinear form
@@ -497,6 +500,7 @@ class paradiag(object):
         opts.set_from_options(self.snes)
 
         # passing stuff to the diag preconditioner using the appctx
+        # This stuff all needs moving to the preconditioner
         def getW():
             return W
 
@@ -508,7 +512,6 @@ class paradiag(object):
         ctx["form_function"] = self.form_function
         ctx["w_all"] = self.w_all
         ctx["block_mat_type"] = block_mat_type
-
 
     def update(self, X):
         #Update self.u and self.u_recv
@@ -604,33 +607,10 @@ class paradiag(object):
         Solve the system (either in one shot or as a relaxation method).
         """
 
-        NEEDS SNES
         M = self.M
         if self.circ == "picard":
-            # Relaxation method
-            wMs = fd.split(self.w_all)[self.ncpts*(M-1):]
-            residual = 2*self.tol
-            its = 0
-            while residual > self.tol and its < self.maxits:
-                its += 1
-                self.vsolver.solve()
-
-                # compute the residual
-                err = [wMs[i] - self.w_prev.sub(i)
-                       for i in range(self.ncpts)]
-                res_form = fd.inner(err[0], err[0])*fd.dx
-                for i in range(len(err)-1):
-                    res_form += fd.inner(err[i], err[i])*fd.dx
-                residual = fd.assemble(res_form)**0.5
-                if verbose:
-                    print('residual', its, residual)
-
-                # copy the last time slice into w_prev
-                wMs = self.w_all.split()[self.ncpts*(M-1):]
-                for i in range(self.ncpts):
-                    self.w_prev.sub(i).assign(wMs[i])
-            if its == self.maxits and verbose:
-                print("Exited due to maxits.", its)
+            raise NotImplementedError
         else:
             # One shot
-            self.vsolver.solve()
+            snes.solve(self.X)
+            self.update(self.X)
