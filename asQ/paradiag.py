@@ -314,56 +314,68 @@ class JacobianMatrix(object):
         """
         self.u = Function(paradiag.W_all) #Where we copy the input function
         self.F = Function(paradiag.W_all) #Where we copy the output residual
+        self.F_prev = Function(paradiag.W_all) #Where we compute the
+                                               #part of the output
+                                               #residual from neighbouring
+                                               #contributions
         self.u0 = Function(paradiag.W_all) #Where we keep the state
         self.Fsingle = Function(paradiag.W)
         self.urecv = Function(paradiag.W) #will contain the previous time value i.e. 3*r-1
         self.usend = Function(paradiag.W) #will contain the next time value i.e. 3*(r+1)
         self.ulist = self.u.split()
         self.r = paradiag.ensemble.ensemble_comm.rank
-        NEED TO THINK ABOUT THE para_form, does it include the prev and
-        next?
+        self.n = paradiag.ensemble.ensemble_comm.size
+        # Jform missing contributions from the previous step
+        self.Jform = fd.derivative(paradiag.para_form, paradiag.w_all)
+        # Jform contributions from the previous step
+        self.Jform_prev = fd.derivative(paradiag.para_form, 
+                                        paradiag.w_recv)
 
     def mult(self, mat, X, Y):
-        with self.u0.dat.vec_wo as v:
-            v.array[:] = 
-        
+        #update the contents of paradiag.u from paradiag.X
+        self.paradiag.update(self.paradiag.Z)
+
+        n = self.n
+
         with self.u.dat.vec_wo as v:
             v.array[:] = X.array_r
 
-        ulist = self.ulist
         mpi_requests = []
-        #Communicate!
+        #Communication stage                
         #send
-        r = self.r
+        usends = self.usend.split()
+        r = ensemble.ensemble_comm.rank # the time rank
+        for k in range(self.ncpts):
+            usends[k].assign(u[self.ncpts*(self.M[r]-1)+k])
         if r < n-1:
-            self.usend.assign(self.ulist[-1])
             request_send = ens_comm.isend(self.usend, dest=r+1, tag=r)
-            mpi_requests.extend(request_send)
+        else:
+            request_send = ens_comm.isend(self.usend, dest=0, tag=r)
+        mpi_requests.extend(request_send)
+        #receive
         if r > 0:
             request_recv = ens_comm.irecv(self.urecv, source=r-1, tag=r-1)
-            mpi_requests.extend(request_recv)
         else:
-            self.urecv.assign(0)
-        #do some assembly with our own data
-        Flist = self.F.split()
-        w = TestFunction(V)
+            request_recv = ens_comm.irecv(self.urecv, source=n-1, tag=n-1)
+        mpi_requests.extend(request_recv)
 
-        for i in range(1,n):
-            du = ulist[i] - ulist[i-1]
-            ubar = Constant(0.5)*(ulist[i] + ulist[i-1])
-            assemble(w*du*dx + Dt*inner(grad(w), grad(ubar))*dx, tensor=self.Fsingle)
-            Flist[i].assign(self.Fsingle)
-        #wait for the data
+        #wait for the data [we should really do this after internal
+        #assembly but have avoided that for now]
         MPI.Request.Waitall(mpi_requests)
-        #assemble the first slot with the received data
-        du = ulist[0] - self.urecv
-        ubar = Constant(0.5)*(ulist[0] + self.urecv)
-        assemble(w*du*dx + Dt*inner(grad(w), grad(ubar))*dx, tensor=self.Fsingle)
-        Flist[0].assign(self.Fsingle)
+
+        if self.ensemble.ensemble_comm.rank=0:
+        if self.circ == "quasi":
+            raise NotImplementedError
+
+        #assembly stage
+        fd.assemble(fd.action(self.Jform, self.u), tensor=self.F)
+        fd.assemble(fd.action(self.Jform_prev, self.usend),
+                    tensor=self.F_prev)
+        self.F += self.F_prev
 
         with self.F.dat.vec_ro as v:
             v.copy(Y)
-    
+
 
 class paradiag(object):
     def __init__(self, ensemble,
@@ -392,7 +404,7 @@ class paradiag(object):
         form relaxation method. "quasi" - do a modified Newton
         method with alpha-circulant modification added to the
         Jacobian. To make the alpha circulant modification only in the
-        preconditioner, simply set ksp_type:preonly in the solve options.
+       preconditioner, simply set ksp_type:preonly in the solve options.
         :arg jac_average: a string describing the option for when to
         average the jacobian. "newton" - make a quasi-Newton method by
         time averaging the Jacobian. "preconditioner" - only do the
@@ -459,19 +471,29 @@ class paradiag(object):
         self.X.setFromOptions()
         self.F = X.copy()
 
-        #construct the nonlinear form
+        # construct the nonlinear form
         self._set_para_form()
 
-        #construct the Jacobian form
-        WATCH OUT FOR THE QUASI BITS
-        ALSO WATCH OUT FOR THE UPDATE METHOD
-        
         # set up the snes
         self.snes = PETSc.SNES().create(comm=COMM_WORLD)
         opts = OptionsManager(solver_parameters, 'paradiag')
         self.snes.setOptionsPrefix('paradiag's)
         self.snes.setFunction(self._assemble_function, self.F)
-        print("NEEDS A JACOBIAN!")
+
+        # set up the Jacobian
+        mctx = JacobianMatrix(self)
+        Jacmat = PETSc.Mat().create(comm=COMM_WORLD)
+        Jacmat.setType("python")
+        Jacmat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
+        Jacmat.setPythonContext(mctx)
+        Jacmat.setUp()
+        def form_jacobian(snes, X, J, P):
+            J.assemble()
+            P.assemble()
+
+        snes.setJacobian(form_jacobian, J=Jacmat, P=Jacmat)
+
+        # complete the snes setup
         opts.set_from_options(self.snes)
 
         # passing stuff to the diag preconditioner using the appctx
@@ -487,33 +509,14 @@ class paradiag(object):
         ctx["w_all"] = self.w_all
         ctx["block_mat_type"] = block_mat_type
 
-        if self.circ == "quasi":
-            alphaC = fd.Constant(self.alpha)
-            thetaC = fd.Constant(self.theta)
-            dtC = fd.Constant(self.dt)
-            J = fd.derivative(self.para_form, self.w_all)
-            test_fns = fd.TestFunctions(self.W_all)
-            dws = test_fns[self.ncpts*(M-1):]
-            wMs = fd.split(self.w_all)[self.ncpts*(M-1):]
-            extra_term = - alphaC*self.form_mass(*wMs, *dws)
-            extra_term += alphaC*thetaC*dtC \
-                * self.form_function(*wMs, *dws)
-            J += fd.derivative(extra_term, self.w_all)
-            vproblem = fd.NonlinearVariationalProblem(self.para_form,
-                                                      self.w_all,
-                                                      J=J)
-        else:
-            vproblem = fd.NonlinearVariationalProblem(self.para_form,
-                                                      self.w_all)
-        self.vsolver = fd.NonlinearVariationalSolver(vproblem,
-                                                     solver_parameters=solver_parameters,
-                                                     appctx=ctx)
 
-    def _assemble_function(self, snes, X, Fvec):
-        r"""
-        This is the function we pass to the snes to assemble
-        the nonlinear residual.
-        """
+    def update(self, X):
+        #Update self.u and self.u_recv
+        #from X.
+        #The local parts of X are copied into self.u
+        #and the last step from the previous slice (periodic)
+        #is copied into self.u_prev
+
         n = self.ensemble.ensemble_comm.size
 
         with self.w_all.dat.vec_wo as v:
@@ -540,64 +543,24 @@ class paradiag(object):
 
         #wait for the data [we should really do this after internal
         #assembly but have avoided that for now]
-        MPI.Request.Waitall(mpi_requests)
+        MPI.Request.Waitall(mpi_requests)        
+        
+    def _assemble_function(self, snes, X, Fvec):
+        r"""
+        This is the function we pass to the snes to assemble
+        the nonlinear residual.
+        """
+        self.update(X)
 
         if self.ensemble.ensemble_comm.rank=0:
         if self.circ == "picard":
             raise NotImplementedError
-            self.urecv.assign(self.w0 + alpha*(self.urecv - self.uprev))
             
         #assembly stage
         fd.assemble(self.para_form, tensor=self.F_all)
 
         with self.F.dat.vec_ro as v:
             v.copy(Fvec)
-
-
-    def _set_para_form_old(self):
-        """
-        Constructs the bilinear form for the all at once system.
-        Specific to the theta-centred Crank-Nicholson method
-        """
-
-        w_all_cpts = fd.split(self.w_all)
-
-        test_fns = fd.TestFunctions(self.W_all)
-
-        dt = fd.Constant(self.dt)
-        theta = fd.Constant(self.theta)
-        alpha = fd.Constant(self.alpha)
-        wMs = w_all_cpts[self.ncpts*(M-1):]
-        if self.circ == "picard":
-            if self.ncpts == 1:
-                wMkm1s = [self.w_prev]
-            else:
-                wMkm1s = fd.split(self.w_prev)
-
-        for n in range(M):
-            # previous time level
-            if n == 0:
-                w0ss = fd.split(self.w0)
-                if self.circ == "picard":
-                    w0s = [w0ss[i] + alpha*(wMs[i] - wMkm1s[i])
-                           for i in range(self.ncpts)]
-                else:
-                    w0s = w0ss
-            else:
-                w0s = w_all_cpts[self.ncpts*(n-1):self.ncpts*n]
-            # current time level
-            w1s = w_all_cpts[self.ncpts*n:self.ncpts*(n+1)]
-            dws = test_fns[self.ncpts*n:self.ncpts*(n+1)]
-            # time derivative
-            if n == 0:
-                p_form = (1.0/dt)*self.form_mass(*w1s, *dws)
-            else:
-                p_form += (1.0/dt)*self.form_mass(*w1s, *dws)
-            p_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
-            # vector field
-            p_form += theta*self.form_function(*w1s, *dws)
-            p_form += (1-theta)*self.form_function(*w0s, *dws)
-        self.para_form = p_form
 
     def _set_para_form(self):
         """
