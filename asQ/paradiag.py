@@ -344,19 +344,20 @@ class JacobianMatrix(object):
         #Communication stage                
         #send
         usends = self.usend.split()
-        r = ensemble.ensemble_comm.rank # the time rank
+        r = self.ensemble.ensemble_comm.rank # the time rank
+        # r = ensemble.ensemble_comm.rank # the time rank
         for k in range(self.ncpts):
-            usends[k].assign(u[self.ncpts*(self.M[r]-1)+k])
+            usends[k].assign(self.u[self.ncpts*(self.M[r]-1)+k])
         if r < n-1:
-            request_send = ens_comm.isend(self.usend, dest=r+1, tag=r)
+            request_send = self.ensemble.isend(self.usend, dest=r+1, tag=r)
         else:
-            request_send = ens_comm.isend(self.usend, dest=0, tag=r)
+            request_send = self.ensemble.isend(self.usend, dest=0, tag=r)
         mpi_requests.extend(request_send)
         #receive
         if r > 0:
-            request_recv = ens_comm.irecv(self.urecv, source=r-1, tag=r-1)
+            request_recv = self.ensemble.irecv(self.urecv, source=r-1, tag=r-1)
         else:
-            request_recv = ens_comm.irecv(self.urecv, source=n-1, tag=n-1)
+            request_recv = self.ensemble.irecv(self.urecv, source=n-1, tag=n-1)
         mpi_requests.extend(request_recv)
 
         #wait for the data [we should really do this after internal
@@ -445,9 +446,17 @@ class paradiag(object):
                ensemble.ensemble_comm.size, nM)
         rT = ensemble.ensemble_comm.rank # the time rank
         self.rT = rT
-        # function space for the component of the
+        # function space for the component of them[
         # all-at-once system assigned to this process
         # implemented as a massive mixed function space
+
+        # print(rT)
+        # print(ensemble.ensemble_comm.size)
+        # print(M)
+        # print(nM)
+        # print('M[rt]: ', M[rT])
+        # from IPython import embed; embed()
+
         self.W_all = np.prod([self.W for i in range(M[rT])])
 
         # function containing the part of the
@@ -530,24 +539,25 @@ class paradiag(object):
 
         with self.w_all.dat.vec_wo as v:
             v.array[:] = X.array_r
-        
+
         mpi_requests = []
         #Communication stage                
         #send
-        usends = self.usend.split()
-        r = ensemble.ensemble_comm.rank # the time rank
+
+        usends = self.w_send.split()
+        r = self.ensemble.ensemble_comm.rank # the time rank
         for k in range(self.ncpts):
-            usends[k].assign(w_alls[self.ncpts*(self.M[r]-1)+k])
+            usends[k].assign(self.w_alls[self.ncpts*(self.M[r]-1)+k])
         if r < n-1:
-            request_send = ens_comm.isend(self.usend, dest=r+1, tag=r)
+            request_send = self.ensemble.isend(self.w_send, dest=r+1, tag=r)
         else:
-            request_send = ens_comm.isend(self.usend, dest=0, tag=r)
+            request_send = self.ensemble.isend(self.w_send, dest=0, tag=r)
         mpi_requests.extend(request_send)
         #receive
         if r > 0:
-            request_recv = ens_comm.irecv(self.urecv, source=r-1, tag=r-1)
+            request_recv = self.ensemble.irecv(self.w_recv, source=r-1, tag=r-1)
         else:
-            request_recv = ens_comm.irecv(self.urecv, source=n-1, tag=n-1)
+            request_recv = self.ensemble.irecv(self.w_recv, source=n-1, tag=n-1)
         mpi_requests.extend(request_recv)
 
         #wait for the data [we should really do this after internal
@@ -569,7 +579,7 @@ class paradiag(object):
         #assembly stage
         fd.assemble(self.para_form, tensor=self.F_all)
 
-        with self.F.dat.vec_ro as v:
+        with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
 
     def _set_para_form(self):
