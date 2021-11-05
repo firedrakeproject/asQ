@@ -12,7 +12,7 @@ def test_snes():
     # only one spatial domain
     ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
 
-    mesh = fd.UnitSquareMesh(20, 20)
+    mesh = fd.UnitSquareMesh(20, 20, ensemble.comm)
     V = fd.FunctionSpace(mesh, "CG", 1)
     
     x, y = fd.SpatialCoordinate(mesh)
