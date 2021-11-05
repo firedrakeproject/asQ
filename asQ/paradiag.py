@@ -312,6 +312,7 @@ class JacobianMatrix(object):
         r"""
         :param paradiag: The paradiag object
         """
+        self.paradiag = paradiag
         self.u = fd.Function(paradiag.W_all) #Where we copy the input function
         self.F = fd.Function(paradiag.W_all) #Where we copy the output residual
         self.F_prev = fd.Function(paradiag.W_all) #Where we compute the
@@ -333,7 +334,7 @@ class JacobianMatrix(object):
 
     def mult(self, mat, X, Y):
         #update the contents of paradiag.u from paradiag.X
-        self.paradiag.update(self.paradiag.Z)
+        self.paradiag.update(self.paradiag.X)
 
         n = self.n
 
@@ -344,20 +345,20 @@ class JacobianMatrix(object):
         #Communication stage                
         #send
         usends = self.usend.split()
-        r = self.ensemble.ensemble_comm.rank # the time rank
+        r = self.paradiag.ensemble.ensemble_comm.rank # the time rank
         # r = ensemble.ensemble_comm.rank # the time rank
-        for k in range(self.ncpts):
-            usends[k].assign(self.u[self.ncpts*(self.M[r]-1)+k])
+        for k in range(self.paradiag.ncpts):
+            usends[k].assign(self.ulist[self.paradiag.ncpts*(self.paradiag.M[r]-1)+k])
         if r < n-1:
-            request_send = self.ensemble.isend(self.usend, dest=r+1, tag=r)
+            request_send = self.paradiag.ensemble.isend(self.usend, dest=r+1, tag=r)
         else:
-            request_send = self.ensemble.isend(self.usend, dest=0, tag=r)
+            request_send = self.paradiag.ensemble.isend(self.usend, dest=0, tag=r)
         mpi_requests.extend(request_send)
         #receive
         if r > 0:
-            request_recv = self.ensemble.irecv(self.urecv, source=r-1, tag=r-1)
+            request_recv = self.paradiag.ensemble.irecv(self.urecv, source=r-1, tag=r-1)
         else:
-            request_recv = self.ensemble.irecv(self.urecv, source=n-1, tag=n-1)
+            request_recv = self.paradiag.ensemble.irecv(self.urecv, source=n-1, tag=n-1)
         mpi_requests.extend(request_recv)
 
         #wait for the data [we should really do this after internal
@@ -365,10 +366,10 @@ class JacobianMatrix(object):
         MPI.Request.Waitall(mpi_requests)
 
         #Set the flag for the circulant option
-        if self.circ == "quasi":
-            self.Circ.assign(1.0)
+        if self.paradiag.circ == "quasi":
+            self.paradiag.Circ.assign(1.0)
         else:
-            self.Circ.assign(0.0)
+            self.paradiag.Circ.assign(0.0)
 
         #assembly stage
         fd.assemble(fd.action(self.Jform, self.u), tensor=self.F)
