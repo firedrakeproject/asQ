@@ -328,7 +328,7 @@ class JacobianMatrix(object):
         # Jform missing contributions from the previous step
         self.Jform = fd.derivative(paradiag.para_form, paradiag.w_all)
         # Jform contributions from the previous step
-        self.Jform_prev = fd.derivative(paradiag.para_form, 
+        self.Jform_prev = fd.derivative(paradiag.para_form,
                                         paradiag.w_recv)
 
     def mult(self, mat, X, Y):
@@ -468,7 +468,7 @@ class paradiag(object):
             for k in range(self.ncpts):
                 w_alls[self.ncpts*i+k].assign(self.w0.sub(k))
         self.w_alls = w_alls
-                
+
         # function to assemble the nonlinear residual
         self.F_all = fd.Function(self.W_all)
                 
@@ -529,9 +529,9 @@ class paradiag(object):
         ctx["block_mat_type"] = block_mat_type
 
     def update(self, X):
-        #Update self.u and self.u_recv
+        #Update self.w_alls and self.w_recv
         #from X.
-        #The local parts of X are copied into self.u
+        #The local parts of X are copied into self.w_alls
         #and the last step from the previous slice (periodic)
         #is copied into self.u_prev
 
@@ -562,7 +562,7 @@ class paradiag(object):
 
         #wait for the data [we should really do this after internal
         #assembly but have avoided that for now]
-        MPI.Request.Waitall(mpi_requests)        
+        MPI.Request.Waitall(mpi_requests)    
         
     def _assemble_function(self, snes, X, Fvec):
         r"""

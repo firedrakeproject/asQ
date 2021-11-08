@@ -8,6 +8,9 @@ def test_snes():
     # tests the basic snes setup
     # using the heat equation
     # solves using unpreconditioned GMRES
+
+    from petsc4py import PETSc
+    PETSc.Sys.popErrorHandler()
     
     # only one spatial domain
     ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
@@ -43,13 +46,16 @@ def test_snes():
     PD.solve()
 
 
-@pytest.mark.xfail
+@pytest.mark.parallel(nprocs=4)
 def test_set_para_form():
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the heat equation as an example by
     # substituting the sequential solution and evaluating the residual
 
-    mesh = fd.UnitSquareMesh(20, 20)
+    # only one spatial domain
+    ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
+
+    mesh = fd.UnitSquareMesh(20, 20, ensemble.comm)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -57,7 +63,7 @@ def test_set_para_form():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = 4
+    M = [2, 2, 2, 2]
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
@@ -68,37 +74,65 @@ def test_set_para_form():
     def form_mass(u, v):
         return u*v*fd.dx
 
-    PD = asQ.paradiag(form_function=form_function,
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
                       form_mass=form_mass, W=V, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters,
-                      circ="none")
+                      circ="none",
+                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
 
-    # sequential solver
-    un = fd.Function(V)
-    unp1 = fd.Function(V)
+    # sequential assembly
+    WFull = V * V * V * V * V * V * V * V
+    ufull = fd.Function(WFull)
+    np.random.seed(132574)
+    ufull_list = ufull.split()
+    for i in range(8):
+        ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
+
+    rT = ensemble.ensemble_comm.rank
+    #copy the data from the full list into the time slice for this rank in PD.w_all
+    w_alls = PD.w_all.split()
+    w_alls[0].assign(ufull_list[rT*2])
+    w_alls[1].assign(ufull_list[rT*2+1])
+    #copy from w_all into the PETSc vec PD.X
+    with PD.w_all.dat.vec_ro as v:
+            v.copy(PD.X)
+
+    #make a form for all of the time slices
+    vfull = fd.TestFunction(WFull)
+    ufulls = fd.split(ufull)
+    vfulls = fd.split(vfull)
+    for i in range(8):
+        if i == 0:
+            un = u0
+        else:
+            un = ufulls[i-1]
+        unp1 = ufulls[i]
+        v = vfulls[i]
+        tform = form_mass(unp1 - un, v/dt) + form_function((unp1+un)/2, v)
+        if i == 0:
+            fullform = tform
+        else:
+            fullform += tform
+    
+    Ffull = fd.assemble(fullform)
+    PD._assemble_function(PD.snes, PD.X, PD.F)
+    PD.update(PD.X)
 
     un.assign(u0)
     v = fd.TestFunction(V)
 
-    eqn = (unp1 - un)*v/dt*fd.dx
-    eqn += fd.Constant((1-theta))*form_function(un, v)
-    eqn += fd.Constant(theta)*form_function(unp1, v)
-
-    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
-    ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters=solver_parameters)
-
-    for i in range(M):
-        ssolver.solve()
-        PD.w_all.sub(i).assign(unp1)
-        un.assign(unp1)
-
-    Pres = fd.assemble(PD.para_form)
-    for i in range(M):
-        assert(dt*np.abs(Pres.sub(i).dat.data[:]).max() < 1.0e-16)
+    error1 = Function(V)
+    error2 = Function(V)
+    u0 = ufull_list[2*rT]
+    u1 = ufull_list[2*rT+1]
+    error1.assign(u0 - PD.w_alls[0])
+    error2.assign(u1 - PD.w_alls[1])
+    assert(fd.norm(error1) < 1.0e-5)
+    assert(fd.norm(error2) < 1.0e-5)
 
 
 @pytest.mark.xfail
