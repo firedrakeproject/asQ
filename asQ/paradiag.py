@@ -443,8 +443,7 @@ class paradiag(object):
 
         # checks that the ensemble communicator is set up correctly
         nM = len(M) # the expected number of time ranks
-        assert(ensemble.ensemble_comm.size == nM,
-               ensemble.ensemble_comm.size, nM)
+        assert ensemble.ensemble_comm.size == nM
         rT = ensemble.ensemble_comm.rank # the time rank
         self.rT = rT
         # function space for the component of them[
