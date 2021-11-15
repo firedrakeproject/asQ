@@ -55,7 +55,7 @@ def test_set_para_form():
     # only one spatial domain
     ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
 
-    mesh = fd.UnitSquareMesh(20, 20, ensemble.comm)
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -99,7 +99,7 @@ def test_set_para_form():
     w_alls[1].assign(ufull_list[rT*2+1])
     #copy from w_all into the PETSc vec PD.X
     with PD.w_all.dat.vec_ro as v:
-            v.copy(PD.X)
+        v.copy(PD.X)
 
     #make a form for all of the time slices
     vfull = fd.TestFunction(WFull)
@@ -117,22 +117,29 @@ def test_set_para_form():
             fullform = tform
         else:
             fullform += tform
-    
+
     Ffull = fd.assemble(fullform)
+
     PD._assemble_function(PD.snes, PD.X, PD.F)
-    PD.update(PD.X)
+    PD_F1 = fd.Function(V)
+    PD_F2 = fd.Function(V)
+    vlen = V.node_set.size
+    with PD_F1.dat.vec_ro as v:
+        v.array[:] = PD.F.array_r[0:vlen]
+    with PD_F2.dat.vec_ro as v:
+        v.array[:] = PD.F.array_r[vlen:]
 
-    un.assign(u0)
-    v = fd.TestFunction(V)
+    error1 = fd.Function(V)
+    error2 = fd.Function(V)
+    r1 = fd.Function(V)
+    r2 = fd.Function(V)
+    r1.assign(Ffull.sub(rT * 2))
+    r2.assign(Ffull.sub(rT * 2 + 1))
+    error1.assign(r1 - PD_F1)
+    error2.assign(r2 - PD_F2)
 
-    error1 = Function(V)
-    error2 = Function(V)
-    u0 = ufull_list[2*rT]
-    u1 = ufull_list[2*rT+1]
-    error1.assign(u0 - PD.w_alls[0])
-    error2.assign(u1 - PD.w_alls[1])
-    assert(fd.norm(error1) < 1.0e-5)
-    assert(fd.norm(error2) < 1.0e-5)
+    assert(fd.norm(error1) < 1.0e-12)
+    assert(fd.norm(error2) < 1.0e-12)
 
 
 @pytest.mark.xfail
