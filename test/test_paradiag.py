@@ -26,7 +26,7 @@ def test_snes():
     M = [2, 2, 2, 2]
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
-                         'ksp_monitor': None}
+                         'ksp_monitor': None, 'snes_type': 'test'}
 
     def form_function(u, v):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx

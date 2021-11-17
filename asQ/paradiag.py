@@ -327,6 +327,14 @@ class JacobianMatrix(object):
         self.r = paradiag.ensemble.ensemble_comm.rank
         self.n = paradiag.ensemble.ensemble_comm.size
         # Jform missing contributions from the previous step
+        # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
+        # definition:
+        # dF_{u1}[u1, u2, u3; delta_u, v] =
+        #  lim_{eps -> 0} (F[u1+eps*delta_u,u2,u3;v]
+        #                  - F[u1,u2,u3;v])/eps
+        # Newton, solves for delta_u such that
+        # dF_{u1}[u1, u2, u3; delta_u, v] = -F[u1,u2,u3; v], for all v
+        # then updates u1 += delta_u
         self.Jform = fd.derivative(paradiag.para_form, paradiag.w_all)
         # Jform contributions from the previous step
         self.Jform_prev = fd.derivative(paradiag.para_form,
@@ -373,7 +381,7 @@ class JacobianMatrix(object):
 
         #assembly stage
         fd.assemble(fd.action(self.Jform, self.u), tensor=self.F)
-        fd.assemble(fd.action(self.Jform_prev, self.usend),
+        fd.assemble(fd.action(self.Jform_prev, self.urecv),
                     tensor=self.F_prev)
         self.F += self.F_prev
 
