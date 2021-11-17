@@ -11,13 +11,13 @@ def test_snes():
 
     from petsc4py import PETSc
     PETSc.Sys.popErrorHandler()
-    
+
     # only one spatial domain
     ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
 
-    mesh = fd.UnitSquareMesh(20, 20, ensemble.comm)
+    mesh = fd.UnitSquareMesh(20, 20, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "CG", 1)
-    
+
     x, y = fd.SpatialCoordinate(mesh)
     u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
     dt = 0.01
@@ -140,6 +140,129 @@ def test_set_para_form():
 
     assert(fd.norm(error1) < 1.0e-12)
     assert(fd.norm(error2) < 1.0e-12)
+
+@pytest.mark.parallel(nprocs=4)
+def test_set_para_form_mixed_parallel():
+    # checks that the all-at-once system is the same as solving
+    # timesteps sequentially using the heat equation as an example by
+    # substituting the sequential solution and evaluating the residual
+
+    # only one spatial domain
+    ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    V = fd.FunctionSpace(mesh, "BDM", 1)
+    Q = fd.FunctionSpace(mesh, "DG", 0)
+    W = V * Q
+
+    x, y = fd.SpatialCoordinate(mesh)
+    # u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    w0 = fd.Function(W)
+    u0, p0 = w0.split()
+    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    dt = 0.01
+    theta = 0.5
+    alpha = 0.001
+    M = [2, 2, 2, 2]
+    solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
+                         'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
+                         'ksp_monitor': None}
+
+    def form_function(uu, up, vu, vp):
+        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
+
+    def form_mass(uu, up, vu, vp):
+        return (fd.inner(uu, vu) + up*vp)*fd.dx
+
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=W, w0=w0,
+                      dt=dt, theta=theta,
+                      alpha=alpha,
+                      M=M, solver_parameters=solver_parameters,
+                      circ="none",
+                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
+
+    # sequential assembly
+    WFull = W * W * W * W * W * W * W * W
+    ufull = fd.Function(WFull)
+    np.random.seed(132574)
+    ufull_list = ufull.split()
+    for i in range((2*8)):
+        # print(i)
+        ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
+
+    rT = ensemble.ensemble_comm.rank
+    #copy the data from the full list into the time slice for this rank in PD.w_all
+    w_alls = PD.w_all.split()
+    w_alls[0].assign(ufull_list[4 * rT])   # 1st time slice V
+    w_alls[1].assign(ufull_list[4 * rT + 1])  # 1st time slice Q
+    w_alls[2].assign(ufull_list[4 * rT + 2])  # 2nd time slice V
+    w_alls[3].assign(ufull_list[4 * rT + 3])  # 2nd time slice Q
+
+    # copy from w_all into the PETSc vec PD.X
+    with PD.w_all.dat.vec_ro as v:
+        v.copy(PD.X)
+
+    # make a form for all of the time slices
+    vfull = fd.TestFunction(WFull)
+    ufulls = fd.split(ufull)
+    vfulls = fd.split(vfull)
+
+    for i in range(8):
+        if i == 0:
+            un = u0
+            pn = p0
+        else:
+            un = ufulls[2 * i - 2]
+            pn = ufulls[2 * i - 1]
+        unp1 = ufulls[2 * i]
+        pnp1 = ufulls[2 * i + 1]
+        vu = vfulls[2 * i]
+        vp = vfulls[2 * i + 1]
+        # forms have 2 components and 2 test functions: (u, h, w, phi)
+        tform = form_mass(unp1 - un, pnp1 - pn, vu / dt, vp / dt) \
+                + form_function((unp1 + un) / 2, (pnp1 + pn) / 2, vu, vp)
+        if i == 0:
+            fullform = tform
+        else:
+            fullform += tform
+
+    Ffull = fd.assemble(fullform)
+
+    PD._assemble_function(PD.snes, PD.X, PD.F)
+    PD_F1 = fd.Function(W)
+    PD_F2 = fd.Function(W)
+    vlen = V.node_set.size
+    plen = Q.node_set.size
+
+    with PD_F1.sub(0).dat.vec_ro as v:
+        v.array[:] = PD.F.array_r[0:vlen]
+    with PD_F1.sub(1).dat.vec_ro as v:
+        v.array[:] = PD.F.array_r[vlen:vlen + plen]
+    with PD_F2.sub(0).dat.vec_ro as v:
+        v.array[:] = PD.F.array_r[vlen + plen:vlen + plen + vlen]
+    with PD_F2.sub(1).dat.vec_ro as v:
+        v.array[:] = PD.F.array_r[vlen + plen + vlen:]
+
+    r11, r12 = fd.Function(W).split()
+    r21, r22 = fd.Function(W).split()
+    e11, e12 = fd.Function(W).split()
+    e21, e22 = fd.Function(W).split()
+    r11.assign(Ffull.sub(rT * 4))
+    r12.assign(Ffull.sub(rT * 4 + 1))
+    r21.assign(Ffull.sub(rT * 4 + 2))
+    r22.assign(Ffull.sub(rT * 4 + 3))
+    e11.assign(r11 - PD_F1.sub(0))
+    e12.assign(r12 - PD_F1.sub(1))
+    e21.assign(r21 - PD_F2.sub(0))
+    e22.assign(r22 - PD_F2.sub(1))
+
+    assert(fd.norm(e11) < 1.0e-12)
+    assert(fd.norm(e12) < 1.0e-12)
+    assert(fd.norm(e21) < 1.0e-12)
+    assert(fd.norm(e22) < 1.0e-12)
 
 
 @pytest.mark.xfail
