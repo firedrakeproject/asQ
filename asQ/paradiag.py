@@ -502,7 +502,7 @@ class paradiag(object):
 
         # set up the snes
         self.snes = PETSc.SNES().create(comm=fd.COMM_WORLD)
-        opts = OptionsManager(solver_parameters, 'paradiag')
+        self.opts = OptionsManager(solver_parameters, 'paradiag')
         self.snes.setOptionsPrefix('paradiag')
         self.snes.setFunction(self._assemble_function, self.F)
 
@@ -520,7 +520,7 @@ class paradiag(object):
         self.snes.setJacobian(form_jacobian, J=Jacmat, P=Jacmat)
 
         # complete the snes setup
-        opts.set_from_options(self.snes)
+        self.opts.set_from_options(self.snes)
 
         # passing stuff to the diag preconditioner using the appctx
         # This stuff all needs moving to the preconditioner
@@ -644,5 +644,6 @@ class paradiag(object):
             raise NotImplementedError
         else:
             # One shot
-            self.snes.solve(None, self.X)
+            with self.opts.inserted_options():
+                self.snes.solve(None, self.X)
             self.update(self.X)

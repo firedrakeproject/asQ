@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 @pytest.mark.parallel(nprocs=4)
-def test_snes():
+def test_jacobian_heat_equation():
     # tests the basic snes setup
     # using the heat equation
     # solves using unpreconditioned GMRES
@@ -15,24 +15,32 @@ def test_snes():
     # only one spatial domain
     ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
 
-    mesh = fd.UnitSquareMesh(20, 20, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    u0 = fd.Function(V).interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
     M = [2, 2, 2, 2]
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
-                         'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
-                         'ksp_monitor': None, 'snes_type': 'test'}
+                         'ksp_rtol': 1.0e-10, 'ksp_atol': 1.0e-10,
+                         'ksp_monitor': None,
+                         'ksp_max_it': 45,
+                         'ksp_converged_reason': None,
+                         # 'snes_test_jacobian': None,
+                         # 'snes_test_jacobian_view': None,
+                         'snes_converged_reason': None,
+                         'snes_max_it': 2,
+                         # 'snes_view': None
+                         }
 
     def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+        return fd.inner(fd.grad(u), fd.grad(v)) * fd.dx
 
     def form_mass(u, v):
-        return u*v*fd.dx
+        return u * v * fd.dx
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
@@ -44,6 +52,10 @@ def test_snes():
                       jac_average="newton", tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
     PD.solve()
+
+    # print(PD.snes.getConvergedReason())
+    assert (1 < PD.snes.getConvergedReason() < 5)
+
 
 
 @pytest.mark.parallel(nprocs=4)
