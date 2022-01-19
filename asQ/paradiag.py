@@ -4,6 +4,9 @@ from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc, OptionsManager
 from pyop2.mpi import MPI
 
+from functools import reduce
+from operator import mul
+
 class DiagFFTPC(fd.PCBase):
 
     r"""A preconditioner for all-at-once systems with alpha-circulant
@@ -346,6 +349,7 @@ class JacobianMatrix(object):
 
         n = self.n
 
+        #copy the local data from X into self.u
         with self.u.dat.vec_wo as v:
             v.array[:] = X.array_r
 
@@ -465,8 +469,8 @@ class paradiag(object):
         # print('M[rt]: ', M[rT])
         # from IPython import embed; embed()
 
-        self.W_all = np.prod([self.W for i in range(M[rT])])
-
+        #self.W_all = np.prod([self.W for i in range(M[rT])])
+        self.W_all = reduce(mul, (self.W for _ in range(M[rT])))
         # function containing the part of the
         # all-at-once solution assigned to this rank
         self.w_all = fd.Function(self.W_all)
@@ -508,6 +512,7 @@ class paradiag(object):
 
         # set up the Jacobian
         mctx = JacobianMatrix(self)
+        self.JacobianMatrix = mctx
         Jacmat = PETSc.Mat().create(comm=fd.COMM_WORLD)
         Jacmat.setType("python")
         Jacmat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
