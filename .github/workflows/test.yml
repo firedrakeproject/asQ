@@ -40,4 +40,4 @@ jobs:
       - name: Test
         run: |
           . /home/firedrake/firedrake/bin/activate
-          pytest -v test
+          pytest -v tests
