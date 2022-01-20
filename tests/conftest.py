@@ -1,7 +1,6 @@
 """Global test configuration."""
 
 from subprocess import check_call
-import pytest
 
 
 def parallel(item):
@@ -33,7 +32,7 @@ def pytest_runtest_call(item):
         # Spawn parallel processes to run test
         parallel(item)
 
-    
+
 def pytest_configure(config):
     """Register an additional marker."""
     config.addinivalue_line(
