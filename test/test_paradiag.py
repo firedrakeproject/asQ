@@ -1,6 +1,7 @@
 import asQ
 import firedrake as fd
 import numpy as np
+import pytest
 
 
 def test_set_para_form():
@@ -724,7 +725,7 @@ def test_diag_precon_nl_mixed():
         'mat_type': 'matfree',
         'ksp_rtol': 1.0e-10,
         'ksp_max_it': 6,
-        # 'ksp_converged_reason': None,
+        'ksp_converged_reason': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
     }
@@ -775,3 +776,8 @@ def test_diag_precon_nl_mixed():
         err.assign(punD - pun)
         print(fd.norm(err))
         assert (fd.norm(err) < 1.0e-15)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_diag_precon_nl_mixed_parallel():
+    test_diag_precon_nl_mixed()
