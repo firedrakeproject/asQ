@@ -1,6 +1,7 @@
 """Global test configuration."""
 
 from subprocess import check_call
+import pytest
 
 
 def parallel(item):
@@ -8,6 +9,7 @@ def parallel(item):
 
     :arg item: The test item to run.
     """
+    print("IN PARALLEL")
     from mpi4py import MPI
     if MPI.COMM_WORLD.size > 1:
         raise RuntimeError("parallel test can't be run within parallel environment")
@@ -17,16 +19,25 @@ def parallel(item):
     nprocs = marker.kwargs.get("nprocs", 3)
     if nprocs < 2:
         raise RuntimeError("Need at least two processes to run parallel test")
-
+    print(nprocs, "NPROCS")
     # Only spew tracebacks on rank 0.
     # Run xfailing tests to ensure that errors are reported to calling process
 
     call = ["mpiexec", "-n", "1", "python", "-m", "pytest", "--runxfail", "-s", "-q", "%s::%s" % (item.fspath, item.name)]
+    print("CALL", call)
     call.extend([":", "-n", "%d" % (nprocs - 1), "python", "-m", "pytest", "--runxfail", "--tb=no", "-q",
                  "%s::%s" % (item.fspath, item.name)])
+    print("CALL", call)
     check_call(call)
 
 
+def pytest_runtest_call(item):
+    from mpi4py import MPI
+    if item.get_closest_marker("parallel") and MPI.COMM_WORLD.size == 1:
+        # Spawn parallel processes to run test
+        parallel(item)
+
+    
 def pytest_configure(config):
     """Register an additional marker."""
     config.addinivalue_line(
