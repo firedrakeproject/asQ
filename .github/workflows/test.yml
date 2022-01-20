@@ -31,7 +31,7 @@ jobs:
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
-          python -m pip install scipy
+          python -m pip install --upgrade scipy
           python -m pip install -e .
       - name: Lint
         run: |
