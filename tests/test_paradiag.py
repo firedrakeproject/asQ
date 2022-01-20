@@ -1166,8 +1166,3 @@ def test_diag_precon_nl_mixed():
         err.assign(punD - pun)
         print(fd.norm(err))
         assert (fd.norm(err) < 1.0e-15)
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_diag_precon_nl_mixed_parallel():
-    test_diag_precon_nl_mixed()
