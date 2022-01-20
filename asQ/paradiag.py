@@ -455,21 +455,14 @@ class paradiag(object):
 
         # checks that the ensemble communicator is set up correctly
         nM = len(M) # the expected number of time ranks
+        print(fd.COMM_WORLD.size, ensemble.ensemble_comm.size, nM, M)
         assert ensemble.ensemble_comm.size == nM
         rT = ensemble.ensemble_comm.rank # the time rank
         self.rT = rT
-        # function space for the component of them[
+        # function space for the component of them
         # all-at-once system assigned to this process
         # implemented as a massive mixed function space
 
-        # print(rT)
-        # print(ensemble.ensemble_comm.size)
-        # print(M)
-        # print(nM)
-        # print('M[rt]: ', M[rT])
-        # from IPython import embed; embed()
-
-        #self.W_all = np.prod([self.W for i in range(M[rT])])
         self.W_all = reduce(mul, (self.W for _ in range(M[rT])))
         # function containing the part of the
         # all-at-once solution assigned to this rank
