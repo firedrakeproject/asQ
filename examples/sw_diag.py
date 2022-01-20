@@ -8,7 +8,7 @@ import argparse
 parser = argparse.ArgumentParser(description='Williamson 5 testcase for approximate Schur complement solver.')
 parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve. Default 1.')
 parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid. Default 3.')
-parser.add_argument('--nsteps', type=int, default=10, help='Number of timesteps. Default 4.')
+parser.add_argument('--nsteps', type=int, default=10, help='Number of timesteps. Default 10.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient. Default 0.0001.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours. Default 0.05.')
 parser.add_argument('--filename', type=str, default='w5diag')
@@ -156,7 +156,6 @@ sparameters = {
     "mat_type": "matfree",
     "ksp_type": "fgmres",
     "ksp_max_it": 50,
-    "ksp_converged_reason": None,
     "ksp_gmres_modifiedgramschmidt": None,
     "ksp_rtol": 1e-8,
     "pc_type": "fieldsplit",
@@ -274,8 +273,6 @@ solver_parameters_diag = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     "ksp_gmres_modifiedgramschmidt": None,
-    'ksp_converged_reason': None,
-    'ksp_monitor': None,
     'ksp_max_it': 60,
     'ksp_rtol': 1.0e-5,
     'ksp_atol': 1.0e-30,
