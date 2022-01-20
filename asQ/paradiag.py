@@ -236,21 +236,7 @@ class DiagFFTPC(fd.PCBase):
 
         # get array of basis coefficients
         with self.xf.dat.vec_ro as v:
-
-            # print('np.size(v.array)', np.size(v.array))
-            # print('int(np.size(v.array) / self.M', int(np.size(v.array) / self.M))
-            #
-            # print('dof_count', (self.blockV.dof_count))
-            # print('sum(dof_count)', sum(self.blockV.dof_count))
-            # print('diff(dof_count)', np.diff(self.blockV.dof_count))
-            # print('node_set size', self.blockV.node_set.size)
-            # print('value_size', self.blockV.value_size)
-            # print('node_set size * value_size', self.blockV.node_set.size * self.blockV.value_size)
-            # from IPython import embed; embed()
-
-            # parray = v.array.reshape((self.M, self.blockV.dim()))
-            # parray = v.array.reshape((self.M, int(np.size(v.array) / self.M)))
-            parray = v.array.reshape((self.M, self.blockV.node_set.size))
+            parray = v.array_r.reshape((self.M, self.blockV.node_set.size))
         # This produces an array whose rows are time slices
         # and columns are finite element basis coefficients
 
@@ -260,14 +246,10 @@ class DiagFFTPC(fd.PCBase):
 
         # Copy into xfi, xfr
         with self.xfr.dat.vec_wo as v:
-            # v.array[:] = parray.real.reshape((self.NM,))
-            v.array[:] = parray.real.reshape((np.size(v.array),))
-            v.array[:] = parray.real.reshape((self.blockV.node_set.size * self.M,))
+            v.array[:] = parray.real.reshape(-1)
 
         with self.xfi.dat.vec_wo as v:
-            # v.array[:] = parray.imag.reshape((self.NM,))
-            v.array[:] = parray.imag.reshape((np.size(v.array),))
-            v.array[:] = parray.imag.reshape((self.blockV.node_set.size * self.M,))
+            v.array[:] = parray.imag.reshape(-1)
 
         # Do the block solves
 
@@ -308,19 +290,13 @@ class DiagFFTPC(fd.PCBase):
         # Undiagonalise
         # get array of basis coefficients
         with self.xfi.dat.vec_ro as v:
-            # parray = 1j*v.array.reshape((self.M, self.blockV.dim()))
-            # parray = 1j*v.array.reshape((self.M, int(np.size(v.array)/self.M)))
-            parray = 1j*v.array.reshape((self.M, self.blockV.node_set.size))
+            parray = 1j*v.array_r.reshape((self.M, self.blockV.node_set.size))
         with self.xfr.dat.vec_ro as v:
-            # parray += v.array.reshape((self.M, self.blockV.dim()))
-            # parray += v.array.reshape((self.M, int(np.size(v.array)/self.M)))
-            parray += v.array.reshape((self.M, self.blockV.node_set.size))
+            parray += v.array_r.reshape((self.M, self.blockV.node_set.size))
         parray = ((1.0/self.Gam)*ifft(parray, axis=0).T).T
         # get array of basis coefficients
         with self.yf.dat.vec_wo as v:
-            # v.array[:] = parray.reshape((self.M*self.blockV.dim(),)).real
-            # v.array[:] = parray.reshape((self.M*int(np.size(v.array)/self.M),)).real
-            v.array[:] = parray.reshape((self.M * self.blockV.node_set.size,)).real
+            v.array[:] = parray.reshape(-1).real
 
         with self.yf.dat.vec_ro as v:
             v.copy(y)
