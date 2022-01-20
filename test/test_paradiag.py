@@ -2,6 +2,8 @@ import asQ
 import firedrake as fd
 import numpy as np
 import pytest
+from petsc4py import PETSc
+
 
 @pytest.mark.parallel(nprocs=4)
 def test_jacobian_heat_equation():
@@ -57,7 +59,6 @@ def test_jacobian_heat_equation():
     assert (1 < PD.snes.getConvergedReason() < 5)
 
 
-
 @pytest.mark.parallel(nprocs=4)
 def test_set_para_form():
     # checks that the all-at-once system is the same as solving
@@ -105,15 +106,15 @@ def test_set_para_form():
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
-    #copy the data from the full list into the time slice for this rank in PD.w_all
+    # copy the data from the full list into the time slice for this rank in PD.w_all
     w_alls = PD.w_all.split()
     w_alls[0].assign(ufull_list[rT*2])
     w_alls[1].assign(ufull_list[rT*2+1])
-    #copy from w_all into the PETSc vec PD.X
+    # copy from w_all into the PETSc vec PD.X
     with PD.w_all.dat.vec_ro as v:
         v.copy(PD.X)
 
-    #make a form for all of the time slices
+    # make a form for all of the time slices
     vfull = fd.TestFunction(WFull)
     ufulls = fd.split(ufull)
     vfulls = fd.split(vfull)
@@ -152,6 +153,7 @@ def test_set_para_form():
 
     assert(fd.norm(error1) < 1.0e-12)
     assert(fd.norm(error2) < 1.0e-12)
+
 
 @pytest.mark.parallel(nprocs=4)
 def test_set_para_form_mixed_parallel():
@@ -206,7 +208,7 @@ def test_set_para_form_mixed_parallel():
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
-    #copy the data from the full list into the time slice for this rank in PD.w_all
+    # copy the data from the full list into the time slice for this rank in PD.w_all
     w_alls = PD.w_all.split()
     w_alls[0].assign(ufull_list[4 * rT])   # 1st time slice V
     w_alls[1].assign(ufull_list[4 * rT + 1])  # 1st time slice Q
@@ -235,7 +237,7 @@ def test_set_para_form_mixed_parallel():
         vp = vfulls[2 * i + 1]
         # forms have 2 components and 2 test functions: (u, h, w, phi)
         tform = form_mass(unp1 - un, pnp1 - pn, vu / dt, vp / dt) \
-                + form_function((unp1 + un) / 2, (pnp1 + pn) / 2, vu, vp)
+            + form_function((unp1 + un) / 2, (pnp1 + pn) / 2, vu, vp)
         if i == 0:
             fullform = tform
         else:
@@ -280,15 +282,14 @@ def test_set_para_form_mixed_parallel():
 @pytest.mark.parallel(nprocs=4)
 def test_jacobian_mixed_parallel():
     # Checks that the jacobian is correctly assembled parallel-in-time
-
     # only one spatial domain
     ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
-    
+
     mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
-    
+
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
@@ -309,7 +310,6 @@ def test_jacobian_mixed_parallel():
     def form_function(uu, up, vu, vp):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
                 + fd.div(uu) * vp + c2 * up**2*vp) * fd.dx
-
 
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up * vp) * fd.dx
@@ -409,7 +409,6 @@ def test_jacobian_mixed_parallel():
         Jac2 = fd.derivative(fullform, ufull)
         # do the matrix multiplication with vfull:
         jacout = fd.assemble(fd.action(Jac2, vfull))
-
 
     PD_J1 = fd.Function(W)
     PD_J2 = fd.Function(W)

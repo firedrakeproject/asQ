@@ -1,6 +1,5 @@
 """Global test configuration."""
 
-import pytest
 from subprocess import check_call
 
 

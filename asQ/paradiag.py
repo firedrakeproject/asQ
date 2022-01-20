@@ -7,6 +7,7 @@ from pyop2.mpi import MPI
 from functools import reduce
 from operator import mul
 
+
 class DiagFFTPC(fd.PCBase):
 
     r"""A preconditioner for all-at-once systems with alpha-circulant
@@ -309,23 +310,21 @@ class DiagFFTPC(fd.PCBase):
         raise NotImplementedError
 
 
-#python matrix for the Jacobian
 class JacobianMatrix(object):
     def __init__(self, paradiag):
         r"""
+        Python matrix for the Jacobian
         :param paradiag: The paradiag object
         """
         self.paradiag = paradiag
-        self.u = fd.Function(paradiag.W_all) #Where we copy the input function
-        self.F = fd.Function(paradiag.W_all) #Where we copy the output residual
-        self.F_prev = fd.Function(paradiag.W_all) #Where we compute the
-                                               #part of the output
-                                               #residual from neighbouring
-                                               #contributions
-        self.u0 = fd.Function(paradiag.W_all) #Where we keep the state
+        self.u = fd.Function(paradiag.W_all)  # for the input function
+        self.F = fd.Function(paradiag.W_all)  # for the output residual
+        self.F_prev = fd.Function(paradiag.W_all)  # Where we compute the
+        # part of the output residual from neighbouring contributions
+        self.u0 = fd.Function(paradiag.W_all)  # Where we keep the state
         self.Fsingle = fd.Function(paradiag.W)
-        self.urecv = fd.Function(paradiag.W) #will contain the previous time value i.e. 3*r-1
-        self.usend = fd.Function(paradiag.W) #will contain the next time value i.e. 3*(r+1)
+        self.urecv = fd.Function(paradiag.W)  # will contain the previous time value i.e. 3*r-1
+        self.usend = fd.Function(paradiag.W)  # will contain the next time value i.e. 3*(r+1)
         self.ulist = self.u.split()
         self.r = paradiag.ensemble.ensemble_comm.rank
         self.n = paradiag.ensemble.ensemble_comm.size
@@ -344,20 +343,20 @@ class JacobianMatrix(object):
                                         paradiag.w_recv)
 
     def mult(self, mat, X, Y):
-        #update the contents of paradiag.u from paradiag.X
+        # update the contents of paradiag.u from paradiag.X
         self.paradiag.update(self.paradiag.X)
 
         n = self.n
 
-        #copy the local data from X into self.u
+        # copy the local data from X into self.u
         with self.u.dat.vec_wo as v:
             v.array[:] = X.array_r
 
         mpi_requests = []
-        #Communication stage                
-        #send
+        # Communication stage
+        # send
         usends = self.usend.split()
-        r = self.paradiag.ensemble.ensemble_comm.rank # the time rank
+        r = self.paradiag.ensemble.ensemble_comm.rank  # the time rank
         # r = ensemble.ensemble_comm.rank # the time rank
         for k in range(self.paradiag.ncpts):
             usends[k].assign(self.ulist[self.paradiag.ncpts*(self.paradiag.M[r]-1)+k])
@@ -366,24 +365,24 @@ class JacobianMatrix(object):
         else:
             request_send = self.paradiag.ensemble.isend(self.usend, dest=0, tag=r)
         mpi_requests.extend(request_send)
-        #receive
+        # receive
         if r > 0:
             request_recv = self.paradiag.ensemble.irecv(self.urecv, source=r-1, tag=r-1)
         else:
             request_recv = self.paradiag.ensemble.irecv(self.urecv, source=n-1, tag=n-1)
         mpi_requests.extend(request_recv)
 
-        #wait for the data [we should really do this after internal
-        #assembly but have avoided that for now]
+        # wait for the data [we should really do this after internal
+        # assembly but have avoided that for now]
         MPI.Request.Waitall(mpi_requests)
 
-        #Set the flag for the circulant option
+        # Set the flag for the circulant option
         if self.paradiag.circ == "quasi":
             self.paradiag.Circ.assign(1.0)
         else:
             self.paradiag.Circ.assign(0.0)
 
-        #assembly stage
+        # assembly stage
         fd.assemble(fd.action(self.Jform, self.u), tensor=self.F)
         fd.assemble(fd.action(self.Jform_prev, self.urecv),
                     tensor=self.F_prev)
@@ -454,10 +453,10 @@ class paradiag(object):
         self.Circ = fd.Constant(1.0)
 
         # checks that the ensemble communicator is set up correctly
-        nM = len(M) # the expected number of time ranks
+        nM = len(M)  # the expected number of time ranks
         print(fd.COMM_WORLD.size, ensemble.ensemble_comm.size, nM, M)
         assert ensemble.ensemble_comm.size == nM
-        rT = ensemble.ensemble_comm.rank # the time rank
+        rT = ensemble.ensemble_comm.rank  # the time rank
         self.rT = rT
         # function space for the component of them
         # all-at-once system assigned to this process
@@ -476,7 +475,7 @@ class paradiag(object):
 
         # function to assemble the nonlinear residual
         self.F_all = fd.Function(self.W_all)
-                
+
         # functions containing the last and next steps for parallel
         # communication timestep
         # from the previous iteration
@@ -484,12 +483,12 @@ class paradiag(object):
         self.w_send = fd.Function(self.W)
 
         # set up the Vecs X (for coeffs and F for residuals)
-        nlocal = M[rT]*W.node_set.size #local times x local space
-        nglobal = np.prod(M)*W.dim() # global times x global space
+        nlocal = M[rT]*W.node_set.size  # local times x local space
+        nglobal = np.prod(M)*W.dim()  # global times x global space
         self.X = PETSc.Vec().create(comm=fd.COMM_WORLD)
         self.X.setSizes((nlocal, nglobal))
         self.X.setFromOptions()
-        #copy initial data into the PETSc vec
+        # copy initial data into the PETSc vec
         with self.w_all.dat.vec_ro as v:
             v.copy(self.X)
         self.F = self.X.copy()
@@ -511,6 +510,7 @@ class paradiag(object):
         Jacmat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
         Jacmat.setPythonContext(mctx)
         Jacmat.setUp()
+
         def form_jacobian(snes, X, J, P):
             J.assemble()
             P.assemble()
@@ -535,11 +535,11 @@ class paradiag(object):
         ctx["block_mat_type"] = block_mat_type
 
     def update(self, X):
-        #Update self.w_alls and self.w_recv
-        #from X.
-        #The local parts of X are copied into self.w_alls
-        #and the last step from the previous slice (periodic)
-        #is copied into self.u_prev
+        # Update self.w_alls and self.w_recv
+        # from X.
+        # The local parts of X are copied into self.w_alls
+        # and the last step from the previous slice (periodic)
+        # is copied into self.u_prev
 
         n = self.ensemble.ensemble_comm.size
 
@@ -547,11 +547,10 @@ class paradiag(object):
             v.array[:] = X.array_r
 
         mpi_requests = []
-        #Communication stage                
-        #send
-
+        # Communication stage
+        # send
         usends = self.w_send.split()
-        r = self.ensemble.ensemble_comm.rank # the time rank
+        r = self.ensemble.ensemble_comm.rank  # the time rank
         for k in range(self.ncpts):
             usends[k].assign(self.w_alls[self.ncpts*(self.M[r]-1)+k])
         if r < n-1:
@@ -559,17 +558,17 @@ class paradiag(object):
         else:
             request_send = self.ensemble.isend(self.w_send, dest=0, tag=r)
         mpi_requests.extend(request_send)
-        #receive
+        # receive
         if r > 0:
             request_recv = self.ensemble.irecv(self.w_recv, source=r-1, tag=r-1)
         else:
             request_recv = self.ensemble.irecv(self.w_recv, source=n-1, tag=n-1)
         mpi_requests.extend(request_recv)
 
-        #wait for the data [we should really do this after internal
-        #assembly but have avoided that for now]
-        MPI.Request.Waitall(mpi_requests)    
-        
+        # wait for the data [we should really do this after internal
+        # assembly but have avoided that for now]
+        MPI.Request.Waitall(mpi_requests)
+
     def _assemble_function(self, snes, X, Fvec):
         r"""
         This is the function we pass to the snes to assemble
@@ -577,12 +576,12 @@ class paradiag(object):
         """
         self.update(X)
 
-        #Set the flag for the circulant option
+        # Set the flag for the circulant option
         if self.circ == "picard":
             self.Circ.assign(1.0)
         else:
             self.Circ.assign(0.0)
-        #assembly stage
+        # assembly stage
         fd.assemble(self.para_form, tensor=self.F_all)
 
         with self.F_all.dat.vec_ro as v:
@@ -602,14 +601,13 @@ class paradiag(object):
         dt = fd.Constant(self.dt)
         theta = fd.Constant(self.theta)
         alpha = fd.Constant(self.alpha)
-        wMs = w_all_cpts[self.ncpts*(M-1):]
 
         for n in range(M):
             # previous time level
             if n == 0:
-                #self.w_recv will contain the adjacent data
+                # self.w_recv will contain the adjacent data
                 if self.rT == 0:
-                    #need the initial data
+                    # need the initial data
                     w0list = fd.split(self.w0)
                     wrecvlist = fd.split(self.w_recv)
                     w0s = [w0list[i] + self.Circ*alpha*wrecvlist[i]
@@ -637,7 +635,6 @@ class paradiag(object):
         Solve the system (either in one shot or as a relaxation method).
         """
 
-        M = self.M
         if self.circ == "picard":
             raise NotImplementedError
         else:
