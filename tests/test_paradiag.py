@@ -279,10 +279,10 @@ def test_set_para_form_mixed_parallel():
 
 
 @pytest.mark.parallel(nprocs=8)
-def test_jacobian_mixed_parallel1():
+def test_jacobian_mixed_parallel():
     ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(20, 20, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
@@ -305,8 +305,8 @@ def test_jacobian_mixed_parallel1():
                          'ksp_monitor': None}
 
     def form_function(uu, up, vu, vp):
-        return (fd.div(vu) * up +
-                c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
+        return (fd.div(vu) * up
+                + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
                 - fd.div(uu) * vp) * fd.dx
 
     def form_mass(uu, up, vu, vp):
@@ -346,7 +346,7 @@ def test_jacobian_mixed_parallel1():
     nM = M[rT]
     for i in range(nM):
         # sum over the entries of M until rT determines left position left
-        left = np.sum(M[:rT],dtype=int)
+        left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
         w_alls[2*i].assign(ufull_list[ind1])  # ith time slice V
@@ -432,7 +432,7 @@ def test_jacobian_mixed_parallel1():
     error_alls = error_all.split()
     for i in range(2 * nM):
         error_alls[i].assign(err_alls[i] - PD_Js[i])
-        assert(fd.norm(error_alls[i]) < 1.0e-12)
+        assert(fd.norm(error_alls[i]) < 1.0e-11)
 
 
 @pytest.mark.xfail
