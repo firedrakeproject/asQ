@@ -401,7 +401,7 @@ class paradiag(object):
                  ctx={}, block_mat_type="aij"):
         """A class to implement paradiag timestepping.
 
-        : arg ensemble: the ensemble communicator
+        :arg ensemble: the ensemble communicator
         :arg form_function: a function that returns a linear form
         on W providing f(w) for the ODE w_t + f(w) = 0.
         :arg form_mass: a function that returns a linear form
