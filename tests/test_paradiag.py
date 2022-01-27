@@ -5,7 +5,7 @@ import pytest
 from petsc4py import PETSc
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(nprocs=8)
 def test_jacobian_heat_equation():
     # tests the basic snes setup
     # using the heat equation
@@ -15,7 +15,7 @@ def test_jacobian_heat_equation():
     PETSc.Sys.popErrorHandler()
 
     # only one spatial domain
-    ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
+    ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
     mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "CG", 1)
@@ -55,18 +55,17 @@ def test_jacobian_heat_equation():
                       ctx={}, block_mat_type="aij")
     PD.solve()
 
-    # print(PD.snes.getConvergedReason())
     assert (1 < PD.snes.getConvergedReason() < 5)
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(nprocs=8)
 def test_set_para_form():
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the heat equation as an example by
     # substituting the sequential solution and evaluating the residual
 
     # only one spatial domain
-    ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
+    ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
     mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "CG", 1)
@@ -155,14 +154,14 @@ def test_set_para_form():
     assert(fd.norm(error2) < 1.0e-12)
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(nprocs=8)
 def test_set_para_form_mixed_parallel():
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the heat equation as an example by
     # substituting the sequential solution and evaluating the residual
 
     # only one spatial domain
-    ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
+    ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
     mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "BDM", 1)
@@ -279,11 +278,9 @@ def test_set_para_form_mixed_parallel():
     assert(fd.norm(e22) < 1.0e-12)
 
 
-@pytest.mark.parallel(nprocs=4)
-def test_jacobian_mixed_parallel():
-    # Checks that the jacobian is correctly assembled parallel-in-time
-    # only one spatial domain
-    ensemble = fd.Ensemble(fd.COMM_WORLD, 1)
+@pytest.mark.parallel(nprocs=8)
+def test_jacobian_mixed_parallel1():
+    ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
     mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "BDM", 1)
@@ -293,14 +290,14 @@ def test_jacobian_mixed_parallel():
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
+    # p0, u0 = w0.split()
     p0.interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
     M = [2, 2, 2, 2]
-
-    c = fd.Constant(0.0)
-    c2 = fd.Constant(0.1)
+    Ml = np.sum(M)
+    c = fd.Constant(0.1)
     eps = fd.Constant(0.001)
 
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
@@ -308,8 +305,9 @@ def test_jacobian_mixed_parallel():
                          'ksp_monitor': None}
 
     def form_function(uu, up, vu, vp):
-        return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
-                + fd.div(uu) * vp + c2 * up**2*vp) * fd.dx
+        return (fd.div(vu) * up +
+                c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
+                - fd.div(uu) * vp) * fd.dx
 
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up * vp) * fd.dx
@@ -325,39 +323,41 @@ def test_jacobian_mixed_parallel():
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
-    WFull = W * W * W * W * W * W * W * W
+    WFull = np.prod([W for i in range(Ml)])
     ufull = fd.Function(WFull)
     np.random.seed(132574)
     ufull_list = ufull.split()
-    for i in range((2 * 8)):
+    for i in range((2 * Ml)):
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     # make another function v_alls:
     vfull = fd.Function(WFull)
     vfull_list = vfull.split()
-    for i in range((2 * 8)):
+    for i in range((2 * Ml)):
         vfull_list[i].dat.data[:] = np.random.randn(*(vfull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
 
     # copy the data from the full list into the time slice for this rank in PD.w_all
     w_alls = PD.w_all.split()
-    w_alls[0].assign(ufull_list[4 * rT])  # 1st time slice V
-    w_alls[1].assign(ufull_list[4 * rT + 1])  # 1st time slice Q
-    w_alls[2].assign(ufull_list[4 * rT + 2])  # 2nd time slice V
-    w_alls[3].assign(ufull_list[4 * rT + 3])  # 2nd time slice Q
-    # copy the data from the full list into the time slice for this rank in v_alls
     v_all = fd.Function(PD.W_all)
     v_alls = v_all.split()
-    v_alls[0].assign(vfull_list[4 * rT])  # 1st time slice V
-    v_alls[1].assign(vfull_list[4 * rT + 1])  # 1st time slice Q
-    v_alls[2].assign(vfull_list[4 * rT + 2])  # 2nd time slice V
-    v_alls[3].assign(vfull_list[4 * rT + 3])  # 2nd time slice Q
+
+    nM = M[rT]
+    for i in range(nM):
+        # sum over the entries of M until rT determines left position left
+        left = np.sum(M[:rT],dtype=int)
+        ind1 = 2*left + 2*i
+        ind2 = 2*left + 2*i + 1
+        w_alls[2*i].assign(ufull_list[ind1])  # ith time slice V
+        w_alls[2*i + 1].assign(ufull_list[ind2])  # ith time slice Q
+        v_alls[2*i].assign(vfull_list[ind1])  # ith time slice V
+        v_alls[2*i + 1].assign(vfull_list[ind2])  # ith time slice Q
 
     # Parallel PARADIAG: calculate Jac1 with PD
     # copy from w_all into the PETSc vec PD.X
-    with PD.w_all.dat.vec_ro as w:
-        w.copy(PD.X)
+    with PD.w_all.dat.vec_ro as v:
+        v.copy(PD.X)
 
     # use PD to calculate the Jacobian
     Jac1 = PD.JacobianMatrix
@@ -384,18 +384,15 @@ def test_jacobian_mixed_parallel():
     ufulls = fd.split(ufull)
     tfulls = fd.split(tfull)
 
-    for i in range(8):
+    for i in range(Ml):
         if i == 0:
             un = u0
             pn = p0
         else:
-            un = ufulls[2 * i - 2]
-            pn = ufulls[2 * i - 1]
-        unp1 = ufulls[2 * i]
-        pnp1 = ufulls[2 * i + 1]
-        vu = tfulls[2 * i]
-        vp = tfulls[2 * i + 1]
-        # forms have 2 components and 2 test functions: (u, h, w, phi)
+            un, pn = ufulls[2*i - 2: 2*i]
+        unp1, pnp1 = ufulls[2*i: 2*i + 2]
+        vu, vp = tfulls[2*i: 2*i + 2]
+
         tform = form_mass(unp1 - un, pnp1 - pn, vu / dt, vp / dt) \
             + 0.5*form_function(unp1, pnp1, vu, vp) \
             + 0.5*form_function(un, pn, vu, vp)
@@ -404,41 +401,38 @@ def test_jacobian_mixed_parallel():
         else:
             fullform += tform
 
-        # calculate derivative of Jac2 directly from serial fullform
-        # wrt ufull:
-        Jac2 = fd.derivative(fullform, ufull)
-        # do the matrix multiplication with vfull:
-        jacout = fd.assemble(fd.action(Jac2, vfull))
+    # calculate derivative of Jac2 directly from serial fullform wrt ufull:
+    Jac2 = fd.derivative(fullform, ufull)
+    # do the matrix multiplication with vfull:
+    jacout = fd.assemble(fd.action(Jac2, vfull))
 
-    PD_J1 = fd.Function(W)
-    PD_J2 = fd.Function(W)
-    vlen = V.node_set.size
-    plen = Q.node_set.size
+    vlen, plen = V.node_set.size, Q.node_set.size
 
-    with PD_J1.sub(0).dat.vec_ro as v:
-        v.array[:] = Y1.array_r[0:vlen]
-    with PD_J1.sub(1).dat.vec_ro as v:
-        v.array[:] = Y1.array_r[vlen:vlen + plen]
-    with PD_J2.sub(0).dat.vec_ro as v:
-        v.array[:] = Y1.array_r[vlen + plen:vlen + plen + vlen]
-    with PD_J2.sub(1).dat.vec_ro as v:
-        v.array[:] = Y1.array_r[vlen + plen + vlen:]
+    # generalization of the error evaluation to nM time slices
+    PD_J = fd.Function(PD.W_all)
+    PD_Js = PD_J.split()
+    for i in range(nM):
+        with PD_Js[2*i].dat.vec_ro as v:
+            v.array[:] = Y1.array_r[i*vlen + i*plen: (i+1)*vlen + i*plen]
+        with PD_Js[2*i+1].dat.vec_ro as v:
+            v.array[:] = Y1.array_r[(i+1)*vlen + i*plen: (i+1)*vlen + (i+1)*plen]
 
-    r11, r12 = fd.Function(W).split()
-    r21, r22 = fd.Function(W).split()
-    r11.assign(jacout.sub(rT * 4))
-    r12.assign(jacout.sub(rT * 4 + 1))
-    r21.assign(jacout.sub(rT * 4 + 2))
-    r22.assign(jacout.sub(rT * 4 + 3))
-    e11 = r11 - PD_J1.sub(0)
-    e12 = r12 - PD_J1.sub(1)
-    e21 = r21 - PD_J2.sub(0)
-    e22 = r22 - PD_J2.sub(1)
+    err_all = fd.Function(PD.W_all)
+    err_alls = err_all.split()
+    for i in range(nM):
+        left = np.sum(M[:rT], dtype=int)
+        ind1 = 2*left + 2*i
+        ind2 = 2*left + 2*i + 1
+        err_alls[2*i].assign(jacout.sub(ind1))  # ith time slice V
+        err_alls[2*i+1].assign(jacout.sub(ind2))  # ith time slice Q
+        err_alls[2*i].assign(jacout.sub(ind1))  # ith time slice V
+        err_alls[2*i+1].assign(jacout.sub(ind2))  # ith time slice Q
 
-    assert (fd.norm(e11) < 1.0e-12)
-    assert (fd.norm(e12) < 1.0e-12)
-    assert (fd.norm(e21) < 1.0e-12)
-    assert (fd.norm(e22) < 1.0e-12)
+    error_all = fd.Function(PD.W_all)
+    error_alls = error_all.split()
+    for i in range(2 * nM):
+        error_alls[i].assign(err_alls[i] - PD_Js[i])
+        assert(fd.norm(error_alls[i]) < 1.0e-12)
 
 
 @pytest.mark.xfail
