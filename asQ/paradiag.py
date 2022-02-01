@@ -512,8 +512,7 @@ class paradiag(object):
 
         def form_jacobian(snes, X, J, P):
             # copy the snes state vector into self.X
-            with self.X.dat.vec_wo as v:
-                X.copy(v)
+            X.copy(self.X)
             J.assemble()
             P.assemble()
 
