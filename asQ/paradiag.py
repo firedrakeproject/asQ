@@ -511,6 +511,8 @@ class paradiag(object):
         Jacmat.setUp()
 
         def form_jacobian(snes, X, J, P):
+            # copy the snes state vector into self.X
+            X.copy(self.X)
             J.assemble()
             P.assemble()
 
