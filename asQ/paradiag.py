@@ -7,39 +7,51 @@ from pyop2.mpi import MPI
 from functools import reduce
 from operator import mul
 
+from mpi4py_fft.pencil import Pencil, Subcomm
+from mpi4py_fft import fftw
 
-class DiagFFTPC(fd.PCBase):
+class DiagFFTPC(object):
+    def __init__(self):
+        r"""A preconditioner for all-at-once systems with alpha-circulant
+        block diagonal structure, using FFT.
+        """
+        self.initialized = False
 
-    r"""A preconditioner for all-at-once systems with alpha-circulant
-    block diagonal structure, using FFT.
-    """
+    def setUp(self, pc):
+        """Setup method called by PETSc."""
 
+        if self.initialized:
+            self.update(pc)
+        else:
+            self.initialize(pc)
+            self.initialized = True
+        
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
         prefix = pc.getOptionsPrefix() + "diagfft_"
 
         # we assume P has things stuffed inside of it
-        _, P = pc.getOperators()
-        context = P.getPythonContext()
-        appctx = context.appctx
-        self.appctx = appctx
+        #_, P = pc.getOperators()
+        #context = P.getPythonContext()
+        #appctx = context.appctx
+        #self.appctx = appctx
 
-        # all at once solution passed through the appctx
-        self.w_all = appctx.get("w_all", None)
+        paradiag = pc.getAttr("paradiag")
 
-        # FunctionSpace checks
-        test, trial = context.a.arguments()
-        if test.function_space() != trial.function_space():
-            raise ValueError("Pressure space test and trial space differ")
-        W = test.function_space()
+        # this time slice part of the all at once solution
+        self.w_all = paradiag.w_all
+        # this is bad naming
+        W = paradiag.W_all
 
         # basic model function space
-        get_blockV = appctx.get("get_blockV", None)
-        self.blockV = get_blockV()
-        M = int(W.dim()/self.blockV.dim())
-        assert(self.blockV.dim()*M == W.dim())
+        self.blockV = paradiag.W
+        M = paradiag.M
+        ensemble = paradiag.ensemble
+        rT = ensemble.ensemble_comm.rank  # the time rank
+        assert(self.blockV.dim()*M[rT] == W.dim())
         self.M = M
+        self.rT = rT
         self.NM = W.dim()
 
         # Input/Output wrapper Functions
@@ -47,14 +59,15 @@ class DiagFFTPC(fd.PCBase):
         self.yf = fd.Function(W)  # output
 
         # Gamma coefficients
-        Nt = M
+        self.Nt = np.sum(M)
         exponents = np.arange(Nt)/Nt
-        alphav = appctx.get("alpha", None)
+        alphav = paradiag.alpha
         self.Gam = alphav**exponents
+        self.Gam_slice = self.Gam[np.sum(M[:rT]):np.sum(M[:rT+1])]
 
         # Di coefficients
-        thetav = appctx.get("theta", None)
-        Dt = appctx.get("dt", None)
+        thetav = paradiag.theta
+        Dt = paradiag.dt
         C1col = np.zeros(Nt)
         C2col = np.zeros(Nt)
         C1col[:2] = np.array([1, -1])/Dt
@@ -164,8 +177,34 @@ class DiagFFTPC(fd.PCBase):
         #  Building the nonlinear operator
         self.Jsolvers = []
         self.Js = []
-        form_mass = appctx.get("form_mass", None)
-        form_function = appctx.get("form_function", None)
+        form_mass = paradiag.form_mass
+        form_function = paradiag.form_function
+
+        # setting up the FFT stuff
+        # construct simply dist array and 1d fftn:
+        subcomm = Subcomm(ens_comm.ensemble_comm, [0, 1])
+        # get some dimensions
+        nlocal = self.blockV.node_set.size
+        NN = np.array([np.sum(M), nlocal], dtype=int)
+        # transfer pencil is aligned along axis 1
+        self.p0 = Pencil(subcomm, NN, axis=1)
+        # a0 is the local part of our fft working array
+        # has shape of (M/P, nlocal)
+        self.a0 = np.zeros(p0.subshape, complex)
+        self.p1 = self.p0.pencil(0)
+        # a0 is the local part of our other fft working array
+        self.a1 = np.zeros(p1.subshape, complex)
+        self.transfer = p0.transfer(p1, complex)
+        # the FFTW working arrays
+        self.b_fftin = fftw.aligned(a1.shape, dtype=complex)
+        self.b_fftout = fftw.aligned_like(self.b_fft)
+        # FFTW plans
+        self.fft = fftw.fftn(self.b_fftin,
+                             flags=(fftw.FFTW_MEASURE,),
+                             axes=(0,), output_array=self.b_fftout)
+        self.fft = fftw.ifftn(self.b_fftin,
+                              flags=(fftw.FFTW_MEASURE,),
+                              axes=(0,), output_array=self.b_fftout)
 
         # setting up the Riesz map
         # input for the Riesz map
@@ -175,15 +214,16 @@ class DiagFFTPC(fd.PCBase):
         a = fd.assemble(fd.inner(u, v)*fd.dx)
         self.Proj = fd.LinearSolver(a, options_prefix=prefix+"mass_")
         # building the block problem solvers
-        for i in range(M):
-            D1i = fd.Constant(np.imag(self.D1[i]))
-            D1r = fd.Constant(np.real(self.D1[i]))
-            D2i = fd.Constant(np.imag(self.D2[i]))
-            D2r = fd.Constant(np.real(self.D2[i]))
+        for i in range(M[rT]):
+            ii = np.sum(M[:rT])+i # global time time index
+            D1i = fd.Constant(np.imag(self.D1[ii]))
+            D1r = fd.Constant(np.real(self.D1[ii]))
+            D2i = fd.Constant(np.imag(self.D2[ii]))
+            D2r = fd.Constant(np.real(self.D2[ii]))
 
             # pass sigma into PC:
-            sigma = self.D1[i]**2/self.D2[i]
-            sigma_inv = self.D2[i]**2/self.D1[i]
+            sigma = self.D1[ii]**2/self.D2[ii]
+            sigma_inv = self.D2[ii]**2/self.D1[ii]
             appctx_h = appctx.copy()
             appctx_h["sr"] = fd.Constant(np.real(sigma))
             appctx_h["si"] = fd.Constant(np.imag(sigma))
@@ -212,7 +252,7 @@ class DiagFFTPC(fd.PCBase):
             v = fd.TestFunction(self.CblockV)
             L = fd.inner(v, self.Jprob_in)*fd.dx
 
-            block_prefix = prefix+str(i)+'_'
+            block_prefix = prefix+str(ii)+'_'
             jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out)
             Jsolver = fd.LinearVariationalSolver(jprob,
                                                  appctx=appctx_h,
@@ -221,7 +261,8 @@ class DiagFFTPC(fd.PCBase):
 
     def update(self, pc):
         self.u0.assign(0)
-        for i in range(self.M):
+        print("Need to check that contents from X get into w_all")
+        for i in range(self.M[self.rT]):
             # copy the data into solver input
             if self.ncpts > 1:
                 u0s = self.u0.split()
@@ -236,29 +277,42 @@ class DiagFFTPC(fd.PCBase):
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
+        # hopefully this works
         with self.xf.dat.vec_wo as v:
             x.copy(v)
 
         # get array of basis coefficients
         with self.xf.dat.vec_ro as v:
-            parray = v.array_r.reshape((self.M, self.blockV.node_set.size))
+            parray = v.array_r.reshape((self.M[rT],
+                                        self.blockV.node_set.size))
         # This produces an array whose rows are time slices
         # and columns are finite element basis coefficients
 
-        # Diagonalise
-        Nt = self.M
-        parray = fft((self.Gam*parray.T).T, axis=0)*np.sqrt(Nt)
-
+        ######################
+        # Diagonalise - scale, transfer, FFT, transfer, Copy
+        # Scale
+        # is there a better way to do this with broadcasting?
+        parray = (self.Gam_slice*parray.T).T*np.sqrt(self.Nt)
+        # transfer forward
+        self.a0[:] = parray[:]
+        self.transfer.forward(self.a0, self.a1)
+        # FFT
+        self.b_fftin[:] = self.a1[:]
+        self.fft()
+        a1[:] = self.b_fftout[:]
+        # transfer backward
+        self.transfer.backward(self.a1, self.a0)
         # Copy into xfi, xfr
+        parray[:] = self.a0[:]
         with self.xfr.dat.vec_wo as v:
             v.array[:] = parray.real.reshape(-1)
-
         with self.xfi.dat.vec_wo as v:
             v.array[:] = parray.imag.reshape(-1)
-
+        #####################
+            
         # Do the block solves
 
-        for i in range(self.M):
+        for i in range(self.M[rT]):
             # copy the data into solver input
             self.xtemp.assign(0.)
             if self.ncpts > 1:
@@ -292,19 +346,34 @@ class DiagFFTPC(fd.PCBase):
                 self.xfr.split()[i].assign(Jpouts.sub(0))
                 self.xfi.split()[i].assign(Jpouts.sub(1))
 
-        # Undiagonalise
+        ######################
+        # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
         # get array of basis coefficients
         with self.xfi.dat.vec_ro as v:
-            parray = 1j*v.array_r.reshape((self.M, self.blockV.node_set.size))
+            parray = 1j*v.array_r.reshape((self.M,
+                                           self.blockV.node_set.size))
         with self.xfr.dat.vec_ro as v:
-            parray += v.array_r.reshape((self.M, self.blockV.node_set.size))
-        parray = ((1.0/self.Gam)*ifft(parray, axis=0).T).T
-        # get array of basis coefficients
+            parray += v.array_r.reshape((self.M,
+                                         self.blockV.node_set.size))
+        # transfer forward
+        self.a0[:] = parray[:]
+        self.transfer.forward(self.a0, self.a1)
+        # IFFT
+        self.b_fftin[:] = self.a1[:]
+        self.ifft()
+        a1[:] = self.b_fftout[:]
+        # transfer backward
+        self.transfer.backward(self.a1, self.a0)
+        parray[:] = self.a0[:]
+        ifft(parray, axis=0)
+        #scale
+        parray = ((1.0/self.Gam)*parray.T).T
+        # Copy into xfi, xfr
         with self.yf.dat.vec_wo as v:
             v.array[:] = parray.reshape(-1).real
-
         with self.yf.dat.vec_ro as v:
             v.copy(y)
+        ################
 
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError
@@ -516,22 +585,15 @@ class paradiag(object):
 
         self.snes.setJacobian(form_jacobian, J=Jacmat, P=Jacmat)
 
+        pc = PETSc.PC().create()
+        pc.setType("python")
+        pc.setPythonType("DiagFFTPC")
+        pc.setAttr("paradiag", self)
+        print("ask lawrence how to set the pc in the snes")
+        print("will need to put pc.delAttr('paradiag') somewhere")
+
         # complete the snes setup
         self.opts.set_from_options(self.snes)
-
-        # passing stuff to the diag preconditioner using the appctx
-        # This stuff all needs moving to the preconditioner
-        def getW():
-            return W
-
-        ctx["get_blockV"] = getW
-        ctx["alpha"] = self.alpha
-        ctx["theta"] = self.theta
-        ctx["dt"] = self.dt
-        ctx["form_mass"] = self.form_mass
-        ctx["form_function"] = self.form_function
-        ctx["w_all"] = self.w_all
-        ctx["block_mat_type"] = block_mat_type
 
     def update(self, X):
         # Update self.w_alls and self.w_recv
