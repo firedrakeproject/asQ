@@ -1,5 +1,6 @@
 import numpy as np
 import firedrake as fd
+from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from pyop2.mpi import MPI
 
@@ -191,6 +192,12 @@ class paradiag(object):
 
         # construct the nonlinear form
         self._set_para_form()
+
+        # sort out the appctx
+        solver_parameters = flatten_parameters(solver_parameters)
+        if "pc_python_type" in solver_parameters:
+            if solver_parameters["pc_python_type"]=="asQ.DiagFFTPC":
+                assert("diagfft_context" in solver_parameters)
 
         # set up the snes
         self.snes = PETSc.SNES().create(comm=fd.COMM_WORLD)

@@ -1,7 +1,6 @@
 import firedrake as fd
 from petsc4py import PETSc
 import asQ
-from firedrake.petsc import flatten_parameters
 
 PETSc.Sys.popErrorHandler()
 
@@ -104,12 +103,10 @@ solver_parameters_diag = {
     'ksp_atol': 1.0e-30,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
-    'context':'__main__.contextfn'}
+    'pc_context':'__main__.contextfn'}
 
 for i in range(M):
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
-
-solver_parameters_diag = flatten_parameters(solver_parameters_diag)
     
 dt = 60*60*3600
 dT.assign(dt)
