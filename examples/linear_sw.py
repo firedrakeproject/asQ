@@ -91,7 +91,7 @@ lu_parameters = {
 }
 
 appctx = {}
-contextfn = set_context(appctx)
+contextfn = asQ.set_context(appctx)
 
 solver_parameters_diag = {
     'snes_monitor': None,
