@@ -62,38 +62,11 @@ sparameters = {
     "ksp_max_it": 50,
     "ksp_gmres_modifiedgramschmidt": None,
     "ksp_rtol": 1e-8,
-    "pc_type": "fieldsplit",
-    "pc_fieldsplit_type": "schur",
-    "pc_fieldsplit_schur_fact_type": "full",
-    "pc_fieldsplit_off_diag_use_amat": True,
-}
-
-bottomright = {
-    "ksp_type": "gmres",
-    "ksp_max_it": 3,
-    "pc_type": "python",
-    "pc_python_type": "__main__.HelmholtzPC",
-    "aux_pc_type": "lu"
-}
-
-sparameters["fieldsplit_1"] = bottomright
-
-topleft_LU = {
-    "ksp_type": "preonly",
-    "pc_type": "python",
-    "pc_python_type": "firedrake.AssembledPC",
-    "assembled_pc_type": "lu",
-    "assembled_pc_factor_mat_solver_type": "mumps"
-}
-
-sparameters["fieldsplit_0"] = topleft_LU
-
-lu_parameters = {
-    "pc_type": "python",
-    "pc_python_type": "firedrake.AssembledPC",
-    "assembled_mat_type": "aij",
-    "assembled_pc_type": "lu",
-    "assembled_pc_factor_mat_solver_type": "mumps"
+    'pc_python_type': 'firedrake.HybridizationPC',
+    'hybridization': {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type':'mumps'}
 }
 
 solver_parameters_diag = {
