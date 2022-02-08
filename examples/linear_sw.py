@@ -57,10 +57,7 @@ def form_mass(u, h, v, q):
 
 # Parameters for the diag
 sparameters = {
-    "ksp_type": "fgmres",
-    "ksp_max_it": 50,
-    "ksp_gmres_modifiedgramschmidt": None,
-    "ksp_rtol": 1e-8,
+    "ksp_type": "preonly",
     'pc_python_type': 'firedrake.HybridizationPC',
     'hybridization': {
         'ksp_type': 'preonly',
@@ -71,11 +68,7 @@ sparameters = {
 solver_parameters_diag = {
     'snes_monitor': None,
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    "ksp_gmres_modifiedgramschmidt": None,
-    'ksp_max_it': 60,
-    'ksp_rtol': 1.0e-5,
-    'ksp_atol': 1.0e-30,
+    'ksp_type': 'preonly',
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
