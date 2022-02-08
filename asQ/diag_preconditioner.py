@@ -235,7 +235,7 @@ class DiagFFTPC(object):
             # pass sigma into PC:
             sigma = self.D1[ii]**2/self.D2[ii]
             sigma_inv = self.D2[ii]**2/self.D1[ii]
-            appctx_h = appctx.copy()
+            appctx_h = {}
             appctx_h["sr"] = fd.Constant(np.real(sigma))
             appctx_h["si"] = fd.Constant(np.imag(sigma))
             appctx_h["sinvr"] = fd.Constant(np.real(sigma_inv))
