@@ -22,7 +22,6 @@ class DiagFFTPC(object):
         prefix = pc.getOptionsPrefix()
 
         sentinel = object()
-        print(f"{prefix}{self.prefix}context")
         constructor = PETSc.Options().getString(
             f"{prefix}{self.prefix}context", default=sentinel)
         if constructor == sentinel:
@@ -304,7 +303,7 @@ class DiagFFTPC(object):
         # Diagonalise - scale, transfer, FFT, transfer, Copy
         # Scale
         # is there a better way to do this with broadcasting?
-        parray = (self.Gam_slice*parray.T).T*np.sqrt(self.Nt)
+        parray = (1.0+0.j)*(self.Gam_slice*parray.T).T*np.sqrt(self.Nt)
         # transfer forward
         self.a0[:] = parray[:]
         self.transfer.forward(self.a0, self.a1)
