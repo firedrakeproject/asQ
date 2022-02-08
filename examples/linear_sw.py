@@ -57,7 +57,6 @@ def form_mass(u, h, v, q):
 
 # Parameters for the diag
 sparameters = {
-    "mat_type": "matfree",
     "ksp_type": "fgmres",
     "ksp_max_it": 50,
     "ksp_gmres_modifiedgramschmidt": None,
