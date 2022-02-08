@@ -292,6 +292,8 @@ class DiagFFTPC(object):
         with self.xf.dat.vec_wo as v:
             x.copy(v)
 
+        rT = self.paradiag.ensemble.ensemble_comm.rank  # the time rank
+            
         # get array of basis coefficients
         with self.xf.dat.vec_ro as v:
             parray = v.array_r.reshape((self.M[rT],
