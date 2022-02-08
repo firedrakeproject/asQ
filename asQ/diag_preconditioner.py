@@ -46,7 +46,8 @@ class DiagFFTPC(object):
             raise ValueError("Expecting PC type python")
 
         paradiag = self.context["paradiag"]
-
+        self.paradiag = paradiag
+        
         # this time slice part of the all at once solution
         self.w_all = paradiag.w_all
         # this is bad naming
@@ -54,7 +55,7 @@ class DiagFFTPC(object):
 
         # basic model function space
         self.blockV = paradiag.W
-        M = paradiag.M
+        M = np.array(paradiag.M)
         ensemble = paradiag.ensemble
         rT = ensemble.ensemble_comm.rank  # the time rank
         assert(self.blockV.dim()*M[rT] == W.dim())
@@ -192,7 +193,7 @@ class DiagFFTPC(object):
 
         # setting up the FFT stuff
         # construct simply dist array and 1d fftn:
-        subcomm = Subcomm(ens_comm.ensemble_comm, [0, 1])
+        subcomm = Subcomm(paradiag.ensemble.ensemble_comm, [0, 1])
         # get some dimensions
         nlocal = self.blockV.node_set.size
         NN = np.array([np.sum(M), nlocal], dtype=int)
@@ -200,14 +201,14 @@ class DiagFFTPC(object):
         self.p0 = Pencil(subcomm, NN, axis=1)
         # a0 is the local part of our fft working array
         # has shape of (M/P, nlocal)
-        self.a0 = np.zeros(p0.subshape, complex)
+        self.a0 = np.zeros(self.p0.subshape, complex)
         self.p1 = self.p0.pencil(0)
         # a0 is the local part of our other fft working array
-        self.a1 = np.zeros(p1.subshape, complex)
-        self.transfer = p0.transfer(p1, complex)
+        self.a1 = np.zeros(self.p1.subshape, complex)
+        self.transfer = self.p0.transfer(self.p1, complex)
         # the FFTW working arrays
-        self.b_fftin = fftw.aligned(a1.shape, dtype=complex)
-        self.b_fftout = fftw.aligned_like(self.b_fft)
+        self.b_fftin = fftw.aligned(self.a1.shape, dtype=complex)
+        self.b_fftout = fftw.aligned_like(self.b_fftin)
         # FFTW plans
         self.fft = fftw.fftn(self.b_fftin,
                              flags=(fftw.FFTW_MEASURE,),
@@ -309,7 +310,7 @@ class DiagFFTPC(object):
         # FFT
         self.b_fftin[:] = self.a1[:]
         self.fft()
-        a1[:] = self.b_fftout[:]
+        self.a1[:] = self.b_fftout[:]
         # transfer backward
         self.transfer.backward(self.a1, self.a0)
         # Copy into xfi, xfr
@@ -371,7 +372,7 @@ class DiagFFTPC(object):
         # IFFT
         self.b_fftin[:] = self.a1[:]
         self.ifft()
-        a1[:] = self.b_fftout[:]
+        self.a1[:] = self.b_fftout[:]
         # transfer backward
         self.transfer.backward(self.a1, self.a0)
         parray[:] = self.a0[:]
