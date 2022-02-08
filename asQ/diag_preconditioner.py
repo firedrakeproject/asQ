@@ -22,6 +22,7 @@ class DiagFFTPC(object):
         prefix = pc.getOptionsPrefix()
 
         sentinel = object()
+        print(f"{prefix}{self.prefix}context")
         constructor = PETSc.Options().getString(
             f"{prefix}{self.prefix}context", default=sentinel)
         if constructor == sentinel:
@@ -67,7 +68,9 @@ class DiagFFTPC(object):
 
         # Gamma coefficients
         self.Nt = np.sum(M)
-        exponents = np.arange(Nt)/Nt
+        Nt = self.Nt
+        print(self.M)
+        exponents = np.arange(self.Nt)/self.Nt
         alphav = paradiag.alpha
         self.Gam = alphav**exponents
         self.Gam_slice = self.Gam[np.sum(M[:rT]):np.sum(M[:rT+1])]
