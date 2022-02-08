@@ -207,15 +207,15 @@ class DiagFFTPC(object):
         self.a1 = np.zeros(self.p1.subshape, complex)
         self.transfer = self.p0.transfer(self.p1, complex)
         # the FFTW working arrays
-        self.b_fftin = fftw.aligned(self.a1.shape, dtype=complex)
-        self.b_fftout = fftw.aligned_like(self.b_fftin)
+        #self.b_fftin = fftw.aligned(self.a1.shape, dtype=complex)
+        #self.b_fftout = fftw.aligned_like(self.b_fftin)
         # FFTW plans
-        self.fft = fftw.fftn(self.b_fftin,
-                             flags=(fftw.FFTW_MEASURE,),
-                             axes=(0,), output_array=self.b_fftout)
-        self.fft = fftw.ifftn(self.b_fftin,
-                              flags=(fftw.FFTW_MEASURE,),
-                              axes=(0,), output_array=self.b_fftout)
+        #self.fft = fftw.fftn(self.b_fftin,
+        #                     flags=(fftw.FFTW_MEASURE,),
+        #                     axes=(0,), output_array=self.b_fftout)
+        #self.fft = fftw.ifftn(self.b_fftin,
+        #                      flags=(fftw.FFTW_MEASURE,),
+        #                      axes=(0,), output_array=self.b_fftout)
 
         # setting up the Riesz map
         # input for the Riesz map
@@ -308,9 +308,11 @@ class DiagFFTPC(object):
         self.a0[:] = parray[:]
         self.transfer.forward(self.a0, self.a1)
         # FFT
-        self.b_fftin[:] = self.a1[:]
-        self.fft()
-        self.a1[:] = self.b_fftout[:]
+        self.a1[:] = fft(self.a1, axis=0)
+        #self.b_fftin[:] = self.a1[:]
+        #self.fft()
+        #self.a1[:] = self.b_fftout[:]
+
         # transfer backward
         self.transfer.backward(self.a1, self.a0)
         # Copy into xfi, xfr
@@ -370,9 +372,10 @@ class DiagFFTPC(object):
         self.a0[:] = parray[:]
         self.transfer.forward(self.a0, self.a1)
         # IFFT
-        self.b_fftin[:] = self.a1[:]
-        self.ifft()
-        self.a1[:] = self.b_fftout[:]
+        self.a1[:] = fft(self.a1, axis=0)
+        #self.b_fftin[:] = self.a1[:]
+        #self.ifft()
+        #self.a1[:] = self.b_fftout[:]
         # transfer backward
         self.transfer.backward(self.a1, self.a0)
         parray[:] = self.a0[:]
