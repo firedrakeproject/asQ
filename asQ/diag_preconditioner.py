@@ -70,7 +70,6 @@ class DiagFFTPC(object):
         # Gamma coefficients
         self.Nt = np.sum(M)
         Nt = self.Nt
-        print(self.M)
         exponents = np.arange(self.Nt)/self.Nt
         alphav = paradiag.alpha
         self.Gam = alphav**exponents
@@ -283,7 +282,7 @@ class DiagFFTPC(object):
             else:
                 self.u0.sub(0).assign(self.u0.sub(0)
                                       + self.w_all.split()[i])
-        self.u0 /= self.M
+        self.u0 /= self.M[self.rT]
 
     def apply(self, pc, x, y):
 
@@ -365,10 +364,10 @@ class DiagFFTPC(object):
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
         # get array of basis coefficients
         with self.xfi.dat.vec_ro as v:
-            parray = 1j*v.array_r.reshape((self.M,
+            parray = 1j*v.array_r.reshape((self.M[rT],
                                            self.blockV.node_set.size))
         with self.xfr.dat.vec_ro as v:
-            parray += v.array_r.reshape((self.M,
+            parray += v.array_r.reshape((self.M[rT],
                                          self.blockV.node_set.size))
         # transfer forward
         self.a0[:] = parray[:]
