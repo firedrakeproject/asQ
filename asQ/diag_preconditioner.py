@@ -3,34 +3,19 @@ import firedrake as fd
 from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc, OptionsManager
 from pyop2.mpi import MPI
-from functools import partial
 from mpi4py_fft.pencil import Pencil, Subcomm
 from mpi4py_fft import fftw
-
-# Some bits to reduce boilerplate for setting the applications context
-def context_callback(pc, context):
-    return context
-
-def set_context(context):
-    """
-    Usage: call this function in your main script with a dictionary
-    specifying the applications context, giving it your chosen
-    <some_name>.
-
-    Then in your main script, you can pass your dictionary to the PC
-    through the options via
-    "<prefix>_context":"__main__.<some_name>".
-    """
-    return partial(context_callback, context=context)
+import importlib
 
 
 class DiagFFTPC(object):
+    prefix = "diagfft_"
+
     def __init__(self):
         r"""A preconditioner for all-at-once systems with alpha-circulant
         block diagonal structure, using FFT.
         """
         self.initialized = False
-        prefix = "diagfft_"
 
     def setUp(self, pc):
         """Setup method called by PETSc."""

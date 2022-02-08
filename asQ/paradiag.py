@@ -3,9 +3,16 @@ import firedrake as fd
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from pyop2.mpi import MPI
-
-from functools import reduce
+from functools import reduce, partial
 from operator import mul
+
+appctx = {}
+
+# Some bits for setting the applications context
+def context_callback(pc, context):
+    return context
+
+get_context = partial(context_callback, context=appctx)
 
 
 class JacobianMatrix(object):
@@ -194,11 +201,12 @@ class paradiag(object):
         self._set_para_form()
 
         # sort out the appctx
-        solver_parameters = flatten_parameters(solver_parameters)
         if "pc_python_type" in solver_parameters:
             if solver_parameters["pc_python_type"]=="asQ.DiagFFTPC":
-                assert("diagfft_context" in solver_parameters)
-
+                appctx["paradiag"] = self
+                solver_parameters["diagfft_"] = "asQ.get_context"
+        solver_parameters = flatten_parameters(solver_parameters)
+                
         # set up the snes
         self.snes = PETSc.SNES().create(comm=fd.COMM_WORLD)
         self.opts = OptionsManager(solver_parameters, 'paradiag')
@@ -219,13 +227,6 @@ class paradiag(object):
             P.assemble()
 
         self.snes.setJacobian(form_jacobian, J=Jacmat, P=Jacmat)
-
-        pc = PETSc.PC().create()
-        pc.setType("python")
-        pc.setPythonType("DiagFFTPC")
-        pc.setAttr("paradiag", self)
-        print("ask lawrence how to set the pc in the snes")
-        print("will need to put pc.delAttr('paradiag') somewhere")
 
         # complete the snes setup
         self.opts.set_from_options(self.snes)

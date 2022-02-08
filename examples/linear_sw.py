@@ -1,6 +1,7 @@
 import firedrake as fd
 from petsc4py import PETSc
 import asQ
+import numpy as np
 
 PETSc.Sys.popErrorHandler()
 
@@ -8,8 +9,13 @@ PETSc.Sys.popErrorHandler()
 R0 = 6371220.
 H = fd.Constant(5960.)
 
+# set up the ensemble communicator for space-time parallelism
+nspatial_domains = 2
+ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 mesh = fd.IcosahedralSphereMesh(radius=R0,
-                                refinement_level=3, degree=2)
+                                refinement_level=3,
+                                degree=2,
+                                comm=ensemble.comm)
 x = fd.SpatialCoordinate(mesh)
 mesh.init_cell_orientations(x)
 R0 = fd.Constant(R0)
@@ -90,9 +96,6 @@ lu_parameters = {
     "assembled_pc_factor_mat_solver_type": "mumps"
 }
 
-appctx = {}
-contextfn = asQ.set_context(appctx)
-
 solver_parameters_diag = {
     'snes_monitor': None,
     'mat_type': 'matfree',
@@ -102,10 +105,10 @@ solver_parameters_diag = {
     'ksp_rtol': 1.0e-5,
     'ksp_atol': 1.0e-30,
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
-    'pc_context':'__main__.contextfn'}
+    'pc_python_type': 'asQ.DiagFFTPC'}
 
-for i in range(M):
+M = [2, 2, 2, 2]
+for i in range(np.sum(M)):
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
     
 dt = 60*60*3600
@@ -128,9 +131,13 @@ etan.project(bexpr)
 alpha = 1.0e5
 theta = 0.5
 
-PD = asQ.paradiag(form_function=form_function,
-                  form_mass=form_mass, W=W, w0=w0, dt=dt,
-                  theta=theta, alpha=alpha, M=M,
-                  solver_parameters=solver_parameters_diag,
-                  circ="quasi")
+PD = asQ.paradiag(ensemble=ensemble,
+                  form_function=form_function,
+                  form_mass=form_mass, W=W, w0=w0,
+                  dt=dt, theta=theta,
+                  alpha=alpha,
+                  M=M, solver_parameters=solver_parameters_diag,
+                  circ="none",
+                  jac_average="newton", tol=1.0e-6, maxits=None,
+                  ctx={}, block_mat_type="aij")
 PD.solve()

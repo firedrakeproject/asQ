@@ -51,8 +51,8 @@ def test_jacobian_heat_equation():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters,
                       circ="none",
-                      jac_average="newton", tol=1.0e-6, maxits=None,
-                      ctx={}, block_mat_type="aij")
+                      jac_average="newton", tol=1.0e-6, maxits=None)
+
     PD.solve()
 
     assert (1 < PD.snes.getConvergedReason() < 5)
