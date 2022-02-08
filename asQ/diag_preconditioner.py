@@ -381,7 +381,7 @@ class DiagFFTPC(object):
         parray[:] = self.a0[:]
         ifft(parray, axis=0)
         #scale
-        parray = ((1.0/self.Gam)*parray.T).T
+        parray = ((1.0/self.Gam_slice)*parray.T).T
         # Copy into xfi, xfr
         with self.yf.dat.vec_wo as v:
             v.array[:] = parray.reshape(-1).real
