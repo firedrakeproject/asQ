@@ -73,7 +73,6 @@ solver_parameters_diag = {
     'ksp_type': 'gmres',
     'ksp_monitor': None,
     'pc_type': 'python',
-    #'pc_type': 'none',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
 M = [2, 2, 2, 2]
@@ -97,7 +96,7 @@ minarg = fd.Min(pow(rl, 2),
 bexpr = 2000.0*(1 - fd.sqrt(minarg)/rl)
 etan.project(bexpr)
 
-alpha = 1.0e5
+alpha = 1.0e-3
 theta = 0.5
 
 PD = asQ.paradiag(ensemble=ensemble,
@@ -106,7 +105,7 @@ PD = asQ.paradiag(ensemble=ensemble,
                   dt=dt, theta=theta,
                   alpha=alpha,
                   M=M, solver_parameters=solver_parameters_diag,
-                  circ="picard",
+                  circ="quasi",
                   jac_average="newton", tol=1.0e-6, maxits=None,
                   ctx={}, block_mat_type="aij")
 PD.solve()
