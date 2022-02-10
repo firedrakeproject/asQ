@@ -372,14 +372,13 @@ class DiagFFTPC(object):
         self.a0[:] = parray[:]
         self.transfer.forward(self.a0, self.a1)
         # IFFT
-        self.a1[:] = fft(self.a1, axis=0)
+        self.a1[:] = ifft(self.a1, axis=0)
         #self.b_fftin[:] = self.a1[:]
         #self.ifft()
         #self.a1[:] = self.b_fftout[:]
         # transfer backward
         self.transfer.backward(self.a1, self.a0)
         parray[:] = self.a0[:]
-        ifft(parray, axis=0)
         #scale
         parray = ((1.0/self.Gam_slice)*parray.T).T
         # Copy into xfi, xfr
