@@ -5,6 +5,8 @@ from firedrake.petsc import PETSc, OptionsManager
 from pyop2.mpi import MPI
 from mpi4py_fft.pencil import Pencil, Subcomm
 from mpi4py_fft import fftw
+from operator import mul
+from functools import reduce
 import importlib
 
 
@@ -106,8 +108,8 @@ class DiagFFTPC(object):
                     raise NotImplementedError
 
             dim = len(MixedCpts)
-            self.CblockV = np.prod([fd.FunctionSpace(mesh,
-                                    MixedCpts[i]) for i in range(dim)])
+            self.CblockV = reduce(mul, [fd.FunctionSpace(mesh,
+                                                         MixedCpts[i]) for i in range(dim)])
         else:
             self.ncpts = 1
             if isinstance(Ve, fd.FiniteElement):

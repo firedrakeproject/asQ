@@ -82,7 +82,7 @@ class JacobianMatrix(object):
         MPI.Request.Waitall(mpi_requests)
 
         # Set the flag for the circulant option
-        if self.paradiag.circ == "quasi":
+        if self.paradiag.circ in ["quasi", "picard"]:
             self.paradiag.Circ.assign(1.0)
         else:
             self.paradiag.Circ.assign(0.0)
@@ -332,10 +332,6 @@ class paradiag(object):
         Solve the system (either in one shot or as a relaxation method).
         """
 
-        if self.circ == "picard":
-            raise NotImplementedError
-        else:
-            # One shot
-            with self.opts.inserted_options():
-                self.snes.solve(None, self.X)
-            self.update(self.X)
+        with self.opts.inserted_options():
+            self.snes.solve(None, self.X)
+        self.update(self.X)

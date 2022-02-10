@@ -66,10 +66,14 @@ sparameters = {
 }
 
 solver_parameters_diag = {
+    "snes_linesearch_type":"basic",
     'snes_monitor': None,
+    'snes_converged_reason': None,
     'mat_type': 'matfree',
-    'ksp_type': 'preonly',
+    'ksp_type': 'gmres',
+    'ksp_monitor': None,
     'pc_type': 'python',
+    #'pc_type': 'none',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
 M = [2, 2, 2, 2]
@@ -102,7 +106,7 @@ PD = asQ.paradiag(ensemble=ensemble,
                   dt=dt, theta=theta,
                   alpha=alpha,
                   M=M, solver_parameters=solver_parameters_diag,
-                  circ="none",
+                  circ="picard",
                   jac_average="newton", tol=1.0e-6, maxits=None,
                   ctx={}, block_mat_type="aij")
 PD.solve()
