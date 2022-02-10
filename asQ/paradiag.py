@@ -8,9 +8,10 @@ from operator import mul
 
 appctx = {}
 
-# Some bits for setting the applications context
+
 def context_callback(pc, context):
     return context
+
 
 get_context = partial(context_callback, context=appctx)
 
@@ -202,11 +203,11 @@ class paradiag(object):
 
         # sort out the appctx
         if "pc_python_type" in solver_parameters:
-            if solver_parameters["pc_python_type"]=="asQ.DiagFFTPC":
+            if solver_parameters["pc_python_type"] == "asQ.DiagFFTPC":
                 appctx["paradiag"] = self
                 solver_parameters["diagfft_context"] = "asQ.paradiag.get_context"
         solver_parameters = flatten_parameters(solver_parameters)
-                
+
         # set up the snes
         self.snes = PETSc.SNES().create(comm=fd.COMM_WORLD)
         self.opts = OptionsManager(solver_parameters, '')

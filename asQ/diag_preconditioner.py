@@ -1,13 +1,12 @@
 import numpy as np
 import firedrake as fd
 from scipy.fft import fft, ifft
-from firedrake.petsc import PETSc, OptionsManager
-from pyop2.mpi import MPI
+from firedrake.petsc import PETSc
 from mpi4py_fft.pencil import Pencil, Subcomm
-from mpi4py_fft import fftw
 from operator import mul
 from functools import reduce
 import importlib
+from ufl.classes import MultiIndex, FixedIndex, Indexed
 
 
 class DiagFFTPC(object):
@@ -35,20 +34,20 @@ class DiagFFTPC(object):
         if isinstance(fun, type):
             fun = fun()
         self.context = fun(pc)
-        
+
         if self.initialized:
             self.update(pc)
         else:
             self.initialize(pc)
             self.initialized = True
-        
+
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
 
         paradiag = self.context["paradiag"]
         self.paradiag = paradiag
-        
+
         # this time slice part of the all at once solution
         self.w_all = paradiag.w_all
         # this is bad naming
@@ -140,42 +139,19 @@ class DiagFFTPC(object):
         if isinstance(Ve, fd.MixedElement):
             N = Ve.num_sub_elements()
             for i in range(N):
-                SubV = Ve.sub_elements()[i]
-                if len(SubV.value_shape()) == 0:
-                    vsr.append(vs[i][0])
-                    vsi.append(vs[i][1])
-                    usr.append(us[i][0])
-                    usi.append(us[i][1])
-                elif len(SubV.value_shape()) == 1:
-                    vsr.append(vs[i][0, :])
-                    vsi.append(vs[i][1, :])
-                    usr.append(us[i][0, :])
-                    usi.append(us[i][1, :])
-                elif len(SubV.value_shape()) == 2:
-                    vsr.append(vs[i][0, :, :])
-                    vsi.append(vs[i][1, :, :])
-                    usr.append(us[i][0, :, :])
-                    usi.append(us[i][1, :, :])
-                else:
-                    raise NotImplementedError
+                part = vs[i]
+                idxs = fd.indices(len(part.ufl_shape) - 1)
+                vsr.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(0), *idxs))), idxs))
+                vsi.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(1), *idxs))), idxs))
+                part = us[i]
+                idxs = fd.indices(len(part.ufl_shape) - 1)
+                usr.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(0), *idxs))), idxs))
+                usi.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(1), *idxs))), idxs))
         else:
-            if isinstance(Ve, fd.FiniteElement):
-                vsr.append(vs[0])
-                vsi.append(vs[1])
-                usr.append(us[0])
-                usi.append(us[1])
-            elif isinstance(Ve, fd.VectorElement):
-                vsr.append(vs[0, :])
-                vsi.append(vs[1, :])
-                usr.append(self.u0[0, :])
-                usi.append(self.u0[1, :])
-            elif isinstance(Ve, fd.TensorElement):
-                vsr.append(vs[0, :])
-                vsi.append(vs[1, :])
-                usr.append(self.u0[0, :])
-                usi.append(self.u0[1, :])
-            else:
-                raise NotImplementedError
+            vsr.append(vs[0, ...])
+            vsi.append(vs[1, ...])
+            usr.append(us[0, ...])
+            usi.append(us[1, ...])
 
         # input and output functions
         self.Jprob_in = fd.Function(self.CblockV)
@@ -206,16 +182,6 @@ class DiagFFTPC(object):
         # a0 is the local part of our other fft working array
         self.a1 = np.zeros(self.p1.subshape, complex)
         self.transfer = self.p0.transfer(self.p1, complex)
-        # the FFTW working arrays
-        #self.b_fftin = fftw.aligned(self.a1.shape, dtype=complex)
-        #self.b_fftout = fftw.aligned_like(self.b_fftin)
-        # FFTW plans
-        #self.fft = fftw.fftn(self.b_fftin,
-        #                     flags=(fftw.FFTW_MEASURE,),
-        #                     axes=(0,), output_array=self.b_fftout)
-        #self.fft = fftw.ifftn(self.b_fftin,
-        #                      flags=(fftw.FFTW_MEASURE,),
-        #                      axes=(0,), output_array=self.b_fftout)
 
         # setting up the Riesz map
         # input for the Riesz map
@@ -226,7 +192,7 @@ class DiagFFTPC(object):
         self.Proj = fd.LinearSolver(a, options_prefix=self.prefix+"mass_")
         # building the block problem solvers
         for i in range(M[rT]):
-            ii = np.sum(M[:rT])+i # global time time index
+            ii = np.sum(M[:rT])+i  # global time time index
             D1i = fd.Constant(np.imag(self.D1[ii]))
             D1r = fd.Constant(np.real(self.D1[ii]))
             D2i = fd.Constant(np.imag(self.D2[ii]))
@@ -292,7 +258,7 @@ class DiagFFTPC(object):
             x.copy(v)
 
         rT = self.paradiag.ensemble.ensemble_comm.rank  # the time rank
-            
+
         # get array of basis coefficients
         with self.xf.dat.vec_ro as v:
             parray = v.array_r.reshape((self.M[rT],
@@ -310,9 +276,6 @@ class DiagFFTPC(object):
         self.transfer.forward(self.a0, self.a1)
         # FFT
         self.a1[:] = fft(self.a1, axis=0)
-        #self.b_fftin[:] = self.a1[:]
-        #self.fft()
-        #self.a1[:] = self.b_fftout[:]
 
         # transfer backward
         self.transfer.backward(self.a1, self.a0)
@@ -323,7 +286,7 @@ class DiagFFTPC(object):
         with self.xfi.dat.vec_wo as v:
             v.array[:] = parray.imag.reshape(-1)
         #####################
-            
+
         # Do the block solves
 
         for i in range(self.M[rT]):
@@ -374,13 +337,10 @@ class DiagFFTPC(object):
         self.transfer.forward(self.a0, self.a1)
         # IFFT
         self.a1[:] = ifft(self.a1, axis=0)
-        #self.b_fftin[:] = self.a1[:]
-        #self.ifft()
-        #self.a1[:] = self.b_fftout[:]
         # transfer backward
         self.transfer.backward(self.a1, self.a0)
         parray[:] = self.a0[:]
-        #scale
+        # scale
         parray = ((1.0/self.Gam_slice)*parray.T).T
         # Copy into xfi, xfr
         with self.yf.dat.vec_wo as v:

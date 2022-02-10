@@ -1,9 +1,6 @@
 import firedrake as fd
-from petsc4py import PETSc
 import asQ
 import numpy as np
-
-PETSc.Sys.popErrorHandler()
 
 # some domain, parameters and FS setup
 R0 = 6371220.
@@ -23,6 +20,7 @@ cx, cy, cz = fd.SpatialCoordinate(mesh)
 
 outward_normals = fd.CellNormal(mesh)
 
+
 def perp(u):
     return fd.cross(outward_normals, u)
 
@@ -41,9 +39,8 @@ f = 2*Omega*cz/fd.Constant(R0)  # Coriolis parameter
 g = fd.Constant(9.8)  # Gravitational constant
 dT = fd.Constant(0.)
 
-def form_function(u, h, v, q):
-    n = fd.FacetNormal(mesh)
 
+def form_function(u, h, v, q):
     eqn = (
         fd.inner(v, f*perp(u))*fd.dx
         - fd.div(v)*g*h*fd.dx
@@ -55,6 +52,7 @@ def form_function(u, h, v, q):
 def form_mass(u, h, v, q):
     return fd.inner(u, v)*fd.dx + h*q*fd.dx
 
+
 # Parameters for the diag
 sparameters = {
     "ksp_type": "preonly",
@@ -62,11 +60,11 @@ sparameters = {
     'hybridization': {
         'ksp_type': 'preonly',
         'pc_type': 'lu',
-        'pc_factor_mat_solver_type':'mumps'}
+        'pc_factor_mat_solver_type': 'mumps'}
 }
 
 solver_parameters_diag = {
-    "snes_linesearch_type":"basic",
+    "snes_linesearch_type": "basic",
     'snes_monitor': None,
     'snes_converged_reason': None,
     'mat_type': 'matfree',
@@ -78,7 +76,7 @@ solver_parameters_diag = {
 M = [2, 2, 2, 2]
 for i in range(np.sum(M)):
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
-    
+
 dt = 60*60*3600
 dT.assign(dt)
 t = 0.
