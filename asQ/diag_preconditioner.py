@@ -272,7 +272,6 @@ class DiagFFTPC(object):
 
     def update(self, pc):
         self.u0.assign(0)
-        print("Need to check that contents from X get into w_all")
         for i in range(self.M[self.rT]):
             # copy the data into solver input
             if self.ncpts > 1:
