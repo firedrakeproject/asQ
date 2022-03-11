@@ -222,8 +222,8 @@ PD.solve()
 
 
 # write output:
-r = paradiag.ensemble.ensemble_comm.rank
+r = PD.ensemble.ensemble_comm.rank
 if r == len(M) - 1:
-    file0 = fd.File("output/output1.pvd")
+    file0 = fd.File("output/output1.pvd", comm=ensemble.comm)
     u0, h0, u1, h1 = PD.w_all.split()
     file0.write(u1, h1)
