@@ -1,5 +1,6 @@
 import firedrake as fd
 from petsc4py import PETSc
+import numpy as np
 import asQ
 PETSc.Sys.popErrorHandler()
 
@@ -7,8 +8,8 @@ PETSc.Sys.popErrorHandler()
 import argparse
 parser = argparse.ArgumentParser(description='Williamson 5 testcase for approximate Schur complement solver.')
 parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve. Default 1.')
-parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid. Default 3.')
-parser.add_argument('--nsteps', type=int, default=10, help='Number of timesteps. Default 10.')
+parser.add_argument('--ref_level', type=int, default=3, help='Refinement level of icosahedral grid. Default 3.')
+#parser.add_argument('--nsteps', type=int, default=10, help='Number of timesteps. Default 10.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient. Default 0.0001.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours. Default 0.05.')
 parser.add_argument('--filename', type=str, default='w5diag')
@@ -33,10 +34,16 @@ name = args.filename
 deg = args.coords_degree
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
+nspatial_domains = 1
+ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
 if args.tlblock == "mg":
     basemesh = fd.IcosahedralSphereMesh(radius=R0,
-                                        refinement_level=base_level, degree=deg,
-                                        distribution_parameters=distribution_parameters)
+                                        refinement_level=base_level,
+                                        degree=deg,
+                                        distribution_parameters=
+                                        distribution_parameters,
+                                        comm=ensemble.comm)
     mh = fd.MeshHierarchy(basemesh, nrefs)
     for mesh in mh:
         x = fd.SpatialCoordinate(mesh)
@@ -44,8 +51,11 @@ if args.tlblock == "mg":
     mesh = mh[-1]
 else:
     mesh = fd.IcosahedralSphereMesh(radius=R0,
-                                    refinement_level=args.ref_level, degree=deg,
-                                    distribution_parameters=distribution_parameters)
+                                    refinement_level=args.ref_level,
+                                    degree=deg,
+                                    distribution_parameters=
+                                    distribution_parameters,
+                                    comm=ensemble.comm)
     x = fd.SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
 R0 = fd.Constant(R0)
@@ -53,15 +63,14 @@ cx, cy, cz = fd.SpatialCoordinate(mesh)
 
 outward_normals = fd.CellNormal(mesh)
 
-M = args.nsteps
-
+M = [2, 2, 2, 2]
 
 def perp(u):
     return fd.cross(outward_normals, u)
 
 
 degree = args.degree
-V1 = fd.FunctionSpace(mesh, "BDFM", degree+1)
+V1 = fd.FunctionSpace(mesh, "BDM", degree+1)
 V2 = fd.FunctionSpace(mesh, "DG", degree)
 V0 = fd.FunctionSpace(mesh, "CG", degree+2)
 W = fd.MixedFunctionSpace((V1, V2))
@@ -153,133 +162,22 @@ class HelmholtzPC(fd.AuxiliaryOperatorPC):
 
 # Parameters for the diag
 sparameters = {
-    "mat_type": "matfree",
-    "ksp_type": "fgmres",
-    "ksp_max_it": 50,
-    "ksp_gmres_modifiedgramschmidt": None,
-    "ksp_rtol": 1e-8,
-    "pc_type": "fieldsplit",
-    "pc_fieldsplit_type": "schur",
-    "pc_fieldsplit_schur_fact_type": "full",
-    "pc_fieldsplit_off_diag_use_amat": True,
-}
-
-bottomright = {
-    "ksp_type": "gmres",
-    "ksp_max_it": args.kspschur,
-    "pc_type": "python",
-    "pc_python_type": "__main__.HelmholtzPC",
-    "aux_pc_type": "lu"
-}
-
-sparameters["fieldsplit_1"] = bottomright
-
-topleft_LU = {
     "ksp_type": "preonly",
-    "pc_type": "python",
-    "pc_python_type": "firedrake.AssembledPC",
-    "assembled_pc_type": "lu",
-    "assembled_pc_factor_mat_solver_type": "mumps"
-}
-
-topleft_ILU = {
-    "ksp_type": "gmres",
-    "ksp_max_it": 3,
-    "pc_type": "python",
-    "pc_python_type": "firedrake.AssembledPC",
-    "assembled_pc_type": "ilu",
-    "assembled_pc_factor_mat_solver_type": "petsc"
-}
-
-topleft_MG = {
-    "ksp_type": "preonly",
-    "ksp_max_it": 3,
-    "pc_type": "mg",
-    "mg_coarse_ksp_type": "preonly",
-    "mg_coarse_pc_type": "python",
-    "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-    "mg_coarse_assembled_pc_type": "lu",
-    "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-    "mg_levels_ksp_type": "gmres",
-    "mg_levels_ksp_max_it": args.kspmg,
-    "mg_levels_pc_type": "python",
-    "mg_levels_pc_python_type": "firedrake.PatchPC",
-    "mg_levels_patch_pc_patch_save_operators": True,
-    "mg_levels_patch_pc_patch_partition_of_unity": False,
-    "mg_levels_patch_pc_patch_sub_mat_type": "seqaij",
-    "mg_levels_patch_pc_patch_construct_type": "star",
-    "mg_levels_patch_pc_patch_multiplicative": False,
-    "mg_levels_patch_pc_patch_symmetrise_sweep": False,
-    "mg_levels_patch_pc_patch_construct_dim": 0,
-    "mg_levels_patch_sub_ksp_type": "preonly",
-    "mg_levels_patch_sub_pc_type": "lu",
-}
-
-topleft_MGs = {
-    "ksp_type": "preonly",
-    "ksp_max_it": 3,
-    "pc_type": "mg",
-    "mg_coarse_ksp_type": "preonly",
-    "mg_coarse_pc_type": "python",
-    "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-    "mg_coarse_assembled_pc_type": "lu",
-    "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-    "mg_levels_ksp_type": "gmres",
-    "mg_levels_ksp_max_it": args.kspmg,
-    "mg_levels_pc_type": "python",
-    "mg_levels_pc_python_type": "firedrake.AssembledPC",
-    "mg_levels_assembled_pc_type": "python",
-    "mg_levels_assembled_pc_python_type": "firedrake.ASMStarPC",
-    "mg_levels_assembled_pc_star_backend": "tinyasm",
-    "mg_levels_assmbled_pc_star_construct_dim": 0
-}
-
-topleft_smoother = {
-    "ksp_type": "gmres",
-    "ksp_max_it": 3,
-    "pc_type": "python",
-    "pc_python_type": "firedrake.PatchPC",
-    "patch_pc_patch_save_operators": True,
-    "patch_pc_patch_partition_of_unity": False,
-    "patch_pc_patch_sub_mat_type": "seqaij",
-    "patch_pc_patch_construct_type": "star",
-    "patch_pc_patch_multiplicative": False,
-    "patch_pc_patch_symmetrise_sweep": False,
-    "patch_pc_patch_construct_dim": 0,
-    "patch_sub_ksp_type": "preonly",
-    "patch_sub_pc_type": "lu",
-}
-
-if args.tlblock == "mg":
-    sparameters["fieldsplit_0"] = topleft_MG
-elif args.tlblock == "patch":
-    sparameters["fieldsplit_0"] = topleft_smoother
-elif args.tlblock == "ilu":
-    sparameters["fieldsplit_0"] = topleft_ILU
-else:
-    assert(args.tlblock == "lu")
-    sparameters["fieldsplit_0"] = topleft_LU
-
-lu_parameters = {
-    "pc_type": "python",
-    "pc_python_type": "firedrake.AssembledPC",
-    "assembled_mat_type": "aij",
-    "assembled_pc_type": "lu",
-    "assembled_pc_factor_mat_solver_type": "mumps"
-}
+    'pc_python_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps'}
 
 solver_parameters_diag = {
+    "snes_linesearch_type": "basic",
     'snes_monitor': None,
+    'snes_converged_reason': None,
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    "ksp_gmres_modifiedgramschmidt": None,
-    'ksp_max_it': 60,
-    'ksp_rtol': 1.0e-5,
-    'ksp_atol': 1.0e-30,
+    'ksp_type': 'gmres',
+    'ksp_monitor': None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
-for i in range(M):
+M = [2, 2, 2, 2]
+for i in range(max(M)):
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
 dt = 60*60*args.dt
@@ -311,11 +209,15 @@ b.interpolate(bexpr)
 alpha = args.alpha
 theta = 0.5
 
-PD = asQ.paradiag(form_function=form_function,
-                  form_mass=form_mass, W=W, w0=w0, dt=dt,
-                  theta=theta, alpha=alpha, M=M,
-                  solver_parameters=solver_parameters_diag,
-                  circ="quasi")
+PD = asQ.paradiag(ensemble=ensemble,
+                  form_function=form_function,
+                  form_mass=form_mass, W=W, w0=w0,
+                  dt=dt, theta=theta,
+                  alpha=alpha,
+                  M=M, solver_parameters=solver_parameters_diag,
+                  circ="quasi",
+                  jac_average="newton", tol=1.0e-6, maxits=None,
+                  ctx={}, block_mat_type="aij")
 PD.solve()
 
 
