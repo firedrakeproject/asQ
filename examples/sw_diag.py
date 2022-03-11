@@ -222,14 +222,8 @@ PD.solve()
 
 
 # write output:
-file0 = fd.File("output/output1.pvd")
-pun = fd.Function(W, name="pun")
-puns = pun.split()
-
-for i in range(M):
-    walls = PD.w_all.split()[2 * i:2 * i + 2]
-    for k in range(2):
-        puns[k].assign(walls[k])
-    u_out = puns[0]
-    h_out = puns[1]
-    file0.write(u_out, h_out)
+r = paradiag.ensemble.ensemble_comm.rank
+if r == len(M) - 1:
+    file0 = fd.File("output/output1.pvd")
+    u0, h0, u1, h1 = PD.w_all.split()
+    file0.write(u1, h1)
