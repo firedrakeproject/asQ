@@ -3,6 +3,9 @@ import firedrake as fd
 import numpy as np
 import pytest
 from petsc4py import PETSc
+from functools import reduce
+from operator import mul
+
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -609,11 +612,14 @@ def test_set_para_form_mixed():
 @pytest.mark.xfail
 def test_solve_para_form():
     # checks that the all-at-once system is the same as solving
-    # timesteps sequentially using the heat equation as an example by
+    # timesteps sequentially using the NONLINEAR heat equation as an example by
     # solving the all-at-once system and comparing with the sequential
     # solution
 
-    mesh = fd.UnitSquareMesh(20, 20)
+    # set up the ensemble communicator for space-time parallelism
+    nspatial_domains = 2
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -621,22 +627,51 @@ def test_solve_para_form():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = 4
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
+    c = fd.Constant(1)
+    M = [2, 2, 2, 2]
+    Ml = np.sum(M)
+
+    # no PC used:
+    # solver_parameters_diag = {'ksp_type': 'gmres', 'pc_type': 'none',
+    #                      'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
+    #                      'ksp_monitor': None}
+
+    # Parameters for the diag
+    sparameters = {
+        "ksp_type": "preonly",
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'
+    }
+
+    solver_parameters_diag = {
+        "snes_linesearch_type": "basic",
+        'snes_monitor': None,
+        'snes_converged_reason': None,
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'ksp_monitor': None,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC'}
+
+    for i in range(np.sum(M)):
+        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
 
     def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+        return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
         return u*v*fd.dx
 
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=V, w0=u0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="none")
+
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=V, w0=u0,
+                      dt=dt, theta=theta,
+                      alpha=alpha,
+                      M=M, solver_parameters=solver_parameters_diag,
+                      circ="quasi",
+                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
     PD.solve()
 
     # sequential solver
@@ -655,24 +690,46 @@ def test_solve_para_form():
     ssolver = fd.NonlinearVariationalSolver(sprob,
                                             solver_parameters=solver_parameters)
 
-    err = fd.Function(V, name="err")
-    pun = fd.Function(V, name="pun")
-    for i in range(M):
+    # Calculation of time slices in serial:
+    VFull = reduce(mul, (V for _ in range(Ml)))
+    vfull = fd.Function(VFull)
+    vfull_list = vfull.split()
+    rT = ensemble.ensemble_comm.rank
+
+    for i in range(Ml):
         ssolver.solve()
+        vfull_list[i].assign(unp1)
         un.assign(unp1)
-        pun.assign(PD.w_all.sub(i))
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
+
+    # write the serial vector in local time junks
+    v_all = fd.Function(PD.W_all)
+    v_alls = v_all.split()
+
+    nM = M[rT]
+    for i in range(nM):
+        # sum over the entries of M until rT determines left position left
+        left = np.sum(M[:rT], dtype=int)
+        ind1 = left + i
+        v_alls[i].assign(vfull_list[ind1])  # ith time slice V
+
+    w_alls = PD.w_all.split()
+    for tt in range(nM):
+        err = fd.norm(v_alls[tt] - w_alls[tt])
+        print(err)
+        assert(err < 1e-09)
 
 
 @pytest.mark.xfail
 def test_solve_para_form_mixed():
     # checks that the all-at-once system is the same as solving
-    # timesteps sequentially using the mixed wave equation as an
+    # timesteps sequentially using the NONLINEAR mixed wave equation as an
     # example by substituting the sequential solution and evaluating
     # the residual
 
-    mesh = fd.PeriodicUnitSquareMesh(20, 20)
+    # set up the ensemble communicator for space-time parallelism
+    nspatial_domains = 2
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.PeriodicUnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
@@ -684,22 +741,52 @@ def test_solve_para_form_mixed():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = 4
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
+    c = fd.Constant(10)
+    eps = fd.Constant(0.001)
+
+    M = [2, 2, 2, 2]
+    Ml = np.sum(M)
+
+    # no PC used:
+    # solver_parameters_diag = {'ksp_type': 'preonly', 'pc_type': 'lu',
+    #                        'pc_factor_mat_solver_type': 'mumps',
+    #                        'mat_type': 'aij'}
+
+    # Parameters for the diag
+    sparameters = {
+        "ksp_type": "preonly",
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'
+    }
+
+    solver_parameters_diag = {
+        "snes_linesearch_type": "basic",
+        'snes_monitor': None,
+        'snes_converged_reason': None,
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'ksp_monitor': None,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC'}
+
+    for i in range(np.sum(M)):
+        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
 
     def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
+        return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
+                - fd.div(uu) * vp) * fd.dx
 
     def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
+        return (fd.inner(uu, vu) + up * vp) * fd.dx
 
-    PD = asQ.paradiag(form_function=form_function,
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
                       theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="none")
+                      solver_parameters=solver_parameters_diag,
+                      circ="quasi",
+                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
     PD.solve()
 
     # sequential solver
@@ -724,17 +811,38 @@ def test_solve_para_form_mixed():
                                             solver_parameters=solver_parameters)
     ssolver.solve()
 
-    err = fd.Function(W, name="err")
-    pun = fd.Function(W, name="pun")
-    puns = pun.split()
-    for i in range(M):
+    # Calculation of time slices in serial:
+    VFull = reduce(mul, (W for _ in range(Ml)))
+    vfull = fd.Function(VFull)
+    vfull_list = vfull.split()
+
+    rT = ensemble.ensemble_comm.rank
+    rS = ensemble.comm.rank
+
+    for i in range(Ml):
         ssolver.solve()
-        un.assign(unp1)
-        walls = PD.w_all.split()[2*i:2*i+2]
         for k in range(2):
-            puns[k].assign(walls[k])
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
+            vfull.sub(2*i+k).assign(unp1.sub(k))
+        un.assign(unp1)
+
+    # write the serial vector in local time junks
+    v_all = fd.Function(PD.W_all)
+    v_alls = v_all.split()
+
+    nM = M[rT]
+    for i in range(nM):
+        # sum over the entries of M until rT determines left position left
+        left = np.sum(M[:rT], dtype=int)
+        ind1 = 2*left + 2*i
+        ind2 = 2*left + 2*i + 1
+        v_alls[2*i].assign(vfull_list[ind1])  # ith time slice V
+        v_alls[2*i + 1].assign(vfull_list[ind2])  # ith time slice Q
+
+    w_alls = PD.w_all.split()
+    for tt in range(2*nM):
+        err = fd.norm(v_alls[tt] - w_alls[tt])
+        print('Int time tt:', tt, ' Rank T: ', rT, 'Rank S: ', rS, '; Error: ', err)
+        assert (err < 1e-09)
 
 
 @pytest.mark.xfail
