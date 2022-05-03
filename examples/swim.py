@@ -2,6 +2,10 @@ import firedrake as fd
 from petsc4py import PETSc
 import numpy as np
 import asQ
+
+# multigrid transfer manager for diagonal block solve
+import swim_mg as mg
+
 PETSc.Sys.popErrorHandler()
 
 # get command arguments
@@ -157,8 +161,6 @@ minarg = fd.Min(pow(rl, 2),
 bexpr = 2000.0*(1 - fd.sqrt(minarg)/rl)
 b.interpolate(bexpr)
 
-# solver parameters
-
 # parameters for the implicit diagonal solve in step-(b)
 sparameters_orig = {
     #"ksp_converged_reason": None,
@@ -170,6 +172,7 @@ sparameters_new = {
     #"snes_monitor": None,
     "mat_type": "matfree",
     "ksp_type": "preonly",
+    #"ksp_monitor": None,
     #"ksp_monitor_true_residual": None,
     #"ksp_converged_reason": None,
     "ksp_atol": 1e-8,
@@ -209,17 +212,17 @@ solver_parameters_diag = {
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     #'ksp_type': 'preonly',
-    #'ksp_max_it': 5,
+    'ksp_max_it': 10,
     'ksp_monitor': None,
     #"ksp_monitor_true_residual": None,
     "ksp_converged_reason": None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
-M = [1, 1, 1, 1]
-#M = [2, 2, 2, 2]
-#M = [3, 3, 3, 3]
-#M = [4, 4, 4, 4]
+#M = [1, 1, 1, 1, 1, 1, 1, 1]
+M = [2, 2, 2, 2]
+#M = [4, 4]
+#M = [8]
 
 for i in range(sum(M)): # should this be sum(M) or max(M)?
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
@@ -227,27 +230,31 @@ for i in range(sum(M)): # should this be sum(M) or max(M)?
 alpha = args.alpha
 theta = 0.5
 
+# non-petsc information for block solve
+block_ctx = {}
+
+# mesh transfer operators
+transfer_managers = []
+for _ in range(sum(M)):
+    vtransfer = mg.ManifoldTransfer()
+    transfers = {
+        V1.ufl_element(): (vtransfer.prolong, vtransfer.restrict,
+                           vtransfer.inject),
+        V2.ufl_element(): (vtransfer.prolong, vtransfer.restrict,
+                           vtransfer.inject)
+    }
+    transfer_managers += [fd.TransferManager(native_transfers=transfers)]
+
+block_ctx['diag_transfer_managers']=transfer_managers
+
 PD = asQ.paradiag(ensemble=ensemble,
                   form_function=form_function,
                   form_mass=form_mass, W=W, w0=w0,
                   dt=dt, theta=theta,
                   alpha=alpha,
                   M=M, solver_parameters=solver_parameters_diag,
-                  circ="quasi",
+                  circ=None,
                   jac_average="newton", tol=1.0e-6, maxits=None,
-                  ctx={}, block_mat_type="aij")
+                  ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
 PD.solve()
-
-u_out = fd.Function(V1,name='velocity')
-h_out = fd.Function(V2,name='depth')
-
-# write output:
-r = PD.ensemble.ensemble_comm.rank
-if r == len(M) - 1:
-    file0 = fd.File("output/"+filename+".pvd", comm=ensemble.comm)
-    #u0, h0, u1, h1 = PD.w_all.split()
-    fields = PD.w_all.split()
-    u_out.assign(fields[-2])
-    h_out.assign(fields[-1])
-    file0.write(u_out, h_out)

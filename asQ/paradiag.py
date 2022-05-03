@@ -104,7 +104,7 @@ class paradiag(object):
                  alpha, M, solver_parameters=None,
                  circ="picard",
                  jac_average="newton", tol=1.0e-6, maxits=10,
-                 ctx={}, block_mat_type="aij"):
+                 ctx={}, block_ctx={}, block_mat_type="aij"):
         """A class to implement paradiag timestepping.
 
         :arg ensemble: the ensemble communicator
@@ -125,7 +125,7 @@ class paradiag(object):
         form relaxation method. "quasi" - do a modified Newton
         method with alpha-circulant modification added to the
         Jacobian. To make the alpha circulant modification only in the
-       preconditioner, simply set ksp_type:preonly in the solve options.
+        preconditioner, simply set ksp_type:preonly in the solve options.
         :arg jac_average: a string describing the option for when to
         average the jacobian. "newton" - make a quasi-Newton method by
         time averaging the Jacobian. "preconditioner" - only do the
@@ -134,6 +134,7 @@ class paradiag(object):
         :arg maxits: integer, the maximum number of iterations for the
         relaxation method, if used.
         :arg ctx: application context for solvers.
+        :arg block_ctx: non-petsc context for solvers.
         :arg block_mat_type: set the type of the diagonal block systems.
         Default is aij.
         """
@@ -154,6 +155,8 @@ class paradiag(object):
         self.maxits = maxits
         self.circ = circ
         self.jac_average = jac_average
+        self.ctx=ctx
+        self.block_ctx=block_ctx
 
         # A coefficient that switches the alpha-circulant term on
         self.Circ = fd.Constant(1.0)

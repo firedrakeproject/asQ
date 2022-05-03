@@ -234,6 +234,10 @@ class DiagFFTPC(object):
             Jsolver = fd.LinearVariationalSolver(jprob,
                                                  appctx=appctx_h,
                                                  options_prefix=block_prefix)
+            # multigrid transfer manager
+            if 'diag_transfer_managers' in paradiag.block_ctx:
+                Jsolver.set_transfer_manager(paradiag.block_ctx['diag_transfer_managers'][ii])
+
             self.Jsolvers.append(Jsolver)
 
     def update(self, pc):
