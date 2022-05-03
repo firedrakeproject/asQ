@@ -1,6 +1,5 @@
 import firedrake as fd
 from petsc4py import PETSc
-import numpy as np
 import asQ
 PETSc.Sys.popErrorHandler()
 
@@ -9,7 +8,7 @@ import argparse
 parser = argparse.ArgumentParser(description='Williamson 5 testcase for approximate Schur complement solver.')
 parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve. Default 1.')
 parser.add_argument('--ref_level', type=int, default=3, help='Refinement level of icosahedral grid. Default 3.')
-#parser.add_argument('--nsteps', type=int, default=10, help='Number of timesteps. Default 10.')
+# parser.add_argument('--nsteps', type=int, default=10, help='Number of timesteps. Default 10.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient. Default 0.0001.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours. Default 0.05.')
 parser.add_argument('--filename', type=str, default='w5diag')
@@ -41,8 +40,7 @@ if args.tlblock == "mg":
     basemesh = fd.IcosahedralSphereMesh(radius=R0,
                                         refinement_level=base_level,
                                         degree=deg,
-                                        distribution_parameters=
-                                        distribution_parameters,
+                                        distribution_parameters=distribution_parameters,
                                         comm=ensemble.comm)
     mh = fd.MeshHierarchy(basemesh, nrefs)
     for mesh in mh:
@@ -53,8 +51,7 @@ else:
     mesh = fd.IcosahedralSphereMesh(radius=R0,
                                     refinement_level=args.ref_level,
                                     degree=deg,
-                                    distribution_parameters=
-                                    distribution_parameters,
+                                    distribution_parameters=distribution_parameters,
                                     comm=ensemble.comm)
     x = fd.SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
@@ -64,6 +61,7 @@ cx, cy, cz = fd.SpatialCoordinate(mesh)
 outward_normals = fd.CellNormal(mesh)
 
 M = [2, 2, 2, 2]
+
 
 def perp(u):
     return fd.cross(outward_normals, u)

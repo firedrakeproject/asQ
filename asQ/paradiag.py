@@ -155,8 +155,8 @@ class paradiag(object):
         self.maxits = maxits
         self.circ = circ
         self.jac_average = jac_average
-        self.ctx=ctx
-        self.block_ctx=block_ctx
+        self.ctx = ctx
+        self.block_ctx = block_ctx
 
         # A coefficient that switches the alpha-circulant term on
         self.Circ = fd.Constant(1.0)

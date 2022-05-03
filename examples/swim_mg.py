@@ -1,6 +1,7 @@
 
 import firedrake as fd
 
+
 class ManifoldTransfer(object):
     def __init__(self):
         '''
@@ -8,11 +9,11 @@ class ManifoldTransfer(object):
         where we pull back to a piecewise flat mesh
         before doing transfers
         '''
-        
+
         # list of flags to say if we've set up before
         self.ready = {}
         self.Ftransfer = fd.TransferManager()  # is this the firedrake warning?
-        
+
     def prolong(self, coarse, fine):
         Vfine = fd.FunctionSpace(fine.ufl_domain(),
                                  fine.function_space().ufl_element())
@@ -38,12 +39,11 @@ class ManifoldTransfer(object):
         # standard transfer preserves divergence-free subspaces
         self.Ftransfer.prolong(coarse, fine)
 
-        #change back to deformed mesh
+        # change back to deformed mesh
         coarse.ufl_domain().coordinates.assign(
             coarse.ufl_domain().coordinates_bk)
         fine.ufl_domain().coordinates.assign(
             fine.ufl_domain().coordinates_bk)
-
 
     def restrict(self, fine, coarse):
         Vfine = fd.FunctionSpace(fine.ufl_domain(),
@@ -70,7 +70,7 @@ class ManifoldTransfer(object):
         # standard transfer preserves divergence-free subspaces
         self.Ftransfer.restrict(fine, coarse)
 
-        #change back to deformed mesh
+        # change back to deformed mesh
         coarse.ufl_domain().coordinates.assign(
             coarse.ufl_domain().coordinates_bk)
         fine.ufl_domain().coordinates.assign(
@@ -101,7 +101,7 @@ class ManifoldTransfer(object):
         # standard transfer preserves divergence-free subspaces
         self.Ftransfer.inject(fine, coarse)
 
-        #change back to deformed mesh
+        # change back to deformed mesh
         coarse.ufl_domain().coordinates.assign(
             coarse.ufl_domain().coordinates_bk)
         fine.ufl_domain().coordinates.assign(

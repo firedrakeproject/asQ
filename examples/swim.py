@@ -1,6 +1,5 @@
 import firedrake as fd
 from petsc4py import PETSc
-import numpy as np
 import asQ
 
 # multigrid transfer manager for diagonal block solve
@@ -13,7 +12,7 @@ import argparse
 parser = argparse.ArgumentParser(description='Williamson 5 testcase for approximate Schur complement solver.')
 parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve. Default 1.')
 parser.add_argument('--ref_level', type=int, default=3, help='Refinement level of icosahedral grid. Default 3.')
-#parser.add_argument('--nsteps', type=int, default=10, help='Number of timesteps. Default 10.')
+# parser.add_argument('--nsteps', type=int, default=10, help='Number of timesteps. Default 10.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient. Default 0.0001.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours. Default 0.05.')
 parser.add_argument('--filename', type=str, default='w5diag')
@@ -37,13 +36,13 @@ base_level = args.base_level
 nrefs = args.ref_level - base_level
 filename = args.filename
 deg = args.coords_degree
-#deg = max( args.coords_degree, args.degree+1 )
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
 nspatial_domains = 1
 ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
 # mesh set up
+
 
 def high_order_mesh_hierarchy(mh, degree, R0):
     meshes = []
@@ -60,13 +59,14 @@ def high_order_mesh_hierarchy(mh, degree, R0):
                             mh.fine_to_coarse_cells,
                             mh.refinements_per_level, mh.nested)
 
+
 # mesh heirarchy from sw_implicit
 if args.tlblock == "mg":
-    basemesh = fd.IcosahedralSphereMesh(radius = R0,
-                                        refinement_level = base_level,
-                                        degree = deg,
-                                        distribution_parameters = distribution_parameters,
-                                        comm = ensemble.comm)
+    basemesh = fd.IcosahedralSphereMesh(radius=R0,
+                                        refinement_level=base_level,
+                                        degree=deg,
+                                        distribution_parameters=distribution_parameters,
+                                        comm=ensemble.comm)
     del basemesh._radius
     mh = fd.MeshHierarchy(basemesh, nrefs)
     mh = high_order_mesh_hierarchy(mh, deg, R0)
@@ -82,8 +82,7 @@ else:
     mesh = fd.IcosahedralSphereMesh(radius=R0,
                                     refinement_level=args.ref_level,
                                     degree=deg,
-                                    distribution_parameters=
-                                    distribution_parameters,
+                                    distribution_parameters=distribution_parameters,
                                     comm=ensemble.comm)
     x = fd.SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
@@ -107,11 +106,14 @@ b = fd.Function(V2, name="Topography")
 
 # nonlinear swe forms
 
+
 def perp(u):
     return fd.cross(outward_normals, u)
 
+
 def both(u):
     return 2*fd.avg(u)
+
 
 def form_function(u, h, v, q):
     K = 0.5*fd.inner(u, u)
@@ -134,6 +136,7 @@ def form_function(u, h, v, q):
 
 def form_mass(u, h, v, q):
     return fd.inner(u, v)*fd.dx + h*q*fd.dx
+
 
 dt = 60*60*args.dt
 t = 0.
@@ -163,18 +166,18 @@ b.interpolate(bexpr)
 
 # parameters for the implicit diagonal solve in step-(b)
 sparameters_orig = {
-    #"ksp_converged_reason": None,
+    # "ksp_converged_reason": None,
     "ksp_type": "preonly",
     'pc_python_type': 'lu',
     'pc_factor_mat_solver_type': 'mumps'}
 
 sparameters_new = {
-    #"snes_monitor": None,
+    # "snes_monitor": None,
     "mat_type": "matfree",
     "ksp_type": "preonly",
-    #"ksp_monitor": None,
-    #"ksp_monitor_true_residual": None,
-    #"ksp_converged_reason": None,
+    # "ksp_monitor": None,
+    # "ksp_monitor_true_residual": None,
+    # "ksp_converged_reason": None,
     "ksp_atol": 1e-8,
     "ksp_rtol": 1e-8,
     "ksp_max_it": 400,
@@ -183,7 +186,7 @@ sparameters_new = {
     "pc_mg_type": "multiplicative",
     "mg_levels_ksp_type": "gmres",
     "mg_levels_ksp_max_it": 5,
-    #"mg_levels_ksp_convergence_test": "skip",
+    # "mg_levels_ksp_convergence_test": "skip",
     "mg_levels_pc_type": "python",
     "mg_levels_pc_python_type": "firedrake.PatchPC",
     "mg_levels_patch_pc_patch_save_operators": True,
@@ -211,20 +214,20 @@ solver_parameters_diag = {
     'snes_converged_reason': None,
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
-    #'ksp_type': 'preonly',
+    # 'ksp_type': 'preonly',
     'ksp_max_it': 10,
     'ksp_monitor': None,
-    #"ksp_monitor_true_residual": None,
+    # "ksp_monitor_true_residual": None,
     "ksp_converged_reason": None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
-#M = [1, 1, 1, 1, 1, 1, 1, 1]
+# M = [1, 1, 1, 1, 1, 1, 1, 1]
 M = [2, 2, 2, 2]
-#M = [4, 4]
-#M = [8]
+# M = [4, 4]
+# M = [8]
 
-for i in range(sum(M)): # should this be sum(M) or max(M)?
+for i in range(sum(M)):  # should this be sum(M) or max(M)?
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
 alpha = args.alpha
@@ -245,7 +248,7 @@ for _ in range(sum(M)):
     }
     transfer_managers += [fd.TransferManager(native_transfers=transfers)]
 
-block_ctx['diag_transfer_managers']=transfer_managers
+block_ctx['diag_transfer_managers'] = transfer_managers
 
 PD = asQ.paradiag(ensemble=ensemble,
                   form_function=form_function,
