@@ -35,6 +35,15 @@ class DiagFFTPC(object):
             fun = fun()
         self.context = fun(pc)
 
+        # option for whether to use slice or window average for block jacobian
+        self.jac_average = PETSc.Options().getString(
+            f"{prefix}{self.prefix}jac_average", default='window')
+
+        valid_jac_averages = ['window', 'slice']
+
+        if self.jac_average not in valid_jac_averages:
+            raise ValueError("diagfft_jac_average must be one of "+" or ".join(valid_jac_averages))
+
         if self.initialized:
             self.update(pc)
         else:
@@ -129,6 +138,10 @@ class DiagFFTPC(object):
         vs = fd.TestFunctions(self.CblockV)
         self.u0 = fd.Function(self.CblockV)  # we will create a linearisation
         us = fd.split(self.u0)
+
+        # function to do global reduction into for average block jacobian
+        if self.jac_average == 'window':
+            self.ureduce = fd.Function(self.CblockV)
 
         # extract the real and imaginary parts
         vsr = []
@@ -248,7 +261,15 @@ class DiagFFTPC(object):
             else:
                 self.u0.sub(0).assign(self.u0.sub(0)
                                       + self.w_all.split()[i])
-        self.u0 /= self.M[self.rT]
+
+        # average only over current time-slice
+        if self.jac_average == 'slice':
+            self.u0 /= self.M[self.rT]
+
+        else:  # implies self.jac_average == 'window':
+            self.paradiag.ensemble.allreduce(self.u0, self.ureduce)
+            self.u0.assign(self.ureduce)
+            self.u0 /= sum(self.M)
 
     def apply(self, pc, x, y):
 
