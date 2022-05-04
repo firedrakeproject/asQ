@@ -1,3 +1,3 @@
 from .paradiag import paradiag  # noqa: F401
 from .diag_preconditioner import DiagFFTPC  # noqa: F401
-import asQ.post
+import asQ.post  # noqa: F401

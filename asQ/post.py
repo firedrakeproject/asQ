@@ -1,9 +1,10 @@
 
 import firedrake as fd
 
-def write_timesteps( pdg,
-                     file_name='paradiag_output',
-                     function_names=[] ):
+
+def write_timesteps(pdg,
+                    file_name='paradiag_output',
+                    function_names=[]):
     """Writes each timestep of a paradiag object to seperate file.
 
     :arg pdg: the paradiag object
@@ -15,18 +16,18 @@ def write_timesteps( pdg,
     #       Once there is an example using a plain FunctionSpace this will need updating
 
     # if given, check we have the right number of function_names
-    if len(function_names)!=0 and len(function_names)!=pdg.ncpts:
-        raise ValueError(  "function_names must be same length as pdg.ncpts,"
-                         +f" {len(function_names)} provided, {pdg.ncpts} needed." )
+    if (len(function_names) != 0) and (len(function_names) != pdg.ncpts):
+        raise ValueError("function_names must be same length as pdg.ncpts,"
+                         + f" {len(function_names)} provided, {pdg.ncpts} needed.")
 
     # functions for writing to file
-    functions=[]
-    for i in range( pdg.ncpts ):
+    functions = []
+    for i in range(pdg.ncpts):
         V = pdg.W.split()[i]
-        if len(function_names)!=0:
-            functions.append( fd.Function(V, name=function_names[i]) )
+        if len(function_names) != 0:
+            functions.append(fd.Function(V, name=function_names[i]))
         else:
-            functions.append( fd.Function(V) )
+            functions.append(fd.Function(V))
 
     # functions from entire local time-slice
     walls = pdg.w_all.split()
@@ -34,16 +35,14 @@ def write_timesteps( pdg,
     # first timestep of this local time-slice
     timestep0 = sum(pdg.M[:pdg.rT])
 
-    for i in range( pdg.M[pdg.rT] ):
+    for i in range(pdg.M[pdg.rT]):
         timestep = timestep0+i
 
         # index of first split function in this timestep
         index0 = pdg.ncpts*i
 
-        for j in range( pdg.ncpts ):
+        for j in range(pdg.ncpts):
             functions[j].assign(walls[index0+j])
 
-        fd.File( file_name+"."+str(timestep)+".pvd",
-                 comm=pdg.ensemble.comm
-               ).write(*functions)
-
+        fd.File(file_name+"."+str(timestep)+".pvd",
+                comm=pdg.ensemble.comm).write(*functions)
