@@ -4,12 +4,14 @@ import firedrake as fd
 
 def write_timesteps(pdg,
                     file_name='paradiag_output',
-                    function_names=[]):
+                    function_names=[],
+                    only_last_step=False):
     """Writes each timestep of a paradiag object to seperate file.
 
     :arg pdg: the paradiag object
     :arg file_name: optional name for the files. The full filename will be file_name.{timestep}
     :arg function_names: a list of names for each function in the (mixed) function space at each timestep
+    :arg only_last_step: only writes the last timestep and does not use .{timestep} suffix on filename
     """
 
     # TODO: This implementation assumes that a MixedFunctionSpace is used at each timestep
@@ -35,7 +37,8 @@ def write_timesteps(pdg,
     # first timestep of this local time-slice
     timestep0 = sum(pdg.M[:pdg.rT])
 
-    for i in range(pdg.M[pdg.rT]):
+    if only_last_step:
+        i = pdg.M[pdg.rT]-1
         timestep = timestep0+i
 
         # index of first split function in this timestep
@@ -44,5 +47,21 @@ def write_timesteps(pdg,
         for j in range(pdg.ncpts):
             functions[j].assign(walls[index0+j])
 
-        fd.File(file_name+"."+str(timestep)+".pvd",
+        fd.File(file_name+".pvd",
                 comm=pdg.ensemble.comm).write(*functions)
+
+        return
+
+    else:  # write every timestep
+
+        for i in range(pdg.M[pdg.rT]):
+            timestep = timestep0+i
+
+            # index of first split function in this timestep
+            index0 = pdg.ncpts*i
+
+            for j in range(pdg.ncpts):
+                functions[j].assign(walls[index0+j])
+
+            fd.File(file_name+"."+str(timestep)+".pvd",
+                    comm=pdg.ensemble.comm).write(*functions)
