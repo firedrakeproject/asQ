@@ -2,13 +2,14 @@ import firedrake as fd
 from petsc4py import PETSc
 import asQ
 
-import post
-
 # multigrid transfer manager for diagonal block solve
 from firedrake_utils import mg
 from firedrake_utils.planets import earth
 import firedrake_utils.shallow_water.nonlinear as swe
 from firedrake_utils.shallow_water.williamson1992 import case5
+
+# serial solution for verification
+from swim_serial import swim_serial
 
 PETSc.Sys.popErrorHandler()
 
@@ -30,6 +31,29 @@ args = args[0]
 
 if args.show_args:
     PETSc.Sys.Print(args)
+
+nt = 6
+
+# M = [1, 1, 1, 1]
+# M = [2, 2]
+M = [nt]
+
+# list of serial timesteps
+PETSc.Sys.Print('')
+PETSc.Sys.Print('### === --- Calculating serial solution --- === ###')
+PETSc.Sys.Print('')
+
+wserial = swim_serial(base_level=args.base_level,
+                      ref_level=args.ref_level,
+                      tmax=nt,
+                      dumpt=1,
+                      dt=args.dt,
+                      coords_degree=args.coords_degree,
+                      degree=args.degree)
+PETSc.Sys.Print('')
+
+PETSc.Sys.Print('### === --- Setting up parallel solution --- === ###')
+PETSc.Sys.Print('')
 
 # some domain, parameters and FS setup
 H = case5.H0
@@ -81,12 +105,6 @@ def form_mass(u, h, v, q):
 dt = 60*60*args.dt
 
 # parameters for the implicit diagonal solve in step-(b)
-sparameters_orig = {
-    # "ksp_converged_reason": None,
-    "ksp_type": "preonly",
-    'pc_python_type': 'lu',
-    'pc_factor_mat_solver_type': 'mumps'}
-
 sparameters_new = {
     # "snes_monitor": None,
     "mat_type": "matfree",
@@ -128,20 +146,19 @@ solver_parameters_diag = {
     "snes_linesearch_type": "basic",
     'snes_monitor': None,
     'snes_converged_reason': None,
+    "snes_atol": 1e-8,
+    # "snes_rtol": 1e-8,
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     # 'ksp_type': 'preonly',
     'ksp_max_it': 10,
+    "ksp_atol": 1e-8,
+    # "ksp_rtol": 1e-8,
     'ksp_monitor': None,
     # "ksp_monitor_true_residual": None,
     "ksp_converged_reason": None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
-
-# M = [1, 1, 1, 1, 1, 1, 1, 1]
-# M = [2, 2, 2, 2]
-# M = [2, 2]
-M = [3]
 
 for i in range(sum(M)):  # should this be sum(M) or max(M)?
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
@@ -167,20 +184,37 @@ PD = asQ.paradiag(ensemble=ensemble,
                   alpha=alpha,
                   M=M, solver_parameters=solver_parameters_diag,
                   circ=None,
-                  jac_average="newton", tol=1.0e-6, maxits=None,
+                  jac_average="newton", tol=1.0e-8, maxits=None,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
+
+PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
+PETSc.Sys.Print('')
 
 PD.solve()
 
-timestep0 = sum(PD.M[:PD.rT])
-walls = PD.w_all.split()
-for i in range(PD.M[PD.rT]):
-    index0 = PD.ncpts*i
-    wh = walls[index0+1]
-    wh.assign(wh-H+b)
+PETSc.Sys.Print('### === --- Comparing solutions --- === ###')
+PETSc.Sys.Print('')
 
-filename = 'output/'+args.filename
-funcnames = ['velocity', 'elevation']
-post.write_timesteps(PD,
-                     file_name=filename,
-                     function_names=funcnames)
+ws = fd.Function(W)
+wp = fd.Function(W)
+
+us, hs = ws.split()
+up, hp = wp.split()
+
+for i in range(nt):
+
+    us.assign(wserial[i].split()[0])
+    hs.assign(wserial[i].split()[1])
+
+    up.assign(PD.w_all.split()[2*i])
+    hp.assign(PD.w_all.split()[2*i+1])
+
+    hmag = fd.sqrt(fd.assemble(hs*hs*fd.dx))
+    umag = fd.sqrt(fd.assemble(fd.inner(us, us)*fd.dx))
+
+    herror = fd.sqrt(fd.assemble((hp - hs)*(hp - hs)*fd.dx))
+    uerror = fd.sqrt(fd.assemble(fd.inner(up - us, up - us)*fd.dx))
+
+    PETSc.Sys.Print('timestep:', i, 'uerror:', uerror/umag, '|', 'herror: ', herror/hmag)
+
+PETSc.Sys.Print('')
