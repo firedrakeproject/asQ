@@ -6,6 +6,9 @@ import post
 
 # multigrid transfer manager for diagonal block solve
 from firedrake_utils import mg
+from firedrake_utils.planets import earth
+import firedrake_utils.shallow_water.nonlinear as swe
+from firedrake_utils.shallow_water.williamson1992 import case5
 
 PETSc.Sys.popErrorHandler()
 
@@ -30,7 +33,8 @@ if args.show_args:
 
 # some domain, parameters and FS setup
 R0 = 6371220.
-H = fd.Constant(5960.)
+#H = fd.Constant(5960.)
+H = case5.H0
 base_level = args.base_level
 nrefs = args.ref_level - base_level
 deg = args.coords_degree
@@ -50,21 +54,29 @@ mesh = mg.icosahedral_mesh(R0=R0,
 R0 = fd.Constant(R0)
 x, y, z = fd.SpatialCoordinate(mesh)
 
-outward_normals = fd.CellNormal(mesh)
-
-degree = args.degree
-V1 = fd.FunctionSpace(mesh, "BDM", degree+1)
-V2 = fd.FunctionSpace(mesh, "DG", degree)
-V0 = fd.FunctionSpace(mesh, "CG", degree+2)
+V1 = fd.FunctionSpace(mesh, "BDM", args.degree+1)
+V2 = fd.FunctionSpace(mesh, "DG", args.degree)
+V0 = fd.FunctionSpace(mesh, "CG", args.degree+2)
 W = fd.MixedFunctionSpace((V1, V2))
 
 Omega = fd.Constant(7.292e-5)  # rotation rate
-f = 2*Omega*z/fd.Constant(R0)  # Coriolis parameter
 g = fd.Constant(9.8)  # Gravitational constant
-b = fd.Function(V2, name="Topography")
+
+f = case5.coriolis_expression(x,y,z)
+b = case5.topography_function(x, y, z, V2, name="Topography")
 # D = eta + b
 
+# initial conditions
+
+# W = V1 * V2
+w0 = fd.Function(W)
+un, etan = w0.split()
+un.project(case5.velocity_expression(x,y,z))
+etan.project(case5.elevation_expression(x,y,z))
+
 # nonlinear swe forms
+
+outward_normals = fd.CellNormal(mesh)
 
 
 def perp(u):
@@ -100,29 +112,6 @@ def form_mass(u, h, v, q):
 
 dt = 60*60*args.dt
 t = 0.
-
-# initial conditions
-
-u_0 = 20.0  # maximum amplitude of the zonal wind [m/s]
-u_max = fd.Constant(u_0)
-u_expr = fd.as_vector([-u_max*y/R0, u_max*x/R0, 0.0])
-eta_expr = - ((R0 * Omega * u_max + u_max*u_max/2.0)*(z*z/(R0*R0)))/g
-# W = V1 * V2
-w0 = fd.Function(W)
-un, etan = w0.split()
-un.project(u_expr)
-etan.project(eta_expr)
-
-# Topography.
-rl = fd.pi/9.0
-lambda_x = fd.atan_2(y/R0, x/R0)
-lambda_c = -fd.pi/2.0
-phi_x = fd.asin(z/R0)
-phi_c = fd.pi/6.0
-minarg = fd.Min(pow(rl, 2),
-                pow(phi_x - phi_c, 2) + pow(lambda_x - lambda_c, 2))
-bexpr = 2000.0*(1 - fd.sqrt(minarg)/rl)
-b.interpolate(bexpr)
 
 # parameters for the implicit diagonal solve in step-(b)
 sparameters_orig = {
@@ -199,14 +188,6 @@ block_ctx = {}
 # mesh transfer operators
 transfer_managers = []
 for _ in range(sum(M)):
-    #vtransfer = mg.ManifoldTransfer()
-    #transfers = {
-    #    V1.ufl_element(): (vtransfer.prolong, vtransfer.restrict,
-    #                       vtransfer.inject),
-    #    V2.ufl_element(): (vtransfer.prolong, vtransfer.restrict,
-    #                       vtransfer.inject)
-    #}
-    #transfer_managers += [fd.TransferManager(native_transfers=transfers)]
     tm = mg.manifold_transfer_manager(W)
     transfer_managers += [tm]
 
