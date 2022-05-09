@@ -32,12 +32,8 @@ if args.show_args:
     PETSc.Sys.Print(args)
 
 # some domain, parameters and FS setup
-R0 = 6371220.
-#H = fd.Constant(5960.)
+R0 = earth.radius
 H = case5.H0
-base_level = args.base_level
-nrefs = args.ref_level - base_level
-deg = args.coords_degree
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
 # mesh set up
@@ -59,9 +55,7 @@ V2 = fd.FunctionSpace(mesh, "DG", args.degree)
 V0 = fd.FunctionSpace(mesh, "CG", args.degree+2)
 W = fd.MixedFunctionSpace((V1, V2))
 
-Omega = fd.Constant(7.292e-5)  # rotation rate
-g = fd.Constant(9.8)  # Gravitational constant
-
+g = earth.Gravity
 f = case5.coriolis_expression(x,y,z)
 b = case5.topography_function(x, y, z, V2, name="Topography")
 # D = eta + b
@@ -70,9 +64,10 @@ b = case5.topography_function(x, y, z, V2, name="Topography")
 
 # W = V1 * V2
 w0 = fd.Function(W)
-un, etan = w0.split()
+un, hn = w0.split()
 un.project(case5.velocity_expression(x,y,z))
-etan.project(case5.elevation_expression(x,y,z))
+etan = case5.elevation_function(x, y, z, V2, name="Elevation")
+hn.assign(etan + H - b)
 
 # nonlinear swe forms
 
@@ -204,6 +199,13 @@ PD = asQ.paradiag(ensemble=ensemble,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
 PD.solve()
+
+timestep0 = sum(PD.M[:PD.rT])
+walls = PD.w_all.split()
+for i in range(PD.M[PD.rT]):
+    index0 = PD.ncpts*i
+    wh = walls[index0+1]
+    wh.assign(wh-H+b)
 
 filename = 'output/'+args.filename
 funcnames = ['velocity','elevation']
