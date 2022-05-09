@@ -54,7 +54,7 @@ V0 = fd.FunctionSpace(mesh, "CG", args.degree+2)
 W = fd.MixedFunctionSpace((V1, V2))
 
 g = earth.Gravity
-f = case5.coriolis_expression(x,y,z)
+f = case5.coriolis_expression(x, y, z)
 b = case5.topography_function(x, y, z, V2, name="Topography")
 # D = eta + b
 
@@ -63,11 +63,12 @@ b = case5.topography_function(x, y, z, V2, name="Topography")
 # W = V1 * V2
 w0 = fd.Function(W)
 un, hn = w0.split()
-un.project(case5.velocity_expression(x,y,z))
+un.project(case5.velocity_expression(x, y, z))
 etan = case5.elevation_function(x, y, z, V2, name="Elevation")
 hn.assign(etan + H - b)
 
 # nonlinear swe forms
+
 
 def form_function(u, h, v, q):
     return swe.form_function(mesh, g, b, f, h, u, q, v)
@@ -78,7 +79,6 @@ def form_mass(u, h, v, q):
 
 
 dt = 60*60*args.dt
-t = 0.
 
 # parameters for the implicit diagonal solve in step-(b)
 sparameters_orig = {
@@ -180,8 +180,7 @@ for i in range(PD.M[PD.rT]):
     wh.assign(wh-H+b)
 
 filename = 'output/'+args.filename
-funcnames = ['velocity','elevation']
+funcnames = ['velocity', 'elevation']
 post.write_timesteps(PD,
                      file_name=filename,
                      function_names=funcnames)
-

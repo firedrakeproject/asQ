@@ -5,7 +5,7 @@ from firedrake_utils.planets import earth
 import firedrake_utils.shallow_water.nonlinear as swe
 from firedrake_utils.shallow_water.williamson1992 import case5
 
-#get command arguments
+# get command arguments
 from petsc4py import PETSc
 PETSc.Sys.popErrorHandler()
 import argparse
@@ -39,7 +39,7 @@ mesh = mg.icosahedral_mesh(R0=R0,
                            nrefs=args.ref_level-args.base_level)
 
 R0 = fd.Constant(R0)
-x,y,z = fd.SpatialCoordinate(mesh)
+x, y, z = fd.SpatialCoordinate(mesh)
 
 
 V1 = fd.FunctionSpace(mesh, "BDM", args.degree+1)
@@ -51,7 +51,7 @@ W = fd.MixedFunctionSpace((V1, V2))
 #
 # TRAPEZOIDAL RULE
 # U^{n+1} - U^n + dt*( N(U^{n+1}) + N(U^n) )/2 = 0.
-    
+
 # Newton's method
 # f(x) = 0, f:R^M -> R^M
 # [Df(x)]_{i,j} = df_i/dx_j
@@ -59,7 +59,7 @@ W = fd.MixedFunctionSpace((V1, V2))
 # Df(x^k).xp = -f(x^k)
 # x^{k+1} = x^k + xp.
 
-f = case5.coriolis_expression(x,y,z)
+f = case5.coriolis_expression(x, y, z)
 b = case5.topography_function(x, y, z, V2, name="Topography")
 g = earth.Gravity
 
@@ -85,7 +85,7 @@ sparameters = {
     "snes_monitor": None,
     "mat_type": "matfree",
     "ksp_type": "fgmres",
-    #"ksp_monitor_true_residual": None,
+    # "ksp_monitor_true_residual": None,
     "ksp_converged_reason": None,
     "ksp_atol": 1e-8,
     "ksp_rtol": 1e-8,
@@ -95,7 +95,7 @@ sparameters = {
     "pc_mg_type": "multiplicative",
     "mg_levels_ksp_type": "gmres",
     "mg_levels_ksp_max_it": 3,
-    #"mg_levels_ksp_convergence_test": "skip",
+    # "mg_levels_ksp_convergence_test": "skip",
     "mg_levels_pc_type": "python",
     "mg_levels_pc_python_type": "firedrake.PatchPC",
     "mg_levels_patch_pc_patch_save_operators": True,
@@ -114,7 +114,7 @@ sparameters = {
     "mg_coarse_assembled_pc_type": "lu",
     "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
 }
-    
+
 dt = 60*60*args.dt
 dT.assign(dt)
 
@@ -136,15 +136,18 @@ h0.assign(etan + H - b)
 qn = fd.Function(V0, name="Relative Vorticity")
 
 outward_normals = fd.CellNormal(mesh)
+
+
 def perp(u):
     return fd.cross(outward_normals, u)
+
 
 q = fd.TrialFunction(V0)
 p = fd.TestFunction(V0)
 
 veqn = q*p*fd.dx + fd.inner(perp(fd.grad(p)), un)*fd.dx
 vprob = fd.LinearVariationalProblem(fd.lhs(veqn), fd.rhs(veqn), qn)
-qparams = {'ksp_type':'cg'}
+qparams = {'ksp_type': 'cg'}
 qsolver = fd.LinearVariationalSolver(vprob,
                                      solver_parameters=qparams)
 
@@ -167,17 +170,16 @@ PETSc.Sys.Print('tmax', tmax, 'dt', dt)
 itcount = 0
 stepcount = 0
 t = 0.
-for tstep in range(0,tmax):
+for tstep in range(0, tmax):
     t += dt
 
     nsolver.solve()
     Un.assign(Unp1)
-    
-    if tstep%args.dumpt==0:
-        PETSc.Sys.Print('===---', 'iteration:', tstep, '|', 'time:', t/(60*60), '---===' )
+
+    if tstep % args.dumpt == 0:
+        PETSc.Sys.Print('===---', 'iteration:', tstep, '|', 'time:', t/(60*60), '---===')
         write_file()
     itcount += nsolver.snes.getLinearSolveIterations()
 
 PETSc.Sys.Print("Iterations", itcount, "its per step", itcount/tmax,
                 "dt", dt, "ref_level", args.ref_level, "tfinal", t)
-write_file()
