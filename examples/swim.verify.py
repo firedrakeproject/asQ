@@ -32,7 +32,6 @@ if args.show_args:
     PETSc.Sys.Print(args)
 
 # some domain, parameters and FS setup
-R0 = earth.radius
 H = case5.H0
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
@@ -40,14 +39,13 @@ distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMes
 nspatial_domains = 2
 ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
-mesh = mg.icosahedral_mesh(R0=R0,
+mesh = mg.icosahedral_mesh(R0=earth.radius,
                            base_level=args.base_level,
                            degree=args.coords_degree,
                            distribution_parameters=distribution_parameters,
                            nrefs=args.ref_level-args.base_level,
                            comm=ensemble.comm)
 
-R0 = fd.Constant(R0)
 x, y, z = fd.SpatialCoordinate(mesh)
 
 V1 = fd.FunctionSpace(mesh, "BDM", args.degree+1)
@@ -71,38 +69,12 @@ hn.assign(etan + H - b)
 
 # nonlinear swe forms
 
-outward_normals = fd.CellNormal(mesh)
-
-
-def perp(u):
-    return fd.cross(outward_normals, u)
-
-
-def both(u):
-    return 2*fd.avg(u)
-
-
 def form_function(u, h, v, q):
-    K = 0.5*fd.inner(u, u)
-    n = fd.FacetNormal(mesh)
-    uup = 0.5 * (fd.dot(u, n) + abs(fd.dot(u, n)))
-    Upwind = 0.5 * (fd.sign(fd.dot(u, n)) + 1)
-
-    eqn = (
-        fd.inner(v, f*perp(u))*fd.dx
-        - fd.inner(perp(fd.grad(fd.inner(v, perp(u)))), u)*fd.dx
-        + fd.inner(both(perp(n)*fd.inner(v, perp(u))),
-                   both(Upwind*u))*fd.dS
-        - fd.div(v)*(g*(h + b) + K)*fd.dx
-        - fd.inner(fd.grad(q), u)*h*fd.dx
-        + fd.jump(q)*(uup('+')*h('+')
-                      - uup('-')*h('-'))*fd.dS
-    )
-    return eqn
+    return swe.form_function(mesh, g, b, f, h, u, q, v)
 
 
 def form_mass(u, h, v, q):
-    return fd.inner(u, v)*fd.dx + h*q*fd.dx
+    return swe.form_mass(mesh, h, u, q, v)
 
 
 dt = 60*60*args.dt
@@ -168,7 +140,7 @@ solver_parameters_diag = {
 
 # M = [1, 1, 1, 1, 1, 1, 1, 1]
 # M = [2, 2, 2, 2]
-# M = [4, 4]
+# M = [2, 2]
 M = [3]
 
 for i in range(sum(M)):  # should this be sum(M) or max(M)?
