@@ -15,8 +15,7 @@ def form_mass_u(mesh, u, v):
 
 
 def form_mass(mesh, h, u, p, v):
-    return form_mass_h(mesh, h, p) \
-         + form_mass_u(mesh, u, v)
+    return form_mass_h(mesh, h, p) + form_mass_u(mesh, u, v)
 
 
 # spatial forms for depth and velocity fields
@@ -51,5 +50,4 @@ def form_function_velocity(mesh, g, b, f, h, u, v):
 
 
 def form_function(mesh, g, b, f, h, u, q, v):
-    return form_function_velocity(mesh, g, b, f, h, u, v) \
-           + form_function_depth(mesh, h, u, q)
+    return form_function_velocity(mesh, g, b, f, h, u, v) + form_function_depth(mesh, h, u, q)

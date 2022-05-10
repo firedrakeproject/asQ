@@ -152,12 +152,12 @@ def icosahedral_mesh(R0,
                      distribution_parameters,
                      nrefs,
                      comm=fd.COMM_WORLD):
-    basemesh = fd.IcosahedralSphereMesh(
-                    radius=R0,
-                    refinement_level=base_level,
-                    degree=1,
-                    distribution_parameters=distribution_parameters,
-                    comm=comm)
+    basemesh = \
+        fd.IcosahedralSphereMesh(radius=R0,
+                                 refinement_level=base_level,
+                                 degree=1,
+                                 distribution_parameters=distribution_parameters,
+                                 comm=comm)
     del basemesh._radius
     mh = fd.MeshHierarchy(basemesh, nrefs)
     mh = high_order_icosahedral_mesh_hierarchy(mh, degree, R0)

@@ -30,13 +30,13 @@ def IcosahedralMesh(refinement_level=0,
                     distribution_parameters=None,
                     comm=fd.COMM_WORLD):
 
-    globe = fd.IcosahedralSphereMesh(
-                radius=radius,
-                refinement_level=refinement_level,
-                degree=degree,
-                reorder=reorder,
-                distribution_parameters=distribution_parameters,
-                comm=comm)
+    globe = \
+        fd.IcosahedralSphereMesh(radius=radius,
+                                 refinement_level=refinement_level,
+                                 degree=degree,
+                                 reorder=reorder,
+                                 distribution_parameters=distribution_parameters,
+                                 comm=comm)
 
     globe.init_cell_orientations(fd.SpatialCoordinate(globe))
 
