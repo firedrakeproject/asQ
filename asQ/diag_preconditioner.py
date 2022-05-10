@@ -236,7 +236,13 @@ class DiagFFTPC(object):
                                                  options_prefix=block_prefix)
             # multigrid transfer manager
             if 'diag_transfer_managers' in paradiag.block_ctx:
-                Jsolver.set_transfer_manager(paradiag.block_ctx['diag_transfer_managers'][ii])
+                # Jsolver.set_transfer_manager(paradiag.block_ctx['diag_transfer_managers'][ii])
+                tm = paradiag.block_ctx['diag_transfer_managers'][ii]
+                Jsolver.set_transfer_manager(tm)
+                tm_set = (Jsolver._ctx.transfer_manager is tm)
+
+                if tm_set is False:
+                    print(f"transfer manager not set on Jsolvers[{ii}]")
 
             self.Jsolvers.append(Jsolver)
 
