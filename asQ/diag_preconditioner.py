@@ -20,8 +20,19 @@ class DiagFFTPC(object):
 
     def setUp(self, pc):
         """Setup method called by PETSc."""
+        if self.initialized:
+            self.update(pc)
+        else:
+            self.initialize(pc)
+            self.initialized = True
+
+    def initialize(self, pc):
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
+
         prefix = pc.getOptionsPrefix()
 
+        # get hook to paradiag object
         sentinel = object()
         constructor = PETSc.Options().getString(
             f"{prefix}{self.prefix}context", default=sentinel)
@@ -35,6 +46,9 @@ class DiagFFTPC(object):
             fun = fun()
         self.context = fun(pc)
 
+        paradiag = self.context["paradiag"]
+        self.paradiag = paradiag
+
         # option for whether to use slice or window average for block jacobian
         self.jac_average = PETSc.Options().getString(
             f"{prefix}{self.prefix}jac_average", default='window')
@@ -43,19 +57,6 @@ class DiagFFTPC(object):
 
         if self.jac_average not in valid_jac_averages:
             raise ValueError("diagfft_jac_average must be one of "+" or ".join(valid_jac_averages))
-
-        if self.initialized:
-            self.update(pc)
-        else:
-            self.initialize(pc)
-            self.initialized = True
-
-    def initialize(self, pc):
-        if pc.getType() != "python":
-            raise ValueError("Expecting PC type python")
-
-        paradiag = self.context["paradiag"]
-        self.paradiag = paradiag
 
         # this time slice part of the all at once solution
         self.w_all = paradiag.w_all
