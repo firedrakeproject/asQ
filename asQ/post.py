@@ -48,7 +48,7 @@ def write_timesteps(pdg,
             index0 = pdg.ncpts*i
 
             for cpt in range(pdg.ncpts):
-                functions[j].assign(walls[index0+cpt])
+                functions[cpt].assign(walls[index0+cpt])
 
             fd.File(file_name+".pvd",
                     comm=pdg.ensemble.comm).write(*functions)
@@ -107,9 +107,6 @@ def write_timeseries(pdg,
 
     # first timestep of this local time-slice
     timestep_begin = sum(pdg.M[:pdg.rT])
-
-    # one past last timestep of the local time-slice
-    timestep_end = timestep_begin + pdg.M[pdg.rT]
 
     for timestep in range(sum(pdg.M)):
 
