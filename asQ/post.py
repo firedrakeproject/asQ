@@ -26,10 +26,10 @@ def write_timesteps(pdg,
 
     # functions for writing to file
     functions = []
-    for i in range(pdg.ncpts):
-        V = pdg.W.split()[i]
+    for cpt in range(pdg.ncpts):
+        V = pdg.W.split()[cpt]
         if len(function_names) != 0:
-            functions.append(fd.Function(V, name=function_names[i]))
+            functions.append(fd.Function(V, name=function_names[cpt]))
         else:
             functions.append(fd.Function(V))
 
@@ -47,8 +47,8 @@ def write_timesteps(pdg,
             # index of first split function in this timestep
             index0 = pdg.ncpts*i
 
-            for j in range(pdg.ncpts):
-                functions[j].assign(walls[index0+j])
+            for cpt in range(pdg.ncpts):
+                functions[j].assign(walls[index0+cpt])
 
             fd.File(file_name+".pvd",
                     comm=pdg.ensemble.comm).write(*functions)
@@ -63,8 +63,8 @@ def write_timesteps(pdg,
             # index of first split function in this timestep
             index0 = pdg.ncpts*i
 
-            for j in range(pdg.ncpts):
-                functions[j].assign(walls[index0+j])
+            for cpt in range(pdg.ncpts):
+                functions[cpt].assign(walls[index0+cpt])
 
             fd.File(file_name+"."+str(timestep)+".pvd",
                     comm=pdg.ensemble.comm).write(*functions)
@@ -90,48 +90,46 @@ def write_timeseries(pdg,
 
     # functions for writing to file
     functions = []
-    for i in range(pdg.ncpts):
-        V = pdg.W.split()[i]
+    for cpt in range(pdg.ncpts):
+        V = pdg.W.split()[cpt]
         if len(function_names) != 0:
-            functions.append(fd.Function(V, name=function_names[i]))
+            functions.append(fd.Function(V, name=function_names[cpt]))
         else:
             functions.append(fd.Function(V))
-
-    # functions from entire local time-slice
-    walls = pdg.w_all.split()
-
-    # first timestep of this local time-slice
-    timestep0 = sum(pdg.M[:pdg.rT])
 
     # only first time slice writes to file
     if pdg.rT == 0:
         outfile = fd.File(file_name+".pvd",
                           comm=pdg.ensemble.comm)
 
+    # functions from entire local time-slice
+    walls = pdg.w_all.split()
+
     # first timestep of this local time-slice
-    timestep0 = sum(pdg.M[:pdg.rT])
+    timestep_begin = sum(pdg.M[:pdg.rT])
 
     # one past last timestep of the local time-slice
-    timestep_end = timestep0 + pdg.M[pdg.rT]
+    timestep_end = timestep_begin + pdg.M[pdg.rT]
 
     for timestep in range(sum(pdg.M)):
 
+        # which rank is this timestep on?
         for r in range(len(pdg.M)):
             t0 = sum(pdg.M[:r])
             t1 = t0 + pdg.M[r]
-            if (timestep >= t0) and (timestep < t1):
+            if (t0 <= timestep) and (timestep < t1):
                 time_rank = r
 
         mpi_requests = []
         # if timestep on this time-rank, send functions
-        if r == pdg.rT:
+        if time_rank == pdg.rT:
 
             # index of first split function in this timestep
-            index0 = pdg.ncpts*(timestep - timestep0)
+            index0 = pdg.ncpts*(timestep - timestep_begin)
 
             # send functions in timestep to time-rank 0
-            for i in range(pdg.ncpts):
-                request_send = pdg.ensemble.isend(walls[index0+i],
+            for cpt in range(pdg.ncpts):
+                request_send = pdg.ensemble.isend(walls[index0+cpt],
                                                   dest=0,
                                                   tag=timestep)
                 mpi_requests.extend(request_send)
@@ -140,9 +138,9 @@ def write_timeseries(pdg,
         if pdg.rT == 0:
 
             # recv functions in timestep
-            for i in range(pdg.ncpts):
-                request_recv = pdg.ensemble.irecv(functions[i],
-                                                  source=r,
+            for cpt in range(pdg.ncpts):
+                request_recv = pdg.ensemble.irecv(functions[cpt],
+                                                  source=time_rank,
                                                   tag=timestep)
                 mpi_requests.extend(request_recv)
 
