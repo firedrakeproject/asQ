@@ -38,19 +38,20 @@ def write_timesteps(pdg,
     timestep0 = sum(pdg.M[:pdg.rT])
 
     if only_last_step:
-        i = pdg.M[pdg.rT]-1
-        timestep = timestep0+i
+        if pdg.rT == (len(pdg.M) - 1):
+            i = pdg.M[pdg.rT]-1
+            timestep = timestep0+i
 
-        # index of first split function in this timestep
-        index0 = pdg.ncpts*i
+            # index of first split function in this timestep
+            index0 = pdg.ncpts*i
 
-        for j in range(pdg.ncpts):
-            functions[j].assign(walls[index0+j])
+            for j in range(pdg.ncpts):
+                functions[j].assign(walls[index0+j])
 
-        fd.File(file_name+".pvd",
-                comm=pdg.ensemble.comm).write(*functions)
+            fd.File(file_name+"_"+str(timestep)+".pvd",
+                    comm=pdg.ensemble.comm).write(*functions)
 
-        return
+            return
 
     else:  # write every timestep
 
