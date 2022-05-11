@@ -116,9 +116,15 @@ class ManifoldTransfer(object):
             fine.ufl_domain().coordinates_bk)
 
 
-# create a transfer manager using the ManifoldTransfer operators
-# for the MixedFunctionSpace W
 def manifold_transfer_manager(W):
+    '''
+    Return a multigrid transfer manager for manifold meshes
+
+    Uses the ManifoldTransfer operations to manage the
+    prolongation, restriction and injection
+    arg: W: a MixedFunctionSpace over the manifold mesh
+    '''
+
     Vs = W.split()
     vtransfer = ManifoldTransfer()
     transfers = {}
@@ -145,13 +151,20 @@ def high_order_icosahedral_mesh_hierarchy(mh, degree, R0):
                             mh.refinements_per_level, mh.nested)
 
 
-# multigrid mesh for an icosahedral sphere
 def icosahedral_mesh(R0,
                      base_level,
                      degree,
                      distribution_parameters,
                      nrefs,
                      comm=fd.COMM_WORLD):
+    '''
+    Return an icosahedral sphere mesh with a multigrid mesh hierarchy
+
+    The coordinates of each mesh in the hierarchy are pushed
+    onto the sphere surface. This means that the meshes are not
+    nested and a manifold transfer manager is necessary.
+    '''
+
     basemesh = \
         fd.IcosahedralSphereMesh(radius=R0,
                                  refinement_level=base_level,
