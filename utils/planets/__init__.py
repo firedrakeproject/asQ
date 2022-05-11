@@ -1,1 +1,1 @@
-import firedrake_utils.planets.earth  # noqa: F401
+import utils.planets.earth  # noqa: F401
