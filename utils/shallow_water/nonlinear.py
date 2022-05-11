@@ -29,12 +29,12 @@ def form_function_depth(mesh, h, u, p):
             + fd.jump(p)*(uup('+')*h('+') - uup('-')*h('-'))*fd.dS)
 
 
-def form_function_velocity(mesh, g, b, f, h, u, v):
+def form_function_velocity(mesh, g, b, f, h, u, v, perp=fd.cross):
     n = fd.FacetNormal(mesh)
     outward_normals = fd.CellNormal(mesh)
 
-    def perp(u):
-        return fd.cross(outward_normals, u)
+    def prp(u):
+        return perp(outward_normals, u)
 
     def both(u):
         return 2*fd.avg(u)
@@ -42,9 +42,9 @@ def form_function_velocity(mesh, g, b, f, h, u, v):
     K = 0.5*fd.inner(u, u)
     upwind = 0.5 * (fd.sign(fd.dot(u, n)) + 1)
 
-    return (fd.inner(v, f*perp(u))*fd.dx
-            - fd.inner(perp(fd.grad(fd.inner(v, perp(u)))), u)*fd.dx
-            + fd.inner(both(perp(n)*fd.inner(v, perp(u))),
+    return (fd.inner(v, f*prp(u))*fd.dx
+            - fd.inner(prp(fd.grad(fd.inner(v, prp(u)))), u)*fd.dx
+            + fd.inner(both(prp(n)*fd.inner(v, prp(u))),
                        both(upwind*u))*fd.dS
             - fd.div(v)*(g*(h + b) + K)*fd.dx)
 

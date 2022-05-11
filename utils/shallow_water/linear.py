@@ -24,13 +24,14 @@ def form_function_h(mesh, H, h, u, p):
     return (H*p*fd.div(u))*fd.dx
 
 
-def form_function_u(mesh, g, f, h, u, w):
+def form_function_u(mesh, g, f, h, u, w, perp=fd.cross):
+
     outward_normals = fd.CellNormal(mesh)
 
-    def perp(u):
-        fd.cross(outward_normals, u)
+    def prp(u):
+        return perp(outward_normals,u)
 
-    return (fd.inner(w, f*perp(u)) - g*h*fd.div(w))*fd.dx
+    return (fd.inner(w, f*prp(u)) - g*h*fd.div(w))*fd.dx
 
 
 def form_function(mesh, g, H, f, h, u, p, w):
