@@ -78,13 +78,15 @@ def write_timesteps(pdg,
 def write_timeseries(pdg,
                      file_name='paradiag_output',
                      function_names=[],
-                     frequency=1):
+                     frequency=1,
+                     time_scale=1):
     """Writes timesteps of a paradiag object to a timeseries vtk file.
 
     :arg pdg: the paradiag object
     :arg file_name: optional name for the file
     :arg function_names: a list of names for each function in the (mixed) function space at each timestep
     :arg frequency: frequency at which to write timesteps
+    :arg time_scale: coefficient on timestamp for each timestep (eg 1./60 for timestamp in minutes)
     """
 
     # TODO: This implementation assumes that a MixedFunctionSpace is used at each timestep
@@ -152,4 +154,4 @@ def write_timeseries(pdg,
 
         # if time-rank 0: write to file
         if pdg.rT == 0:
-            outfile.write(*functions, time=timestep*pdg.dt)
+            outfile.write(*functions, time=time_scale*timestep*pdg.dt)
