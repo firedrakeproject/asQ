@@ -7,12 +7,14 @@ from pyop2.mpi import MPI
 def write_timesteps(pdg,
                     file_name='paradiag_output',
                     function_names=[],
+                    frequency=1,
                     only_last_step=False):
     """Writes each timestep of a paradiag object to seperate vtk files.
 
     :arg pdg: the paradiag object
     :arg file_name: optional name for the files. The full filename will be file_name.{timestep}
     :arg function_names: a list of names for each function in the (mixed) function space at each timestep
+    :arg frequency: frequency at which to write timesteps
     :arg only_last_step: only writes the last timestep and does not use .{timestep} suffix on filename
     """
 
@@ -55,10 +57,13 @@ def write_timesteps(pdg,
 
             return
 
-    else:  # write every timestep
+    else:  # write timesteps with freqency
 
         for i in range(pdg.M[pdg.rT]):
             timestep = timestep0+i
+
+            if timestep % frequency != 0:
+                continue
 
             # index of first split function in this timestep
             index0 = pdg.ncpts*i
@@ -72,12 +77,14 @@ def write_timesteps(pdg,
 
 def write_timeseries(pdg,
                      file_name='paradiag_output',
-                     function_names=[]):
+                     function_names=[],
+                     frequency=1):
     """Writes timesteps of a paradiag object to a timeseries vtk file.
 
     :arg pdg: the paradiag object
     :arg file_name: optional name for the file
     :arg function_names: a list of names for each function in the (mixed) function space at each timestep
+    :arg frequency: frequency at which to write timesteps
     """
 
     # TODO: This implementation assumes that a MixedFunctionSpace is used at each timestep
@@ -108,7 +115,7 @@ def write_timeseries(pdg,
     # first timestep of this local time-slice
     timestep_begin = sum(pdg.M[:pdg.rT])
 
-    for timestep in range(sum(pdg.M)):
+    for timestep in range(0, sum(pdg.M), frequency):
 
         # which rank is this timestep on?
         for r in range(len(pdg.M)):
@@ -145,4 +152,4 @@ def write_timeseries(pdg,
 
         # if time-rank 0: write to file
         if pdg.rT == 0:
-            outfile.write(*functions)
+            outfile.write(*functions, time=timestep*pdg.dt)
