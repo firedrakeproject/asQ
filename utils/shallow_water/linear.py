@@ -29,7 +29,7 @@ def form_function_u(mesh, g, f, h, u, w, perp=fd.cross):
     outward_normals = fd.CellNormal(mesh)
 
     def prp(u):
-        return perp(outward_normals,u)
+        return perp(outward_normals, u)
 
     return (fd.inner(w, f*prp(u)) - g*h*fd.div(w))*fd.dx
 
