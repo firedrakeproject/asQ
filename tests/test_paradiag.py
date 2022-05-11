@@ -102,7 +102,7 @@ def test_linear_swe_FFT():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters_diag,
                       circ="quasi",
-                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
     PD.solve()
     assert (1 < PD.snes.getConvergedReason() < 5)
@@ -154,7 +154,7 @@ def test_jacobian_heat_equation():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters,
                       circ="none",
-                      jac_average="newton", tol=1.0e-6, maxits=None)
+                      tol=1.0e-6, maxits=None)
 
     PD.solve()
 
@@ -196,7 +196,7 @@ def test_set_para_form():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters,
                       circ="none",
-                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
@@ -297,7 +297,7 @@ def test_set_para_form_mixed_parallel():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters,
                       circ="none",
-                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
@@ -422,7 +422,7 @@ def test_jacobian_mixed_parallel():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters,
                       circ="none",
-                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
