@@ -8,49 +8,45 @@ from petsc4py import PETSc
 @pytest.mark.parallel(nprocs=8)
 def test_linear_swe_FFT():
     # minimal test for FFT PC
-    R0 = 6371220.
-    H = fd.Constant(5960.)
+
+    import utils.planets.earth as earth
+    import utils.shallow_water.linear as swe
+    import utils.shallow_water.williamson1992.case5 as case5
 
     # set up the ensemble communicator for space-time parallelism
     nspatial_domains = 2
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-    mesh = fd.IcosahedralSphereMesh(radius=R0,
+    mesh = fd.IcosahedralSphereMesh(radius=earth.radius,
                                     refinement_level=3,
                                     degree=2,
                                     comm=ensemble.comm)
     x = fd.SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
-    R0 = fd.Constant(R0)
-    cx, cy, cz = fd.SpatialCoordinate(mesh)
-
-    outward_normals = fd.CellNormal(mesh)
-
-    def perp(u):
-        return fd.cross(outward_normals, u)
 
     degree = 1
     V1 = fd.FunctionSpace(mesh, "BDFM", degree+1)
     V2 = fd.FunctionSpace(mesh, "DG", degree)
     W = fd.MixedFunctionSpace((V1, V2))
 
+    f = case5.coriolis_expression(*x)
+
     u, eta = fd.TrialFunctions(W)
     v, phi = fd.TestFunctions(W)
 
-    Omega = fd.Constant(7.292e-5)  # rotation rate
-    f = 2*Omega*cz/fd.Constant(R0)  # Coriolis parameter
-    g = fd.Constant(9.8)  # Gravitational constant
-    dT = fd.Constant(0.)
+    g = earth.Gravity
+    H = case5.H0
 
     def form_function(u, h, v, q):
-        eqn = (
-            fd.inner(v, f*perp(u))*fd.dx
-            - fd.div(v)*g*h*fd.dx
-            - q*H*fd.div(u)*fd.dx
-        )
-        return eqn
+        return swe.form_function(mesh, g, H, f, h, u, q, v)
 
     def form_mass(u, h, v, q):
-        return fd.inner(u, v)*fd.dx + h*q*fd.dx
+        return swe.form_mass(mesh, h, u, q, v)
+
+    # W = V1 * V2
+    w0 = fd.Function(W)
+    un, etan = w0.split()
+    un.project(case5.velocity_expression(*x))
+    etan.project(case5.topography_expression(*x))
 
     # Parameters for the diag
     sparameters = {
@@ -77,20 +73,6 @@ def test_linear_swe_FFT():
         solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
     dt = 60*60*3600
-    dT.assign(dt)
-
-    # W = V1 * V2
-    w0 = fd.Function(W)
-    un, etan = w0.split()
-    rl = fd.pi/9.0
-    lambda_x = fd.atan_2(x[1]/R0, x[0]/R0)
-    lambda_c = -fd.pi/2.0
-    phi_x = fd.asin(x[2]/R0)
-    phi_c = fd.pi/6.0
-    minarg = fd.Min(pow(rl, 2),
-                    pow(phi_x - phi_c, 2) + pow(lambda_x - lambda_c, 2))
-    bexpr = 2000.0*(1 - fd.sqrt(minarg)/rl)
-    etan.project(bexpr)
 
     alpha = 1.0e-3
     theta = 0.5
