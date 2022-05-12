@@ -1,7 +1,7 @@
 
 import firedrake as fd
 
-import firedrake_utils.units as units
+import utils.units as units
 
 # # # === --- constants --- === # # #
 

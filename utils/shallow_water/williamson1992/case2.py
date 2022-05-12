@@ -2,8 +2,8 @@
 from math import pi
 
 import firedrake as fd
-from firedrake_utils.planets import earth
-from firedrake_utils import units
+from utils.planets import earth
+from utils import units
 
 # # # === --- constants --- === # # #
 

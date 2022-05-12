@@ -2,10 +2,9 @@
 from math import pi
 
 import firedrake as fd
-from firedrake_utils.planets import earth
-from firedrake_utils import units
-
-from firedrake_utils.shallow_water.williamson1992 import case2
+from utils.planets import earth
+from utils import units
+from utils.shallow_water.williamson1992 import case2
 
 # # # === --- constants --- === # # #
 
