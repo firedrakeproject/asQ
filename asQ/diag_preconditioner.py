@@ -114,6 +114,7 @@ class DiagFFTPC(object):
                     shape = (2,) + SubV._shape
                     MixedCpts.append(fd.TensorElement(SubV, shape))
                 else:
+                    print(SubV)
                     raise NotImplementedError
 
             dim = len(MixedCpts)
@@ -259,7 +260,7 @@ class DiagFFTPC(object):
         for bc in self.paradiag.W_bcs:
             if isinstance(self.paradiag.W.ufl_element(), fd.MixedElement):
                 i = bc.function_space().index
-                ncpts = self.paradiag.W.num_sub_elements()
+                ncpts = self.paradiag.W.ufl_element().num_sub_elements()
                 for r in range(2): #  Complex coefficient index
                     all_bc = fd.DirichletBC(self.CblockV.sub(i).sub(r),
                                             bc.function_arg,

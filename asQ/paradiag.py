@@ -230,6 +230,7 @@ class paradiag(object):
         def form_jacobian(snes, X, J, P):
             # copy the snes state vector into self.X
             X.copy(self.X)
+            self.update(self.X)
             J.assemble()
             P.assemble()
 
@@ -243,7 +244,7 @@ class paradiag(object):
         for bc in self.W_bcs:
             if isinstance(self.W.ufl_element(), fd.MixedElement):
                 i = bc.function_space().index
-                ncpts = self.W.num_sub_elements()
+                ncpts = self.W.ufl_element().num_sub_elements()
                 for r in range(self.M[self.rT]):
                     all_bc = fd.DirichletBC(self.W_all.sub(r*ncpts+i),
                                             bc.function_arg,
