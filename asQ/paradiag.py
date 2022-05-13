@@ -49,9 +49,6 @@ class JacobianMatrix(object):
                                         paradiag.w_recv)
 
     def mult(self, mat, X, Y):
-        # update the contents of paradiag.u from paradiag.X
-        self.paradiag.update(self.paradiag.X)
-
         n = self.n
 
         # copy the local data from X into self.u
@@ -94,6 +91,12 @@ class JacobianMatrix(object):
                     tensor=self.F_prev)
         self.F += self.F_prev
 
+        # Apply boundary conditions
+        # assumes paradiag.w_all contains the current state we are
+        # interested in
+        for bc in CblockV_bcs:
+            bc.apply(self.F, state=self.paradiag.w_all)
+
         with self.F.dat.vec_ro as v:
             v.copy(Y)
 
@@ -101,7 +104,7 @@ class JacobianMatrix(object):
 class paradiag(object):
     def __init__(self, ensemble,
                  form_function, form_mass, W, w0, dt, theta,
-                 alpha, M, solver_parameters=None,
+                 alpha, M, bcs=None, solver_parameters=None,
                  circ="picard",
                  tol=1.0e-6, maxits=10,
                  ctx={}, block_mat_type="aij"):
@@ -119,6 +122,7 @@ class paradiag(object):
         :arg alpha: float, circulant matrix parameter
         :arg M: a list of integers, the number of timesteps
         assigned to each rank
+        :arg bcs: a list of DirichletBC boundary conditions on W
         :arg solver_parameters: options dictionary for nonlinear solver
         :arg circ: a string describing the option on where to use the
         alpha-circulant modification. "picard" - do a nonlinear wave
@@ -138,6 +142,7 @@ class paradiag(object):
         self.ensemble = ensemble
         self.form_mass = form_mass
         self.W = W
+        self.W_bcs = bcs
         self.ncpts = len(W.split())
         self.w0 = w0
         self.dt = dt
@@ -149,7 +154,7 @@ class paradiag(object):
         self.tol = tol
         self.maxits = maxits
         self.circ = circ
-
+        
         # A coefficient that switches the alpha-circulant term on
         self.Circ = fd.Constant(1.0)
 
@@ -163,6 +168,10 @@ class paradiag(object):
         # implemented as a massive mixed function space
 
         self.W_all = reduce(mul, (self.W for _ in range(M[rT])))
+
+        # convert the W bcs into W_all bcs
+        self.set_W_all_bcs()
+
         # function containing the part of the
         # all-at-once solution assigned to this rank
         self.w_all = fd.Function(self.W_all)
@@ -229,6 +238,24 @@ class paradiag(object):
         # complete the snes setup
         self.opts.set_from_options(self.snes)
 
+    def set_W_all_bcs(self):
+        self.W_all_bcs = []
+        for bc in self.W_bcs:
+            if isinstance(self.W.ufl_element(), fd.MixedElement):
+                i = bc.function_space().index
+                ncpts = self.W.num_sub_elements()
+                for r in range(self.M[self.rT]):
+                    all_bc = fd.DirichletBC(self.W_all.sub(r*ncpts+i),
+                                            bc.function_arg,
+                                            bc.sub_domain)
+                    self.W_all_bcs.append(all_bc)
+            else:
+                for r in range(self.M[self.rT]):
+                    all_bc = fd.DirichletBC(self.W_all.sub(r),
+                                            bc.function_arg,
+                                            bc.sub_domain)
+                    self.W_all_bcs.append(all_bc)
+
     def update(self, X):
         # Update self.w_alls and self.w_recv
         # from X.
@@ -240,6 +267,10 @@ class paradiag(object):
 
         with self.w_all.dat.vec_wo as v:
             v.array[:] = X.array_r
+
+        #apply the boundary conditions
+        for bc in self.W_all_bcs:
+            bc.apply(self.w_all)
 
         mpi_requests = []
         # Communication stage

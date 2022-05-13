@@ -135,6 +135,9 @@ class DiagFFTPC(object):
             else:
                 raise NotImplementedError
 
+        # get the boundary conditions
+        self.set_CblockV_bcs()
+
         # Now need to build the block solver
         vs = fd.TestFunctions(self.CblockV)
         self.u0 = fd.Function(self.CblockV)  # we will create a linearisation
@@ -244,11 +247,30 @@ class DiagFFTPC(object):
             L = fd.inner(v, self.Jprob_in)*fd.dx
 
             block_prefix = self.prefix+str(ii)+'_'
-            jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out)
+            jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out,
+                                                bcs=self.CblockV_bcs)
             Jsolver = fd.LinearVariationalSolver(jprob,
                                                  appctx=appctx_h,
                                                  options_prefix=block_prefix)
             self.Jsolvers.append(Jsolver)
+
+    def set_CblockV_bcs(self):
+        self.CblockV_bcs = []
+        for bc in self.paradiag.W_bcs:
+            if isinstance(self.paradiag.W.ufl_element(), fd.MixedElement):
+                i = bc.function_space().index
+                ncpts = self.paradiag.W.num_sub_elements()
+                for r in range(2): #  Complex coefficient index
+                    all_bc = fd.DirichletBC(self.CblockV.sub(i).sub(r),
+                                            bc.function_arg,
+                                            bc.sub_domain)
+                    self.CblockV_bcs.append(all_bc)
+            else:
+                for r in range(2): #  Complex coefficient index
+                    all_bc = fd.DirichletBC(self.CblockV.sub(r),
+                                            bc.function_arg,
+                                            bc.sub_domain)
+                    self.CblockV_bcs.append(all_bc)
 
     def update(self, pc):
         self.u0.assign(0)
