@@ -103,7 +103,7 @@ class paradiag(object):
                  form_function, form_mass, W, w0, dt, theta,
                  alpha, M, solver_parameters=None,
                  circ="picard",
-                 jac_average="newton", tol=1.0e-6, maxits=10,
+                 tol=1.0e-6, maxits=10,
                  ctx={}, block_ctx={}, block_mat_type="aij"):
         """A class to implement paradiag timestepping.
 
@@ -126,10 +126,6 @@ class paradiag(object):
         method with alpha-circulant modification added to the
         Jacobian. To make the alpha circulant modification only in the
         preconditioner, simply set ksp_type:preonly in the solve options.
-        :arg jac_average: a string describing the option for when to
-        average the jacobian. "newton" - make a quasi-Newton method by
-        time averaging the Jacobian. "preconditioner" - only do the
-        average in the preconditioner.
         :arg tol: float, the tolerance for the relaxation method (if used)
         :arg maxits: integer, the maximum number of iterations for the
         relaxation method, if used.
@@ -154,7 +150,6 @@ class paradiag(object):
         self.tol = tol
         self.maxits = maxits
         self.circ = circ
-        self.jac_average = jac_average
         self.ctx = ctx
         self.block_ctx = block_ctx
 
