@@ -3,8 +3,8 @@ from petsc4py import PETSc
 import asQ
 
 # multigrid transfer manager for diagonal block solve
-from utils import units
 from utils import mg
+from utils import units
 from utils.planets import earth
 import utils.shallow_water.nonlinear as swe
 from utils.shallow_water.williamson1992 import case5

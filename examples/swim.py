@@ -3,7 +3,9 @@ from petsc4py import PETSc
 import asQ
 
 from utils import mg
+from utils import units
 from utils.planets import earth
+import utils.shallow_water.nonlinear as swe
 from utils.shallow_water.williamson1992 import case5
 
 PETSc.Sys.popErrorHandler()
@@ -31,28 +33,19 @@ M = [2]
 nspatial_domains = 1
 
 # some domain, parameters and FS setup
-R0 = 6371220.
-# H = fd.Constant(5960.)
-H = case5.H0
-filename = args.filename
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
 ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
 # mesh set up
-mesh = mg.icosahedral_mesh(R0=R0,
+mesh = mg.icosahedral_mesh(R0=earth.radius,
                            base_level=args.base_level,
                            degree=args.coords_degree,
                            distribution_parameters=distribution_parameters,
                            nrefs=args.ref_level-args.base_level,
                            comm=ensemble.comm)
 
-# x, y, z = fd.SpatialCoordinate(mesh)
-
-R0 = fd.Constant(R0)
 x = fd.SpatialCoordinate(mesh)
-
-outward_normals = fd.CellNormal(mesh)
 
 degree = args.degree
 V1 = fd.FunctionSpace(mesh, "BDM", degree+1)
@@ -60,6 +53,7 @@ V2 = fd.FunctionSpace(mesh, "DG", degree)
 V0 = fd.FunctionSpace(mesh, "CG", degree+2)
 W = fd.MixedFunctionSpace((V1, V2))
 
+H = case5.H0
 f = case5.coriolis_expression(*x)
 g = earth.Gravity
 b = case5.topography_function(*x, V2, name="Topography")
@@ -67,48 +61,24 @@ b = case5.topography_function(*x, V2, name="Topography")
 # initial conditions
 w0 = fd.Function(W)
 un, hn = w0.split()
+
 un.project(case5.velocity_expression(*x))
 etan = case5.elevation_function(*x, V2, name="Elevation")
 hn.assign(etan + H - b)
-
-
 # D = eta + b
+
 
 # nonlinear swe forms
 
-
-def perp(u):
-    return fd.cross(outward_normals, u)
-
-
-def both(u):
-    return 2*fd.avg(u)
-
-
 def form_function(u, h, v, q):
-    K = 0.5*fd.inner(u, u)
-    n = fd.FacetNormal(mesh)
-    uup = 0.5 * (fd.dot(u, n) + abs(fd.dot(u, n)))
-    Upwind = 0.5 * (fd.sign(fd.dot(u, n)) + 1)
-
-    eqn = (
-        fd.inner(v, f*perp(u))*fd.dx
-        - fd.inner(perp(fd.grad(fd.inner(v, perp(u)))), u)*fd.dx
-        + fd.inner(both(perp(n)*fd.inner(v, perp(u))),
-                   both(Upwind*u))*fd.dS
-        - fd.div(v)*(g*(h + b) + K)*fd.dx
-        - fd.inner(fd.grad(q), u)*h*fd.dx
-        + fd.jump(q)*(uup('+')*h('+')
-                      - uup('-')*h('-'))*fd.dS
-    )
-    return eqn
+    return swe.form_function(mesh, g, b, f, h, u, q, v)
 
 
 def form_mass(u, h, v, q):
-    return fd.inner(u, v)*fd.dx + h*q*fd.dx
+    return swe.form_mass(mesh, h, u, q, v)
 
 
-dt = 60*60*args.dt
+dt = args.dt*units.hour
 t = 0.
 
 # initial conditions
