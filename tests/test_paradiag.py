@@ -551,6 +551,7 @@ def test_jacobian_mixed_parallel():
     # copy from w_all into the PETSc vec PD.X
     with PD.w_all.dat.vec_ro as v:
         v.copy(PD.X)
+    PD.update(PD.X)
 
     # use PD to calculate the Jacobian
     Jac1 = PD.JacobianMatrix
