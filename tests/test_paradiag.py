@@ -342,11 +342,15 @@ def test_set_para_form():
     r2 = fd.Function(V)
     r1.assign(Ffull.sub(rT * 2))
     r2.assign(Ffull.sub(rT * 2 + 1))
+
     error1.assign(r1 - PD_F1)
     error2.assign(r2 - PD_F2)
-
     assert(fd.norm(error1) < 1.0e-12)
     assert(fd.norm(error2) < 1.0e-12)
+    assert(fd.norm(r1 - PD_F1) < 1.0e-12)
+    assert(fd.norm(r1 - PD_F1) < 1.0e-12)
+    assert(fd.errornorm(r1, PD_F1) < 1.0e-12)
+    assert(fd.errornorm(r2, PD_F2) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -824,7 +828,6 @@ def test_solve_para_form_mixed():
     vfull_list = vfull.split()
 
     rT = ensemble.ensemble_comm.rank
-    rS = ensemble.comm.rank
 
     for i in range(Ml):
         ssolver.solve()
