@@ -7,7 +7,6 @@ from functools import reduce
 from operator import mul
 
 
-
 @pytest.mark.parallel(nprocs=8)
 def test_linear_swe_FFT():
     # minimal test for FFT PC
@@ -582,14 +581,13 @@ def test_set_para_form_mixed():
     unp1 = fd.Function(W)
 
     un.assign(w0)
-    v = fd.TestFunction(W)
-
-    eqn = (1.0/dt)*form_mass(*(fd.split(unp1)), *(fd.split(v)))
-    eqn -= (1.0/dt)*form_mass(*(fd.split(un)), *(fd.split(v)))
-    eqn += fd.Constant((1-theta))*form_function(*(fd.split(un)),
-                                                *(fd.split(v)))
-    eqn += fd.Constant(theta)*form_function(*(fd.split(unp1)),
-                                            *(fd.split(v)))
+    u0, p0 = fd.split(un)
+    u1, p1 = fd.split(unp1)
+    v, q = fd.TestsFunction(W)
+    eqn = (1.0/dt)*form_mass(u1, p1, v, q)
+    eqn -= (1.0/dt)*form_mass(u0, p0, v, q)
+    eqn += fd.Constant((1-theta))*form_function(u0, p0, v, q)
+    eqn += fd.Constant(theta)*form_function(u1, p1, v, q)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
@@ -631,11 +629,6 @@ def test_solve_para_form():
     M = [2, 2, 2, 2]
     Ml = np.sum(M)
 
-    # no PC used:
-    # solver_parameters_diag = {'ksp_type': 'gmres', 'pc_type': 'none',
-    #                      'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
-    #                      'ksp_monitor': None}
-
     # Parameters for the diag
     sparameters = {
         "ksp_type": "preonly",
@@ -661,7 +654,6 @@ def test_solve_para_form():
 
     def form_mass(u, v):
         return u*v*fd.dx
-
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
@@ -746,11 +738,6 @@ def test_solve_para_form_mixed():
 
     M = [2, 2, 2, 2]
     Ml = np.sum(M)
-
-    # no PC used:
-    # solver_parameters_diag = {'ksp_type': 'preonly', 'pc_type': 'lu',
-    #                        'pc_factor_mat_solver_type': 'mumps',
-    #                        'mat_type': 'aij'}
 
     # Parameters for the diag
     sparameters = {

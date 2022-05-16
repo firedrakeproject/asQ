@@ -331,11 +331,3 @@ for i in range(M):
     u_out = puns[0]
     h_out = puns[1]
     file0.write(u_out, h_out)
-
-
-# # write output:
-# r = PD.ensemble.ensemble_comm.rank
-# if r == len(M) - 1:
-#     file0 = fd.File("output/output1.pvd", comm=ensemble.comm)
-#     u0, h0, u1, h1 = PD.w_all.split()
-#     file0.write(u1, h1)
