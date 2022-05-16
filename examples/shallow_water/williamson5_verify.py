@@ -10,7 +10,7 @@ import utils.shallow_water.nonlinear as swe
 from utils.shallow_water.williamson1992 import case5
 
 # serial solution for verification
-from swim_serial import swim_serial
+from williamson5_serial import williamson5_serial
 
 PETSc.Sys.popErrorHandler()
 
@@ -42,13 +42,13 @@ PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Calculating serial solution --- === ###')
 PETSc.Sys.Print('')
 
-wserial = swim_serial(base_level=args.base_level,
-                      ref_level=args.ref_level,
-                      tmax=nt,
-                      dumpt=1,
-                      dt=args.dt,
-                      coords_degree=args.coords_degree,
-                      degree=args.degree)
+wserial = williamson5_serial(base_level=args.base_level,
+                             ref_level=args.ref_level,
+                             tmax=nt,
+                             dumpt=1,
+                             dt=args.dt,
+                             coords_degree=args.coords_degree,
+                             degree=args.degree)
 PETSc.Sys.Print('')
 
 PETSc.Sys.Print('### === --- Setting up parallel solution --- === ###')

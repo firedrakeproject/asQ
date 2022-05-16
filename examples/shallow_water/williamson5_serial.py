@@ -9,13 +9,13 @@ from utils.shallow_water.williamson1992 import case5
 from petsc4py import PETSc
 
 
-def swim_serial(base_level=1,
-                ref_level=2,
-                tmax=4,
-                dumpt=1,
-                dt=1,
-                coords_degree=3,
-                degree=1):
+def williamson5_serial(base_level=1,
+                       ref_level=2,
+                       tmax=4,
+                       dumpt=1,
+                       dt=1,
+                       coords_degree=3,
+                       degree=1):
 
     # some domain, parameters and FS setup
     R0 = earth.radius
