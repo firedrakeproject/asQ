@@ -6,6 +6,85 @@ from petsc4py import PETSc
 
 
 @pytest.mark.parallel(nprocs=4)
+def test_williamson5_timeseries():
+
+    from utils.shallow_water.verifications.williamson5 import serial_solve, parallel_solve
+
+    # test parameters
+    M = [2, 2]
+    nsteps = sum(M)
+    nspatial_domains = 2
+
+    base_level = 1
+    ref_level = 2
+    dt = 0.05
+    coords_degree = 3
+    degree = 1
+    alpha = 0.0001
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    r = ensemble.ensemble_comm.rank
+
+    # list of serial timesteps
+
+    wserial = serial_solve(base_level=base_level,
+                           ref_level=ref_level,
+                           tmax=nsteps,
+                           dumpt=1,
+                           dt=dt,
+                           coords_degree=coords_degree,
+                           degree=degree,
+                           comm=ensemble.comm,
+                           verbose=False)
+
+    # only keep the timesteps on the current time-slice
+    timestep_start = sum(M[:r])
+    timestep_end = timestep_start + M[r]
+
+    wserial = wserial[timestep_start:timestep_end]
+
+    # list of parallel timesteps
+
+    wparallel = parallel_solve(base_level=base_level,
+                               ref_level=ref_level,
+                               M=M,
+                               dumpt=1,
+                               dt=dt,
+                               coords_degree=coords_degree,
+                               degree=degree,
+                               ensemble=ensemble,
+                               alpha=alpha,
+                               verbose=False)
+
+    # compare the solutions
+
+    W = wserial[0].function_space()
+
+    ws = fd.Function(W)
+    wp = fd.Function(W)
+
+    us, hs = ws.split()
+    up, hp = wp.split()
+
+    for i in range(M[r]):
+
+        us.assign(wserial[i].split()[0])
+        hs.assign(wserial[i].split()[1])
+
+        up.assign(wparallel[i].split()[0])
+        hp.assign(wparallel[i].split()[1])
+
+        herror = fd.errornorm(hs, hp)/fd.norm(hs)
+        uerror = fd.errornorm(us, up)/fd.norm(us)
+
+        htol = 1e-3
+        utol = 1e-3
+
+        assert(uerror < utol)
+        assert(herror < htol)
+
+
+@pytest.mark.parallel(nprocs=4)
 def test_steady_swe():
     # test that steady-state is maintained for shallow water eqs
     import utils.units as units
