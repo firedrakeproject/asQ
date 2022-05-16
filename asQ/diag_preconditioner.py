@@ -262,13 +262,13 @@ class DiagFFTPC(object):
             if isinstance(self.paradiag.W.ufl_element(), fd.MixedElement):
                 i = bc.function_space().index
                 ncpts = self.paradiag.W.ufl_element().num_sub_elements()
-                for r in range(2): #  Complex coefficient index
+                for r in range(2):  # Complex coefficient index
                     all_bc = fd.DirichletBC(self.CblockV.sub(i).sub(r),
                                             bc.function_arg,
                                             bc.sub_domain)
                     self.CblockV_bcs.append(all_bc)
             else:
-                for r in range(2): #  Complex coefficient index
+                for r in range(2):  # Complex coefficient index
                     all_bc = fd.DirichletBC(self.CblockV.sub(r),
                                             bc.function_arg,
                                             bc.sub_domain)

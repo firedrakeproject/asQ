@@ -94,8 +94,12 @@ class JacobianMatrix(object):
         # Apply boundary conditions
         # assumes paradiag.w_all contains the current state we are
         # interested in
-        for bc in CblockV_bcs:
-            bc.apply(self.F, state=self.paradiag.w_all)
+        # For Jacobian action we should just return the values in X
+        # at boundary nodes
+        for bc in self.paradiag.W_bcs:
+            bc.homogenize()
+            bc.apply(self.F, u=self.u)
+            bc.restore()
 
         with self.F.dat.vec_ro as v:
             v.copy(Y)
@@ -154,7 +158,7 @@ class paradiag(object):
         self.tol = tol
         self.maxits = maxits
         self.circ = circ
-        
+
         # A coefficient that switches the alpha-circulant term on
         self.Circ = fd.Constant(1.0)
 
@@ -269,7 +273,7 @@ class paradiag(object):
         with self.w_all.dat.vec_wo as v:
             v.array[:] = X.array_r
 
-        #apply the boundary conditions
+        # apply the boundary conditions
         for bc in self.W_all_bcs:
             bc.apply(self.w_all)
 
