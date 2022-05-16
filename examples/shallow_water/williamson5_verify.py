@@ -33,8 +33,9 @@ args = args[0]
 if args.show_args:
     PETSc.Sys.Print(args)
 
-nt = 4
-M = [2, 2]
+nt = 6
+M = [nt//2, nt//2]
+assert(sum(M) == nt)
 nspatial_domains = 2
 
 # mesh set up
@@ -140,20 +141,20 @@ sparameters = {
 }
 
 solver_parameters_diag = {
-    "snes_linesearch_type": "basic",
+    'snes_linesearch_type': 'basic',
     'snes_monitor': None,
     'snes_converged_reason': None,
-    "snes_atol": 1e-8,
-    # "snes_rtol": 1e-8,
+    # 'snes_atol': 1e-8,
+    # 'snes_rtol': 1e-8,
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     # 'ksp_type': 'preonly',
     'ksp_max_it': 10,
-    "ksp_atol": 1e-8,
-    # "ksp_rtol": 1e-8,
+    # 'ksp_atol': 1e-8,
+    # 'ksp_rtol': 1e-8,
     'ksp_monitor': None,
-    # "ksp_monitor_true_residual": None,
-    "ksp_converged_reason": None,
+    # 'ksp_monitor_true_residual': None,
+    'ksp_converged_reason': None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
@@ -207,12 +208,9 @@ for i in range(M[r]):
     up.assign(PD.w_all.split()[2*i])
     hp.assign(PD.w_all.split()[2*i+1])
 
-    hmag = fd.sqrt(fd.assemble(hs*hs*fd.dx))
-    umag = fd.sqrt(fd.assemble(fd.inner(us, us)*fd.dx))
+    herror = fd.errornorm(hs, hp)/fd.norm(hs)
+    uerror = fd.errornorm(us, up)/fd.norm(us)
 
-    herror = fd.sqrt(fd.assemble((hp - hs)*(hp - hs)*fd.dx))
-    uerror = fd.sqrt(fd.assemble(fd.inner(up - us, up - us)*fd.dx))
-
-    PETSc.Sys.Print('timestep:', tstep, 'uerror:', uerror/umag, '|', 'herror: ', herror/hmag, comm=ensemble.comm)
+    PETSc.Sys.Print('timestep:', tstep, '|', 'uerror:', uerror, '|', 'herror: ', herror, comm=ensemble.comm)
 
 PETSc.Sys.Print('')

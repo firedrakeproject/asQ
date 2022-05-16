@@ -171,14 +171,8 @@ for step in range(M[PD.rT]):
     hp = walls[2*step+1]
     hp.assign(hp-H+b)
 
-    dh = hp - hn
-    du = up - un
-
-    herr = fd.sqrt(fd.assemble(dh*dh*fd.dx))
-    uerr = fd.sqrt(fd.assemble(fd.inner(du, du)*fd.dx))
-
-    herr /= hmag
-    uerr /= umag
+    herr = fd.errornorm(hn, hp)/fd.norm(hn)
+    uerr = fd.errornorm(un, up)/fd.norm(un)
 
     timestep = sum(M[:PD.rT]) + step
     PETSc.Sys.Print(f"timestep={timestep}, herr={herr}, uerr={uerr}", comm=ensemble.comm)

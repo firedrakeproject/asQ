@@ -92,8 +92,8 @@ def test_steady_swe():
     walls = PD.w_all.split()
     hn.assign(hn-H+b)
 
-    hmag = fd.sqrt(fd.assemble(hn*hn*fd.dx))
-    umag = fd.sqrt(fd.assemble(fd.inner(un, un)*fd.dx))
+    hmag = fd.norm(hn)
+    umag = fd.norm(un)
 
     for step in range(M[PD.rT]):
 
@@ -101,14 +101,8 @@ def test_steady_swe():
         hp = walls[2*step+1]
         hp.assign(hp-H+b)
 
-        dh = hp - hn
-        du = up - un
-
-        herr = fd.sqrt(fd.assemble(dh*dh*fd.dx))
-        uerr = fd.sqrt(fd.assemble(fd.inner(du, du)*fd.dx))
-
-        herr /= hmag
-        uerr /= umag
+        herr = fd.errornorm(hn, hp)/hmag
+        uerr = fd.errornorm(un, up)/umag
 
         htol = pow(10, -ref_level)
         utol = pow(10, -ref_level)
@@ -180,7 +174,7 @@ def test_linear_swe_FFT():
     for i in range(np.sum(M)):
         solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
-    dt = 60*60*3600
+    dt = 150*earth.day
 
     alpha = 1.0e-3
     theta = 0.5
