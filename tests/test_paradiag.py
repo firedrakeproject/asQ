@@ -7,52 +7,156 @@ from functools import reduce
 from operator import mul
 
 
+@pytest.mark.parallel(nprocs=4)
+def test_steady_swe():
+    # test that steady-state is maintained for shallow water eqs
+    import utils.units as units
+    import utils.planets.earth as earth
+    import utils.shallow_water.nonlinear as swe
+    import utils.shallow_water.williamson1992.case2 as case2
+
+    # set up the ensemble communicator for space-time parallelism
+    nspatial_domains = 2
+    ref_level = 2
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.IcosahedralSphereMesh(radius=earth.radius,
+                                    refinement_level=ref_level,
+                                    degree=2,
+                                    comm=ensemble.comm)
+    x = fd.SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(x)
+
+    degree = 1
+    V1 = fd.FunctionSpace(mesh, "BDM", degree+1)
+    V2 = fd.FunctionSpace(mesh, "DG", degree)
+    W = fd.MixedFunctionSpace((V1, V2))
+
+    # initial conditions
+    f = case2.coriolis_expression(*x)
+
+    g = earth.Gravity
+    H = case2.H0
+    b = fd.Constant(0)
+
+    # W = V1 * V2
+    w0 = fd.Function(W)
+    un, hn = w0.split()
+    un.project(case2.velocity_expression(*x))
+    hn.project(H - b + case2.elevation_expression(*x))
+
+    # finite element forms
+
+    def form_function(u, h, v, q):
+        return swe.form_function(mesh, g, b, f, h, u, q, v)
+
+    def form_mass(u, h, v, q):
+        return swe.form_mass(mesh, h, u, q, v)
+
+    # Parameters for the diag
+    sparameters = {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'}
+
+    solver_parameters_diag = {
+        "snes_linesearch_type": "basic",
+        'snes_atol': 1e3,
+        # 'snes_monitor': None,
+        # 'snes_converged_reason': None,
+        'ksp_rtol': 1e-3,
+        # 'ksp_monitor': None,
+        # 'ksp_converged_reason': None,
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC'}
+
+    M = [2, 2]
+    for i in range(np.sum(M)):
+        solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
+
+    dt = 0.2*units.hour
+
+    alpha = 1.0e-3
+    theta = 0.5
+
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=W, w0=w0,
+                      dt=dt, theta=theta,
+                      alpha=alpha,
+                      M=M, solver_parameters=solver_parameters_diag,
+                      circ=None, tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
+    PD.solve()
+
+    # check against initial conditions
+    walls = PD.w_all.split()
+    hn.assign(hn-H+b)
+
+    hmag = fd.sqrt(fd.assemble(hn*hn*fd.dx))
+    umag = fd.sqrt(fd.assemble(fd.inner(un, un)*fd.dx))
+
+    for step in range(M[PD.rT]):
+
+        up = walls[2*step]
+        hp = walls[2*step+1]
+        hp.assign(hp-H+b)
+
+        dh = hp - hn
+        du = up - un
+
+        herr = fd.sqrt(fd.assemble(dh*dh*fd.dx))
+        uerr = fd.sqrt(fd.assemble(fd.inner(du, du)*fd.dx))
+
+        herr /= hmag
+        uerr /= umag
+
+        htol = pow(10, -ref_level)
+        utol = pow(10, -ref_level)
+
+        assert(abs(herr) < htol)
+        assert(abs(uerr) < utol)
+
+
 @pytest.mark.parallel(nprocs=8)
 def test_linear_swe_FFT():
     # minimal test for FFT PC
-    R0 = 6371220.
-    H = fd.Constant(5960.)
+    import utils.planets.earth as earth
+    import utils.shallow_water.linear as swe
+    import utils.shallow_water.williamson1992.case5 as case5
 
     # set up the ensemble communicator for space-time parallelism
     nspatial_domains = 2
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-    mesh = fd.IcosahedralSphereMesh(radius=R0,
+    mesh = fd.IcosahedralSphereMesh(radius=earth.radius,
                                     refinement_level=3,
                                     degree=2,
                                     comm=ensemble.comm)
     x = fd.SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
-    R0 = fd.Constant(R0)
-    cx, cy, cz = fd.SpatialCoordinate(mesh)
-
-    outward_normals = fd.CellNormal(mesh)
-
-    def perp(u):
-        return fd.cross(outward_normals, u)
 
     degree = 1
     V1 = fd.FunctionSpace(mesh, "BDFM", degree+1)
     V2 = fd.FunctionSpace(mesh, "DG", degree)
     W = fd.MixedFunctionSpace((V1, V2))
 
-    u, eta = fd.TrialFunctions(W)
-    v, phi = fd.TestFunctions(W)
+    f = case5.coriolis_expression(*x)
 
-    Omega = fd.Constant(7.292e-5)  # rotation rate
-    f = 2*Omega*cz/fd.Constant(R0)  # Coriolis parameter
-    g = fd.Constant(9.8)  # Gravitational constant
-    dT = fd.Constant(0.)
+    g = earth.Gravity
+    H = case5.H0
 
     def form_function(u, h, v, q):
-        eqn = (
-            fd.inner(v, f*perp(u))*fd.dx
-            - fd.div(v)*g*h*fd.dx
-            - q*H*fd.div(u)*fd.dx
-        )
-        return eqn
+        return swe.form_function(mesh, g, H, f, h, u, q, v)
 
     def form_mass(u, h, v, q):
-        return fd.inner(u, v)*fd.dx + h*q*fd.dx
+        return swe.form_mass(mesh, h, u, q, v)
+
+    # W = V1 * V2
+    w0 = fd.Function(W)
+    un, etan = w0.split()
+    un.project(case5.velocity_expression(*x))
+    etan.project(case5.topography_expression(*x))
 
     # Parameters for the diag
     sparameters = {
@@ -79,20 +183,6 @@ def test_linear_swe_FFT():
         solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
     dt = 60*60*3600
-    dT.assign(dt)
-
-    # W = V1 * V2
-    w0 = fd.Function(W)
-    un, etan = w0.split()
-    rl = fd.pi/9.0
-    lambda_x = fd.atan_2(x[1]/R0, x[0]/R0)
-    lambda_c = -fd.pi/2.0
-    phi_x = fd.asin(x[2]/R0)
-    phi_c = fd.pi/6.0
-    minarg = fd.Min(pow(rl, 2),
-                    pow(phi_x - phi_c, 2) + pow(lambda_x - lambda_c, 2))
-    bexpr = 2000.0*(1 - fd.sqrt(minarg)/rl)
-    etan.project(bexpr)
 
     alpha = 1.0e-3
     theta = 0.5
@@ -104,7 +194,7 @@ def test_linear_swe_FFT():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters_diag,
                       circ="quasi",
-                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
     PD.solve()
     assert (1 < PD.snes.getConvergedReason() < 5)
@@ -156,7 +246,7 @@ def test_jacobian_heat_equation():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters,
                       circ="none",
-                      jac_average="newton", tol=1.0e-6, maxits=None)
+                      tol=1.0e-6, maxits=None)
 
     PD.solve()
 
@@ -198,7 +288,7 @@ def test_set_para_form():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters,
                       circ="none",
-                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
@@ -299,7 +389,7 @@ def test_set_para_form_mixed_parallel():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters,
                       circ="none",
-                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
@@ -424,7 +514,7 @@ def test_jacobian_mixed_parallel():
                       alpha=alpha,
                       M=M, solver_parameters=solver_parameters,
                       circ="none",
-                      jac_average="newton", tol=1.0e-6, maxits=None,
+                      tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
