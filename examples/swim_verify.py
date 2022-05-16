@@ -72,7 +72,7 @@ mesh = mg.icosahedral_mesh(R0=earth.radius,
                            nrefs=args.ref_level-args.base_level,
                            comm=ensemble.comm)
 
-x, y, z = fd.SpatialCoordinate(mesh)
+x = fd.SpatialCoordinate(mesh)
 
 V1 = fd.FunctionSpace(mesh, "BDM", args.degree+1)
 V2 = fd.FunctionSpace(mesh, "DG", args.degree)
@@ -80,8 +80,8 @@ V0 = fd.FunctionSpace(mesh, "CG", args.degree+2)
 W = fd.MixedFunctionSpace((V1, V2))
 
 g = earth.Gravity
-f = case5.coriolis_expression(x, y, z)
-b = case5.topography_function(x, y, z, V2, name="Topography")
+f = case5.coriolis_expression(*x)
+b = case5.topography_function(*x, V2, name="Topography")
 # D = eta + b
 
 # initial conditions
@@ -89,8 +89,8 @@ b = case5.topography_function(x, y, z, V2, name="Topography")
 # W = V1 * V2
 w0 = fd.Function(W)
 un, hn = w0.split()
-un.project(case5.velocity_expression(x, y, z))
-etan = case5.elevation_function(x, y, z, V2, name="Elevation")
+un.project(case5.velocity_expression(*x))
+etan = case5.elevation_function(*x, V2, name="Elevation")
 hn.assign(etan + H - b)
 
 # nonlinear swe forms

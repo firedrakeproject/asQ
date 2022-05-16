@@ -2,8 +2,9 @@ import firedrake as fd
 from petsc4py import PETSc
 import asQ
 
-# multigrid transfer manager for diagonal block solve
 from utils import mg
+from utils.planets import earth
+from utils.shallow_water.williamson1992 import case5
 
 PETSc.Sys.popErrorHandler()
 
@@ -31,7 +32,8 @@ nspatial_domains = 1
 
 # some domain, parameters and FS setup
 R0 = 6371220.
-H = fd.Constant(5960.)
+# H = fd.Constant(5960.)
+H = case5.H0
 filename = args.filename
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
@@ -58,10 +60,18 @@ V2 = fd.FunctionSpace(mesh, "DG", degree)
 V0 = fd.FunctionSpace(mesh, "CG", degree+2)
 W = fd.MixedFunctionSpace((V1, V2))
 
-Omega = fd.Constant(7.292e-5)  # rotation rate
-f = 2*Omega*x[2]/fd.Constant(R0)  # Coriolis parameter
-g = fd.Constant(9.8)  # Gravitational constant
-b = fd.Function(V2, name="Topography")
+f = case5.coriolis_expression(*x)
+g = earth.Gravity
+b = case5.topography_function(*x, V2, name="Topography")
+
+# initial conditions
+w0 = fd.Function(W)
+un, hn = w0.split()
+un.project(case5.velocity_expression(*x))
+etan = case5.elevation_function(*x, V2, name="Elevation")
+hn.assign(etan + H - b)
+
+
 # D = eta + b
 
 # nonlinear swe forms
@@ -102,27 +112,6 @@ dt = 60*60*args.dt
 t = 0.
 
 # initial conditions
-
-u_0 = 20.0  # maximum amplitude of the zonal wind [m/s]
-u_max = fd.Constant(u_0)
-u_expr = fd.as_vector([-u_max*x[1]/R0, u_max*x[0]/R0, 0.0])
-eta_expr = - ((R0 * Omega * u_max + u_max*u_max/2.0)*(x[2]*x[2]/(R0*R0)))/g
-# W = V1 * V2
-w0 = fd.Function(W)
-un, etan = w0.split()
-un.project(u_expr)
-etan.project(eta_expr)
-
-# Topography.
-rl = fd.pi/9.0
-lambda_x = fd.atan_2(x[1]/R0, x[0]/R0)
-lambda_c = -fd.pi/2.0
-phi_x = fd.asin(x[2]/R0)
-phi_c = fd.pi/6.0
-minarg = fd.Min(pow(rl, 2),
-                pow(phi_x - phi_c, 2) + pow(lambda_x - lambda_c, 2))
-bexpr = 2000.0*(1 - fd.sqrt(minarg)/rl)
-b.interpolate(bexpr)
 
 # parameters for the implicit diagonal solve in step-(b)
 sparameters_orig = {
