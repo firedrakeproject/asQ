@@ -398,7 +398,6 @@ def test_set_para_form_mixed_parallel():
     np.random.seed(132574)
     ufull_list = ufull.split()
     for i in range((2*8)):
-        # print(i)
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
@@ -796,7 +795,6 @@ def test_solve_para_form():
     w_alls = PD.w_all.split()
     for tt in range(nM):
         err = fd.norm(v_alls[tt] - w_alls[tt])
-        print(err)
         assert(err < 1e-09)
 
 
@@ -917,5 +915,4 @@ def test_solve_para_form_mixed():
     w_alls = PD.w_all.split()
     for tt in range(2*nM):
         err = fd.norm(v_alls[tt] - w_alls[tt])
-        print('Int time tt:', tt, ' Rank T: ', rT, 'Rank S: ', rS, '; Error: ', err)
         assert (err < 1e-09)
