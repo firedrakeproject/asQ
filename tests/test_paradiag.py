@@ -398,7 +398,6 @@ def test_set_para_form_mixed_parallel():
     np.random.seed(132574)
     ufull_list = ufull.split()
     for i in range((2*8)):
-        # print(i)
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
