@@ -799,6 +799,7 @@ def test_solve_para_form():
         print(err)
         assert(err < 1e-09)
 
+
 @pytest.mark.parallel(nprocs=8)
 def test_solve_para_form_mixed():
     # checks that the all-at-once system is the same as solving
