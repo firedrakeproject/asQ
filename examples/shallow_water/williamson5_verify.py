@@ -35,6 +35,57 @@ ensemble = fd.Ensemble(fd.COMM_WORLD, args.nspatial_domains)
 
 r = ensemble.ensemble_comm.rank
 
+# block solver options
+sparameters = {
+    "snes_atol": 1e-8,
+    "mat_type": "matfree",
+    "ksp_type": "fgmres",
+    "ksp_atol": 1e-8,
+    "ksp_max_it": 400,
+    "pc_type": "mg",
+    "pc_mg_cycle_type": "v",
+    "pc_mg_type": "multiplicative",
+    "mg_levels_ksp_type": "gmres",
+    "mg_levels_ksp_max_it": 3,
+    "mg_levels_pc_type": "python",
+    "mg_levels_pc_python_type": "firedrake.PatchPC",
+    "mg_levels_patch_pc_patch_save_operators": True,
+    "mg_levels_patch_pc_patch_partition_of_unity": True,
+    "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
+    "mg_levels_patch_pc_patch_construct_codim": 0,
+    "mg_levels_patch_pc_patch_construct_type": "vanka",
+    "mg_levels_patch_pc_patch_local_type": "additive",
+    "mg_levels_patch_pc_patch_precompute_element_tensors": True,
+    "mg_levels_patch_pc_patch_symmetrise_sweep": False,
+    "mg_levels_patch_sub_ksp_type": "preonly",
+    "mg_levels_patch_sub_pc_type": "lu",
+    "mg_levels_patch_sub_pc_factor_shift_type": "nonzero",
+    "mg_coarse_pc_type": "python",
+    "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+    "mg_coarse_assembled_pc_type": "lu",
+    "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
+}
+
+# paradiag solver options
+sparameters_diag = {
+    'snes_monitor': None,
+    'snes_converged_reason': None,
+    'ksp_monitor': None,
+    'ksp_converged_reason': None,
+    'snes_linesearch_type': 'basic',
+    # 'snes_atol': 1e-8,
+    # 'snes_rtol': 1e-8,
+    'mat_type': 'matfree',
+    'ksp_type': 'gmres',
+    # 'ksp_type': 'preonly',
+    'ksp_max_it': 10,
+    # 'ksp_atol': 1e-8,
+    # 'ksp_rtol': 1e-8,
+    # 'ksp_monitor_true_residual': None,
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.DiagFFTPC'}
+
+
 # list of serial timesteps
 PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Calculating serial solution --- === ###')
@@ -47,6 +98,7 @@ wserial = serial_solve(base_level=args.base_level,
                        dt=args.dt,
                        coords_degree=args.coords_degree,
                        degree=args.degree,
+                       sparameters=sparameters,
                        comm=ensemble.comm,
                        verbose=False)
 
@@ -62,6 +114,9 @@ PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 PETSc.Sys.Print('')
 
+# block solve is linear for parallel solution
+sparameters['ksp_type'] = 'preonly'
+
 wparallel = parallel_solve(base_level=args.base_level,
                            ref_level=args.ref_level,
                            M=M,
@@ -69,6 +124,8 @@ wparallel = parallel_solve(base_level=args.base_level,
                            dt=args.dt,
                            coords_degree=args.coords_degree,
                            degree=args.degree,
+                           sparameters=sparameters,
+                           sparameters_diag=sparameters_diag,
                            ensemble=ensemble,
                            alpha=args.alpha,
                            verbose=True)

@@ -25,6 +25,46 @@ def test_williamson5_timeseries():
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
     r = ensemble.ensemble_comm.rank
 
+    # block solver options
+    sparameters = {
+        "snes_atol": 1e-8,
+        "mat_type": "matfree",
+        "ksp_type": "fgmres",
+        "ksp_atol": 1e-8,
+        "ksp_max_it": 400,
+        "pc_type": "mg",
+        "pc_mg_cycle_type": "v",
+        "pc_mg_type": "multiplicative",
+        "mg_levels_ksp_type": "gmres",
+        "mg_levels_ksp_max_it": 3,
+        "mg_levels_pc_type": "python",
+        "mg_levels_pc_python_type": "firedrake.PatchPC",
+        "mg_levels_patch_pc_patch_save_operators": True,
+        "mg_levels_patch_pc_patch_partition_of_unity": True,
+        "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
+        "mg_levels_patch_pc_patch_construct_codim": 0,
+        "mg_levels_patch_pc_patch_construct_type": "vanka",
+        "mg_levels_patch_pc_patch_local_type": "additive",
+        "mg_levels_patch_pc_patch_precompute_element_tensors": True,
+        "mg_levels_patch_pc_patch_symmetrise_sweep": False,
+        "mg_levels_patch_sub_ksp_type": "preonly",
+        "mg_levels_patch_sub_pc_type": "lu",
+        "mg_levels_patch_sub_pc_factor_shift_type": "nonzero",
+        "mg_coarse_pc_type": "python",
+        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+        "mg_coarse_assembled_pc_type": "lu",
+        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
+    }
+
+    # paradiag solver options
+    sparameters_diag = {
+        'snes_linesearch_type': 'basic',
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'ksp_max_it': 10,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC'}
+
     # list of serial timesteps
 
     wserial = serial_solve(base_level=base_level,
@@ -34,6 +74,7 @@ def test_williamson5_timeseries():
                            dt=dt,
                            coords_degree=coords_degree,
                            degree=degree,
+                           sparameters=sparameters,
                            comm=ensemble.comm,
                            verbose=False)
 
@@ -45,6 +86,9 @@ def test_williamson5_timeseries():
 
     # list of parallel timesteps
 
+    # block solve is linear for parallel solution
+    sparameters['ksp_type'] = 'preonly'
+
     wparallel = parallel_solve(base_level=base_level,
                                ref_level=ref_level,
                                M=M,
@@ -52,6 +96,8 @@ def test_williamson5_timeseries():
                                dt=dt,
                                coords_degree=coords_degree,
                                degree=degree,
+                               sparameters=sparameters,
+                               sparameters_diag=sparameters_diag,
                                ensemble=ensemble,
                                alpha=alpha,
                                verbose=False)
