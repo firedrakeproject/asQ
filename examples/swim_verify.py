@@ -3,10 +3,11 @@ from petsc4py import PETSc
 import asQ
 
 # multigrid transfer manager for diagonal block solve
-from firedrake_utils import mg
-from firedrake_utils.planets import earth
-import firedrake_utils.shallow_water.nonlinear as swe
-from firedrake_utils.shallow_water.williamson1992 import case5
+from utils import units
+from utils import mg
+from utils.planets import earth
+import utils.shallow_water.nonlinear as swe
+from utils.shallow_water.williamson1992 import case5
 
 # serial solution for verification
 from swim_serial import swim_serial
@@ -32,11 +33,13 @@ args = args[0]
 if args.show_args:
     PETSc.Sys.Print(args)
 
-nt = 6
+nt = 4
 
 # M = [1, 1, 1, 1]
 # M = [2, 2]
 M = [nt]
+
+nspatial_domains = 4
 
 # list of serial timesteps
 PETSc.Sys.Print('')
@@ -60,7 +63,6 @@ H = case5.H0
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
 # mesh set up
-nspatial_domains = 2
 ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
 mesh = mg.icosahedral_mesh(R0=earth.radius,
@@ -102,7 +104,7 @@ def form_mass(u, h, v, q):
     return swe.form_mass(mesh, h, u, q, v)
 
 
-dt = 60*60*args.dt
+dt = args.dt*units.hour
 
 # parameters for the implicit diagonal solve in step-(b)
 sparameters_new = {
@@ -183,8 +185,7 @@ PD = asQ.paradiag(ensemble=ensemble,
                   dt=dt, theta=theta,
                   alpha=alpha,
                   M=M, solver_parameters=solver_parameters_diag,
-                  circ=None,
-                  jac_average="newton", tol=1.0e-8, maxits=None,
+                  circ=None, tol=1.0e-8, maxits=None,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')

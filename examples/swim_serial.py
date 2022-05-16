@@ -1,9 +1,10 @@
 import firedrake as fd
 
-import firedrake_utils.mg as mg
-from firedrake_utils.planets import earth
-import firedrake_utils.shallow_water.nonlinear as swe
-from firedrake_utils.shallow_water.williamson1992 import case5
+from utils import units
+from utils import mg
+from utils.planets import earth
+import utils.shallow_water.nonlinear as swe
+from utils.shallow_water.williamson1992 import case5
 
 from petsc4py import PETSc
 
@@ -105,7 +106,7 @@ def swim_serial(base_level=1,
         "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
     }
 
-    dt = 60*60*dt
+    dt = dt*units.hour
     dT.assign(dt)
 
     nprob = fd.NonlinearVariationalProblem(equation, Unp1)

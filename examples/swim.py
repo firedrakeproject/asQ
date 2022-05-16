@@ -3,7 +3,7 @@ from petsc4py import PETSc
 import asQ
 
 # multigrid transfer manager for diagonal block solve
-import swim_mg as mg
+from utils import mg
 
 PETSc.Sys.popErrorHandler()
 
@@ -11,16 +11,13 @@ PETSc.Sys.popErrorHandler()
 import argparse
 parser = argparse.ArgumentParser(description='Williamson 5 testcase for approximate Schur complement solver.')
 parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve. Default 1.')
-parser.add_argument('--ref_level', type=int, default=3, help='Refinement level of icosahedral grid. Default 3.')
+parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid. Default 3.')
 # parser.add_argument('--nsteps', type=int, default=10, help='Number of timesteps. Default 10.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient. Default 0.0001.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours. Default 0.05.')
 parser.add_argument('--filename', type=str, default='w5diag')
 parser.add_argument('--coords_degree', type=int, default=1, help='Degree of polynomials for sphere mesh approximation.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space).')
-parser.add_argument('--kspschur', type=int, default=1, help='Number of KSP iterations on the Schur complement.')
-parser.add_argument('--kspmg', type=int, default=3, help='Number of KSP iterations in the MG levels.')
-parser.add_argument('--tlblock', type=str, default='mg', help='Solver for the velocity-velocity block. mg==Multigrid with patchPC, lu==direct solver with MUMPS, patch==just do a patch smoother. Default is mg')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -29,63 +26,26 @@ args = args[0]
 if args.show_args:
     PETSc.Sys.Print(args)
 
+M = [2]
+nspatial_domains = 1
+
 # some domain, parameters and FS setup
 R0 = 6371220.
 H = fd.Constant(5960.)
-base_level = args.base_level
-nrefs = args.ref_level - base_level
 filename = args.filename
-deg = args.coords_degree
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
-nspatial_domains = 1
 ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
 # mesh set up
+mesh = mg.icosahedral_mesh(R0=R0,
+                           base_level=args.base_level,
+                           degree=args.coords_degree,
+                           distribution_parameters=distribution_parameters,
+                           nrefs=args.ref_level-args.base_level,
+                           comm=ensemble.comm)
 
-
-def high_order_mesh_hierarchy(mh, degree, R0):
-    meshes = []
-    for m in mh:
-        X = fd.VectorFunctionSpace(m, "Lagrange", degree)
-        new_coords = fd.interpolate(m.coordinates, X)
-        x, y, z = new_coords
-        r = (x**2 + y**2 + z**2)**0.5
-        new_coords.assign(R0*new_coords/r)
-        new_mesh = fd.Mesh(new_coords)
-        meshes.append(new_mesh)
-
-    return fd.HierarchyBase(meshes, mh.coarse_to_fine_cells,
-                            mh.fine_to_coarse_cells,
-                            mh.refinements_per_level, mh.nested)
-
-
-# mesh heirarchy from sw_implicit
-if args.tlblock == "mg":
-    basemesh = fd.IcosahedralSphereMesh(radius=R0,
-                                        refinement_level=base_level,
-                                        degree=deg,
-                                        distribution_parameters=distribution_parameters,
-                                        comm=ensemble.comm)
-    del basemesh._radius
-    mh = fd.MeshHierarchy(basemesh, nrefs)
-    mh = high_order_mesh_hierarchy(mh, deg, R0)
-    for mesh in mh:
-        xf = mesh.coordinates
-        mesh.transfer_coordinates = fd.Function(xf)
-        x = fd.SpatialCoordinate(mesh)
-        r = (x[0]**2 + x[1]**2 + x[2]**2)**0.5
-        xf.interpolate(R0*xf/r)
-        mesh.init_cell_orientations(x)
-    mesh = mh[-1]
-else:
-    mesh = fd.IcosahedralSphereMesh(radius=R0,
-                                    refinement_level=args.ref_level,
-                                    degree=deg,
-                                    distribution_parameters=distribution_parameters,
-                                    comm=ensemble.comm)
-    x = fd.SpatialCoordinate(mesh)
-    mesh.init_cell_orientations(x)
+# x, y, z = fd.SpatialCoordinate(mesh)
 
 R0 = fd.Constant(R0)
 x = fd.SpatialCoordinate(mesh)
@@ -223,8 +183,7 @@ solver_parameters_diag = {
     'pc_python_type': 'asQ.DiagFFTPC'}
 
 # M = [1, 1, 1, 1, 1, 1, 1, 1]
-M = [2, 2, 2, 2]
-# M = [4, 4]
+# M = [2, 2, 2, 2]
 # M = [8]
 
 for i in range(sum(M)):  # should this be sum(M) or max(M)?
@@ -239,14 +198,8 @@ block_ctx = {}
 # mesh transfer operators
 transfer_managers = []
 for _ in range(sum(M)):
-    vtransfer = mg.ManifoldTransfer()
-    transfers = {
-        V1.ufl_element(): (vtransfer.prolong, vtransfer.restrict,
-                           vtransfer.inject),
-        V2.ufl_element(): (vtransfer.prolong, vtransfer.restrict,
-                           vtransfer.inject)
-    }
-    transfer_managers += [fd.TransferManager(native_transfers=transfers)]
+    tm = mg.manifold_transfer_manager(W)
+    transfer_managers.append(tm)
 
 block_ctx['diag_transfer_managers'] = transfer_managers
 
@@ -256,8 +209,7 @@ PD = asQ.paradiag(ensemble=ensemble,
                   dt=dt, theta=theta,
                   alpha=alpha,
                   M=M, solver_parameters=solver_parameters_diag,
-                  circ=None,
-                  jac_average="newton", tol=1.0e-6, maxits=None,
+                  circ=None, tol=1.0e-6, maxits=None,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
 PD.solve()
