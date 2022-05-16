@@ -49,9 +49,6 @@ class JacobianMatrix(object):
                                         paradiag.w_recv)
 
     def mult(self, mat, X, Y):
-        # update the contents of paradiag.u from paradiag.X
-        self.paradiag.update(self.paradiag.X)
-
         n = self.n
 
         # copy the local data from X into self.u
@@ -225,6 +222,7 @@ class paradiag(object):
         def form_jacobian(snes, X, J, P):
             # copy the snes state vector into self.X
             X.copy(self.X)
+            self.update(X)
             J.assemble()
             P.assemble()
 
