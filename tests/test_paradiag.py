@@ -347,10 +347,6 @@ def test_set_para_form():
     error2.assign(r2 - PD_F2)
     assert(fd.norm(error1) < 1.0e-12)
     assert(fd.norm(error2) < 1.0e-12)
-    assert(fd.norm(r1 - PD_F1) < 1.0e-12)
-    assert(fd.norm(r1 - PD_F1) < 1.0e-12)
-    assert(fd.errornorm(r1, PD_F1) < 1.0e-12)
-    assert(fd.errornorm(r2, PD_F2) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=8)
