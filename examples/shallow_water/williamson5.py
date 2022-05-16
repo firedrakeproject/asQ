@@ -79,18 +79,11 @@ def form_mass(u, h, v, q):
 
 
 dt = args.dt*units.hour
-t = 0.
 
 # initial conditions
 
 # parameters for the implicit diagonal solve in step-(b)
-sparameters_orig = {
-    # "ksp_converged_reason": None,
-    "ksp_type": "preonly",
-    'pc_python_type': 'lu',
-    'pc_factor_mat_solver_type': 'mumps'}
-
-sparameters_new = {
+sparameters = {
     # "snes_monitor": None,
     "mat_type": "matfree",
     "ksp_type": "preonly",
@@ -125,25 +118,23 @@ sparameters_new = {
     "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
 }
 
-sparameters = sparameters_new
-
 solver_parameters_diag = {
     "snes_linesearch_type": "basic",
     'snes_monitor': None,
     'snes_converged_reason': None,
+    "snes_atol": 1e-8,
+    # "snes_rtol": 1e-8,
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     # 'ksp_type': 'preonly',
     'ksp_max_it': 10,
+    "ksp_atol": 1e-8,
+    # "ksp_rtol": 1e-8,
     'ksp_monitor': None,
     # "ksp_monitor_true_residual": None,
     "ksp_converged_reason": None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
-
-# M = [1, 1, 1, 1, 1, 1, 1, 1]
-# M = [2, 2, 2, 2]
-# M = [8]
 
 for i in range(sum(M)):  # should this be sum(M) or max(M)?
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
@@ -172,3 +163,9 @@ PD = asQ.paradiag(ensemble=ensemble,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
 PD.solve()
+
+asQ.post.write_timeseries(PD,
+                          file_name='output/'+args.filename,
+                          function_names=['Velocity', 'Depth'],
+                          frequency=1,
+                          time_scale=1./units.hour)

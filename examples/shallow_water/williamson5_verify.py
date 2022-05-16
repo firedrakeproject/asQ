@@ -34,11 +34,7 @@ if args.show_args:
     PETSc.Sys.Print(args)
 
 nt = 4
-
-# M = [1, 1, 1, 1]
-# M = [2, 2]
 M = [nt]
-
 nspatial_domains = 4
 
 # list of serial timesteps
@@ -107,7 +103,7 @@ def form_mass(u, h, v, q):
 dt = args.dt*units.hour
 
 # parameters for the implicit diagonal solve in step-(b)
-sparameters_new = {
+sparameters = {
     # "snes_monitor": None,
     "mat_type": "matfree",
     "ksp_type": "preonly",
@@ -141,8 +137,6 @@ sparameters_new = {
     "mg_coarse_assembled_pc_type": "lu",
     "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
 }
-
-sparameters = sparameters_new
 
 solver_parameters_diag = {
     "snes_linesearch_type": "basic",
