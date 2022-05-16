@@ -34,8 +34,11 @@ if args.show_args:
     PETSc.Sys.Print(args)
 
 nt = 4
-M = [nt]
-nspatial_domains = 4
+M = [2, 2]
+nspatial_domains = 2
+
+# mesh set up
+ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
 # list of serial timesteps
 PETSc.Sys.Print('')
@@ -48,7 +51,8 @@ wserial = williamson5_serial(base_level=args.base_level,
                              dumpt=1,
                              dt=args.dt,
                              coords_degree=args.coords_degree,
-                             degree=args.degree)
+                             degree=args.degree,
+                             comm=ensemble.comm)
 PETSc.Sys.Print('')
 
 PETSc.Sys.Print('### === --- Setting up parallel solution --- === ###')
@@ -57,9 +61,6 @@ PETSc.Sys.Print('')
 # some domain, parameters and FS setup
 H = case5.H0
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
-
-# mesh set up
-ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
 mesh = mg.icosahedral_mesh(R0=earth.radius,
                            base_level=args.base_level,
@@ -196,10 +197,12 @@ wp = fd.Function(W)
 us, hs = ws.split()
 up, hp = wp.split()
 
-for i in range(nt):
+r = PD.rT
+for i in range(M[r]):
 
-    us.assign(wserial[i].split()[0])
-    hs.assign(wserial[i].split()[1])
+    tstep = sum(M[:r]) + i
+    us.assign(wserial[tstep].split()[0])
+    hs.assign(wserial[tstep].split()[1])
 
     up.assign(PD.w_all.split()[2*i])
     hp.assign(PD.w_all.split()[2*i+1])
@@ -210,6 +213,6 @@ for i in range(nt):
     herror = fd.sqrt(fd.assemble((hp - hs)*(hp - hs)*fd.dx))
     uerror = fd.sqrt(fd.assemble(fd.inner(up - us, up - us)*fd.dx))
 
-    PETSc.Sys.Print('timestep:', i, 'uerror:', uerror/umag, '|', 'herror: ', herror/hmag)
+    PETSc.Sys.Print('timestep:', tstep, 'uerror:', uerror/umag, '|', 'herror: ', herror/hmag, comm=ensemble.comm)
 
 PETSc.Sys.Print('')

@@ -15,7 +15,8 @@ def williamson5_serial(base_level=1,
                        dumpt=1,
                        dt=1,
                        coords_degree=3,
-                       degree=1):
+                       degree=1,
+                       comm=fd.COMM_WORLD):
 
     # some domain, parameters and FS setup
     R0 = earth.radius
@@ -27,7 +28,8 @@ def williamson5_serial(base_level=1,
                                base_level=base_level,
                                degree=coords_degree,
                                distribution_parameters=distribution_parameters,
-                               nrefs=ref_level-base_level)
+                               nrefs=ref_level-base_level,
+                               comm=comm)
 
     R0 = fd.Constant(R0)
     x, y, z = fd.SpatialCoordinate(mesh)
@@ -71,13 +73,13 @@ def williamson5_serial(base_level=1,
     # monolithic solver options
 
     sparameters = {
-        "snes_monitor": None,
+        # "snes_monitor": None,
         "snes_atol": 1e-8,
         # "snes_rtol": 1e-8,
         "mat_type": "matfree",
         "ksp_type": "fgmres",
         # "ksp_monitor_true_residual": None,
-        "ksp_converged_reason": None,
+        # "ksp_converged_reason": None,
         "ksp_atol": 1e-8,
         # "ksp_rtol": 1e-8,
         "ksp_max_it": 400,

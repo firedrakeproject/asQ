@@ -31,7 +31,7 @@ if args.show_args:
     PETSc.Sys.Print(args)
 
 
-M = [2]
+M = [2, 2]
 nspatial_domains = 2
 
 # set up the ensemble communicator for space-time parallelism
@@ -129,7 +129,6 @@ solver_parameters_diag = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
-M = [2, 2]
 for i in range(np.sum(M)):
     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
@@ -182,4 +181,4 @@ for step in range(M[PD.rT]):
     uerr /= umag
 
     timestep = sum(M[:PD.rT]) + step
-    PETSc.Sys.Print(f"timestep={timestep}, herr={herr}, uerr={uerr}")
+    PETSc.Sys.Print(f"timestep={timestep}, herr={herr}, uerr={uerr}", comm=ensemble.comm)
