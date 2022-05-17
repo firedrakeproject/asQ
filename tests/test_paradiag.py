@@ -258,9 +258,6 @@ def test_jacobian_heat_equation():
     # using the heat equation
     # solves using unpreconditioned GMRES
 
-    from petsc4py import PETSc
-    PETSc.Sys.popErrorHandler()
-
     # only one spatial domain
     ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
@@ -380,25 +377,13 @@ def test_set_para_form():
     Ffull = fd.assemble(fullform)
 
     PD._assemble_function(PD.snes, PD.X, PD.F)
-    PD_F1 = fd.Function(V)
-    PD_F2 = fd.Function(V)
-    vlen = V.node_set.size
-    with PD_F1.dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[0:vlen]
-    with PD_F2.dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen:]
+    PD_Ff = fd.Function(PD.W_all)
 
-    error1 = fd.Function(V)
-    error2 = fd.Function(V)
-    r1 = fd.Function(V)
-    r2 = fd.Function(V)
-    r1.assign(Ffull.sub(rT * 2))
-    r2.assign(Ffull.sub(rT * 2 + 1))
-    error1.assign(r1 - PD_F1)
-    error2.assign(r2 - PD_F2)
+    with PD_Ff.dat.vec_wo as v:
+        v.array[:] = PD.F.array_r
 
-    assert(fd.norm(error1) < 1.0e-12)
-    assert(fd.norm(error2) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT * 2), PD_Ff.sub(0)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT * 2 + 1), PD_Ff.sub(1)) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -491,37 +476,15 @@ def test_set_para_form_mixed_parallel():
     Ffull = fd.assemble(fullform)
 
     PD._assemble_function(PD.snes, PD.X, PD.F)
-    PD_F1 = fd.Function(W)
-    PD_F2 = fd.Function(W)
-    vlen = V.node_set.size
-    plen = Q.node_set.size
+    PD_F = fd.Function(PD.W_all)
 
-    with PD_F1.sub(0).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[0:vlen]
-    with PD_F1.sub(1).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen:vlen + plen]
-    with PD_F2.sub(0).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen + plen:vlen + plen + vlen]
-    with PD_F2.sub(1).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen + plen + vlen:]
+    with PD_F.dat.vec_wo as v:
+        v.array[:] = PD.F.array_r
 
-    r11, r12 = fd.Function(W).split()
-    r21, r22 = fd.Function(W).split()
-    e11, e12 = fd.Function(W).split()
-    e21, e22 = fd.Function(W).split()
-    r11.assign(Ffull.sub(rT * 4))
-    r12.assign(Ffull.sub(rT * 4 + 1))
-    r21.assign(Ffull.sub(rT * 4 + 2))
-    r22.assign(Ffull.sub(rT * 4 + 3))
-    e11.assign(r11 - PD_F1.sub(0))
-    e12.assign(r12 - PD_F1.sub(1))
-    e21.assign(r21 - PD_F2.sub(0))
-    e22.assign(r22 - PD_F2.sub(1))
-
-    assert(fd.norm(e11) < 1.0e-12)
-    assert(fd.norm(e12) < 1.0e-12)
-    assert(fd.norm(e21) < 1.0e-12)
-    assert(fd.norm(e22) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4), PD_F.sub(0)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+1), PD_F.sub(1)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+2), PD_F.sub(2)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+3), PD_F.sub(3)) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -653,100 +616,17 @@ def test_jacobian_mixed_parallel():
     # do the matrix multiplication with vfull:
     jacout = fd.assemble(fd.action(Jac2, vfull))
 
-    vlen, plen = V.node_set.size, Q.node_set.size
-
     # generalization of the error evaluation to nM time slices
     PD_J = fd.Function(PD.W_all)
-    PD_Js = PD_J.split()
-    for i in range(nM):
-        with PD_Js[2*i].dat.vec_ro as v:
-            v.array[:] = Y1.array_r[i*vlen + i*plen: (i+1)*vlen + i*plen]
-        with PD_Js[2*i+1].dat.vec_ro as v:
-            v.array[:] = Y1.array_r[(i+1)*vlen + i*plen: (i+1)*vlen + (i+1)*plen]
+    with PD_J.dat.vec_wo as v:
+        v.array[:] = Y1.array_r
 
-    err_all = fd.Function(PD.W_all)
-    err_alls = err_all.split()
     for i in range(nM):
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        err_alls[2*i].assign(jacout.sub(ind1))  # ith time slice V
-        err_alls[2*i+1].assign(jacout.sub(ind2))  # ith time slice Q
-        err_alls[2*i].assign(jacout.sub(ind1))  # ith time slice V
-        err_alls[2*i+1].assign(jacout.sub(ind2))  # ith time slice Q
-
-    error_all = fd.Function(PD.W_all)
-    error_alls = error_all.split()
-    for i in range(2 * nM):
-        error_alls[i].assign(err_alls[i] - PD_Js[i])
-        assert(fd.norm(error_alls[i]) < 1.0e-11)
-
-
-@pytest.mark.xfail
-def test_set_para_form_mixed():
-    # checks that the all-at-once system is the same as solving
-    # timesteps sequentially using the mixed wave equation as an
-    # example by substituting the sequential solution and evaluating
-    # the residual
-
-    mesh = fd.PeriodicUnitSquareMesh(20, 20)
-    V = fd.FunctionSpace(mesh, "BDM", 1)
-    Q = fd.FunctionSpace(mesh, "DG", 0)
-    W = V * Q
-
-    x, y = fd.SpatialCoordinate(mesh)
-    w0 = fd.Function(W)
-    u0, p0 = w0.split()
-    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.001
-    M = 4
-    solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
-                         'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
-                         'ksp_monitor': None}
-
-    def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
-
-    def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
-
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="none")
-
-    # sequential solver
-    un = fd.Function(W)
-    unp1 = fd.Function(W)
-
-    un.assign(w0)
-    u0, p0 = fd.split(un)
-    u1, p1 = fd.split(unp1)
-    v, q = fd.TestsFunction(W)
-    eqn = (1.0/dt)*form_mass(u1, p1, v, q)
-    eqn -= (1.0/dt)*form_mass(u0, p0, v, q)
-    eqn += fd.Constant((1-theta))*form_function(u0, p0, v, q)
-    eqn += fd.Constant(theta)*form_function(u1, p1, v, q)
-
-    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
-    ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters=solver_parameters)
-
-    for i in range(M):
-        ssolver.solve()
-        for k in range(2):
-            PD.w_all.sub(2*i+k).assign(unp1.sub(k))
-        un.assign(unp1)
-
-    Pres = fd.assemble(PD.para_form)
-    for i in range(M):
-        assert(dt*np.abs(Pres.sub(i).dat.data[:]).max() < 1.0e-16)
+        assert(fd.errornorm(jacout.sub(ind1), PD_J.sub(2*i)) < 1.0e-11)
+        assert(fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
 
 
 bc_opts = [False, True]
@@ -785,6 +665,7 @@ def test_solve_para_form(bc_opt):
     solver_parameters_diag = {
         "snes_linesearch_type": "basic",
         'snes_monitor': None,
+        'snes_stol': 1.0e-100,
         'snes_converged_reason': None,
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
@@ -844,21 +725,12 @@ def test_solve_para_form(bc_opt):
         vfull_list[i].assign(unp1)
         un.assign(unp1)
 
-    # write the serial vector in local time junks
-    v_all = fd.Function(PD.W_all)
-    v_alls = v_all.split()
-
     nM = M[rT]
     for i in range(nM):
         # sum over the entries of M until rT determines left position left
         left = np.sum(M[:rT], dtype=int)
         ind1 = left + i
-        v_alls[i].assign(vfull_list[ind1])  # ith time slice V
-
-    w_alls = PD.w_all.split()
-    for tt in range(nM):
-        err = fd.norm(v_alls[tt] - w_alls[tt])
-        assert(err < 1e-09)
+        assert(fd.errornorm(vfull.sub(ind1), PD.w_all.sub(i)) < 1.0e-9)
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -954,7 +826,6 @@ def test_solve_para_form_mixed():
     vfull_list = vfull.split()
 
     rT = ensemble.ensemble_comm.rank
-    rS = ensemble.comm.rank
 
     for i in range(Ml):
         ssolver.solve()
@@ -962,20 +833,11 @@ def test_solve_para_form_mixed():
             vfull.sub(2*i+k).assign(unp1.sub(k))
         un.assign(unp1)
 
-    # write the serial vector in local time junks
-    v_all = fd.Function(PD.W_all)
-    v_alls = v_all.split()
-
     nM = M[rT]
     for i in range(nM):
         # sum over the entries of M until rT determines left position left
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        v_alls[2*i].assign(vfull_list[ind1])  # ith time slice V
-        v_alls[2*i + 1].assign(vfull_list[ind2])  # ith time slice Q
-
-    w_alls = PD.w_all.split()
-    for tt in range(2*nM):
-        err = fd.norm(v_alls[tt] - w_alls[tt])
-        assert (err < 1e-09)
+        assert(fd.errornorm(vfull_list[ind1], PD.w_all.sub(2*i)) < 1.0e-9)
+        assert(fd.errornorm(vfull_list[ind2], PD.w_all.sub(2*i+1)) < 1.0e-9)

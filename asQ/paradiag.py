@@ -96,7 +96,7 @@ class JacobianMatrix(object):
         # interested in
         # For Jacobian action we should just return the values in X
         # at boundary nodes
-        for bc in self.paradiag.W_bcs:
+        for bc in self.paradiag.W_all_bcs:
             bc.homogenize()
             bc.apply(self.F, u=self.u)
             bc.restore()
@@ -108,7 +108,8 @@ class JacobianMatrix(object):
 class paradiag(object):
     def __init__(self, ensemble,
                  form_function, form_mass, W, w0, dt, theta,
-                 alpha, M, solver_parameters={},
+                 alpha, M, bcs=[],
+                 solver_parameters={},
                  circ="picard",
                  tol=1.0e-6, maxits=10,
                  ctx={}, block_mat_type="aij"):
@@ -347,6 +348,12 @@ class paradiag(object):
         # assembly stage
         fd.assemble(self.para_form, tensor=self.F_all)
 
+        # apply boundary conditions
+        for bc in self.W_all_bcs:
+            bc.homogenize()
+            bc.apply(self.F_all)
+            bc.restore()            
+        
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
 
