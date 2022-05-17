@@ -271,13 +271,13 @@ class DiagFFTPC(object):
                 i = bc.function_space().index
                 for r in range(2):  # Complex coefficient index
                     all_bc = fd.DirichletBC(self.CblockV.sub(i).sub(r),
-                                            bc.function_arg,
+                                            0*bc.function_arg,
                                             bc.sub_domain)
                     self.CblockV_bcs.append(all_bc)
             else:
                 for r in range(2):  # Complex coefficient index
                     all_bc = fd.DirichletBC(self.CblockV.sub(r),
-                                            bc.function_arg,
+                                            0*bc.function_arg,
                                             bc.sub_domain)
                     self.CblockV_bcs.append(all_bc)
 
