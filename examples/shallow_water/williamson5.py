@@ -50,7 +50,6 @@ x = fd.SpatialCoordinate(mesh)
 degree = args.degree
 V1 = fd.FunctionSpace(mesh, "BDM", degree+1)
 V2 = fd.FunctionSpace(mesh, "DG", degree)
-V0 = fd.FunctionSpace(mesh, "CG", degree+2)
 W = fd.MixedFunctionSpace((V1, V2))
 
 H = case5.H0
@@ -71,16 +70,14 @@ hn.assign(etan + H - b)
 # nonlinear swe forms
 
 def form_function(u, h, v, q):
-    return swe.form_function(mesh, g, b, f, h, u, q, v)
+    return swe.form_function(mesh, g, b, f, u, h, v, q)
 
 
 def form_mass(u, h, v, q):
-    return swe.form_mass(mesh, h, u, q, v)
+    return swe.form_mass(mesh, u, h, v, q)
 
 
 dt = args.dt*units.hour
-
-# initial conditions
 
 # parameters for the implicit diagonal solve in step-(b)
 sparameters = {

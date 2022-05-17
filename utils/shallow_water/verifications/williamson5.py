@@ -69,9 +69,9 @@ def serial_solve(base_level=1,
     dT = fd.Constant(0.)
 
     equation = (
-        swe.form_mass(mesh, h1-h0, u1-u0, phi, v)
-        + half*dT*swe.form_function(mesh, g, b, f, h0, u0, phi, v)
-        + half*dT*swe.form_function(mesh, g, b, f, h1, u1, phi, v))
+        swe.form_mass(mesh, u1-u0, h1-h0, v, phi)
+        + half*dT*swe.form_function(mesh, g, b, f, u0, h0, v, phi)
+        + half*dT*swe.form_function(mesh, g, b, f, u1, h1, v, phi))
 
     # monolithic solver options
 
@@ -164,7 +164,6 @@ def parallel_solve(base_level=1,
         ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
     # some domain, parameters and FS setup
-    H = case5.H0
     distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
     mesh = mg.icosahedral_mesh(R0=earth.radius,
@@ -180,6 +179,7 @@ def parallel_solve(base_level=1,
     V2 = fd.FunctionSpace(mesh, "DG", degree)
     W = fd.MixedFunctionSpace((V1, V2))
 
+    H = case5.H0
     g = earth.Gravity
     f = case5.coriolis_expression(*x)
     b = case5.topography_function(*x, V2, name="Topography")
@@ -197,10 +197,10 @@ def parallel_solve(base_level=1,
     # nonlinear swe forms
 
     def form_function(u, h, v, q):
-        return swe.form_function(mesh, g, b, f, h, u, q, v)
+        return swe.form_function(mesh, g, b, f, u, h, v, q)
 
     def form_mass(u, h, v, q):
-        return swe.form_mass(mesh, h, u, q, v)
+        return swe.form_mass(mesh, u, h, v, q)
 
     dT = dt*units.hour
 

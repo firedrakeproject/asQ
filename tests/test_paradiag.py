@@ -170,10 +170,10 @@ def test_steady_swe():
     # finite element forms
 
     def form_function(u, h, v, q):
-        return swe.form_function(mesh, g, b, f, h, u, q, v)
+        return swe.form_function(mesh, g, b, f, u, h, v, q)
 
     def form_mass(u, h, v, q):
-        return swe.form_mass(mesh, h, u, q, v)
+        return swe.form_mass(mesh, u, h, v, q)
 
     # Parameters for the diag
     sparameters = {
@@ -264,10 +264,10 @@ def test_linear_swe_FFT():
     H = case5.H0
 
     def form_function(u, h, v, q):
-        return swe.form_function(mesh, g, H, f, h, u, q, v)
+        return swe.form_function(mesh, g, H, f, u, h, v, q)
 
     def form_mass(u, h, v, q):
-        return swe.form_mass(mesh, h, u, q, v)
+        return swe.form_mass(mesh, u, h, v, q)
 
     # W = V1 * V2
     w0 = fd.Function(W)

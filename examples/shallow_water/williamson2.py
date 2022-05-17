@@ -73,11 +73,11 @@ hn.project(H - b + case2.elevation_expression(*x))
 
 
 def form_function(u, h, v, q):
-    return swe.form_function(mesh, g, b, f, h, u, q, v)
+    return swe.form_function(mesh, g, b, f, u, h, v, q)
 
 
 def form_mass(u, h, v, q):
-    return swe.form_mass(mesh, h, u, q, v)
+    return swe.form_mass(mesh, u, h, v, q)
 
 
 # Parameters for the diag block solve
