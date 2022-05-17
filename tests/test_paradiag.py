@@ -574,22 +574,12 @@ def test_jacobian_mixed_parallel():
         with PD_Js[2*i+1].dat.vec_ro as v:
             v.array[:] = Y1.array_r[(i+1)*vlen + i*plen: (i+1)*vlen + (i+1)*plen]
 
-    err_all = fd.Function(PD.W_all)
-    err_alls = err_all.split()
     for i in range(nM):
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        err_alls[2*i].assign(jacout.sub(ind1))  # ith time slice V
-        err_alls[2*i+1].assign(jacout.sub(ind2))  # ith time slice Q
-        err_alls[2*i].assign(jacout.sub(ind1))  # ith time slice V
-        err_alls[2*i+1].assign(jacout.sub(ind2))  # ith time slice Q
-
-    error_all = fd.Function(PD.W_all)
-    error_alls = error_all.split()
-    for i in range(2 * nM):
-        error_alls[i].assign(err_alls[i] - PD_Js[i])
-        assert(fd.norm(error_alls[i]) < 1.0e-11)
+        assert(fd.errornorm(jacout.sub(ind1), PD_J.sub(2*i)) < 1.0e-11)
+        assert(fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
 
 
 @pytest.mark.parallel(nprocs=8)
