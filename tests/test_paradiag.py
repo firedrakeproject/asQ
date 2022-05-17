@@ -3,6 +3,8 @@ import firedrake as fd
 import numpy as np
 import pytest
 from petsc4py import PETSc
+from functools import reduce
+from operator import mul
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -256,9 +258,6 @@ def test_jacobian_heat_equation():
     # using the heat equation
     # solves using unpreconditioned GMRES
 
-    from petsc4py import PETSc
-    PETSc.Sys.popErrorHandler()
-
     # only one spatial domain
     ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
@@ -378,25 +377,13 @@ def test_set_para_form():
     Ffull = fd.assemble(fullform)
 
     PD._assemble_function(PD.snes, PD.X, PD.F)
-    PD_F1 = fd.Function(V)
-    PD_F2 = fd.Function(V)
-    vlen = V.node_set.size
-    with PD_F1.dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[0:vlen]
-    with PD_F2.dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen:]
+    PD_Ff = fd.Function(PD.W_all)
 
-    error1 = fd.Function(V)
-    error2 = fd.Function(V)
-    r1 = fd.Function(V)
-    r2 = fd.Function(V)
-    r1.assign(Ffull.sub(rT * 2))
-    r2.assign(Ffull.sub(rT * 2 + 1))
-    error1.assign(r1 - PD_F1)
-    error2.assign(r2 - PD_F2)
+    with PD_Ff.dat.vec_wo as v:
+        v.array[:] = PD.F.array_r
 
-    assert(fd.norm(error1) < 1.0e-12)
-    assert(fd.norm(error2) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT * 2), PD_Ff.sub(0)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT * 2 + 1), PD_Ff.sub(1)) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -448,7 +435,6 @@ def test_set_para_form_mixed_parallel():
     np.random.seed(132574)
     ufull_list = ufull.split()
     for i in range((2*8)):
-        # print(i)
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
@@ -490,37 +476,15 @@ def test_set_para_form_mixed_parallel():
     Ffull = fd.assemble(fullform)
 
     PD._assemble_function(PD.snes, PD.X, PD.F)
-    PD_F1 = fd.Function(W)
-    PD_F2 = fd.Function(W)
-    vlen = V.node_set.size
-    plen = Q.node_set.size
+    PD_F = fd.Function(PD.W_all)
 
-    with PD_F1.sub(0).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[0:vlen]
-    with PD_F1.sub(1).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen:vlen + plen]
-    with PD_F2.sub(0).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen + plen:vlen + plen + vlen]
-    with PD_F2.sub(1).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen + plen + vlen:]
+    with PD_F.dat.vec_wo as v:
+        v.array[:] = PD.F.array_r
 
-    r11, r12 = fd.Function(W).split()
-    r21, r22 = fd.Function(W).split()
-    e11, e12 = fd.Function(W).split()
-    e21, e22 = fd.Function(W).split()
-    r11.assign(Ffull.sub(rT * 4))
-    r12.assign(Ffull.sub(rT * 4 + 1))
-    r21.assign(Ffull.sub(rT * 4 + 2))
-    r22.assign(Ffull.sub(rT * 4 + 3))
-    e11.assign(r11 - PD_F1.sub(0))
-    e12.assign(r12 - PD_F1.sub(1))
-    e21.assign(r21 - PD_F2.sub(0))
-    e22.assign(r22 - PD_F2.sub(1))
-
-    assert(fd.norm(e11) < 1.0e-12)
-    assert(fd.norm(e12) < 1.0e-12)
-    assert(fd.norm(e21) < 1.0e-12)
-    assert(fd.norm(e22) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4), PD_F.sub(0)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+1), PD_F.sub(1)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+2), PD_F.sub(2)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+3), PD_F.sub(3)) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -652,111 +616,30 @@ def test_jacobian_mixed_parallel():
     # do the matrix multiplication with vfull:
     jacout = fd.assemble(fd.action(Jac2, vfull))
 
-    vlen, plen = V.node_set.size, Q.node_set.size
-
     # generalization of the error evaluation to nM time slices
     PD_J = fd.Function(PD.W_all)
-    PD_Js = PD_J.split()
-    for i in range(nM):
-        with PD_Js[2*i].dat.vec_ro as v:
-            v.array[:] = Y1.array_r[i*vlen + i*plen: (i+1)*vlen + i*plen]
-        with PD_Js[2*i+1].dat.vec_ro as v:
-            v.array[:] = Y1.array_r[(i+1)*vlen + i*plen: (i+1)*vlen + (i+1)*plen]
+    with PD_J.dat.vec_wo as v:
+        v.array[:] = Y1.array_r
 
-    err_all = fd.Function(PD.W_all)
-    err_alls = err_all.split()
     for i in range(nM):
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        err_alls[2*i].assign(jacout.sub(ind1))  # ith time slice V
-        err_alls[2*i+1].assign(jacout.sub(ind2))  # ith time slice Q
-        err_alls[2*i].assign(jacout.sub(ind1))  # ith time slice V
-        err_alls[2*i+1].assign(jacout.sub(ind2))  # ith time slice Q
-
-    error_all = fd.Function(PD.W_all)
-    error_alls = error_all.split()
-    for i in range(2 * nM):
-        error_alls[i].assign(err_alls[i] - PD_Js[i])
-        assert(fd.norm(error_alls[i]) < 1.0e-11)
+        assert(fd.errornorm(jacout.sub(ind1), PD_J.sub(2*i)) < 1.0e-11)
+        assert(fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
 
 
-@pytest.mark.xfail
-def test_set_para_form_mixed():
-    # checks that the all-at-once system is the same as solving
-    # timesteps sequentially using the mixed wave equation as an
-    # example by substituting the sequential solution and evaluating
-    # the residual
-
-    mesh = fd.PeriodicUnitSquareMesh(20, 20)
-    V = fd.FunctionSpace(mesh, "BDM", 1)
-    Q = fd.FunctionSpace(mesh, "DG", 0)
-    W = V * Q
-
-    x, y = fd.SpatialCoordinate(mesh)
-    w0 = fd.Function(W)
-    u0, p0 = w0.split()
-    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.001
-    M = 4
-    solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
-                         'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
-                         'ksp_monitor': None}
-
-    def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
-
-    def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
-
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="none")
-
-    # sequential solver
-    un = fd.Function(W)
-    unp1 = fd.Function(W)
-
-    un.assign(w0)
-    v = fd.TestFunction(W)
-
-    eqn = (1.0/dt)*form_mass(*(fd.split(unp1)), *(fd.split(v)))
-    eqn -= (1.0/dt)*form_mass(*(fd.split(un)), *(fd.split(v)))
-    eqn += fd.Constant((1-theta))*form_function(*(fd.split(un)),
-                                                *(fd.split(v)))
-    eqn += fd.Constant(theta)*form_function(*(fd.split(unp1)),
-                                            *(fd.split(v)))
-
-    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
-    ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters=solver_parameters)
-
-    for i in range(M):
-        ssolver.solve()
-        for k in range(2):
-            PD.w_all.sub(2*i+k).assign(unp1.sub(k))
-        un.assign(unp1)
-
-    Pres = fd.assemble(PD.para_form)
-    for i in range(M):
-        assert(dt*np.abs(Pres.sub(i).dat.data[:]).max() < 1.0e-16)
-
-
-@pytest.mark.xfail
+@pytest.mark.parallel(nprocs=8)
 def test_solve_para_form():
     # checks that the all-at-once system is the same as solving
-    # timesteps sequentially using the heat equation as an example by
+    # timesteps sequentially using the NONLINEAR heat equation as an example by
     # solving the all-at-once system and comparing with the sequential
     # solution
 
-    mesh = fd.UnitSquareMesh(20, 20)
+    # set up the ensemble communicator for space-time parallelism
+    nspatial_domains = 2
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -764,454 +647,29 @@ def test_solve_para_form():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = 4
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
+    c = fd.Constant(1)
+    M = [2, 2, 2, 2]
+    Ml = np.sum(M)
 
-    def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
-
-    def form_mass(u, v):
-        return u*v*fd.dx
-
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=V, w0=u0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="none")
-    PD.solve()
-
-    # sequential solver
-    un = fd.Function(V)
-    unp1 = fd.Function(V)
-
-    un.assign(u0)
-    v = fd.TestFunction(V)
-
-    eqn = (unp1 - un)*v*fd.dx
-    eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
-    eqn += fd.Constant(dt*theta)*form_function(unp1, v)
-
-    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
-    ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters=solver_parameters)
-
-    err = fd.Function(V, name="err")
-    pun = fd.Function(V, name="pun")
-    for i in range(M):
-        ssolver.solve()
-        un.assign(unp1)
-        pun.assign(PD.w_all.sub(i))
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
-
-
-@pytest.mark.xfail
-def test_solve_para_form_mixed():
-    # checks that the all-at-once system is the same as solving
-    # timesteps sequentially using the mixed wave equation as an
-    # example by substituting the sequential solution and evaluating
-    # the residual
-
-    mesh = fd.PeriodicUnitSquareMesh(20, 20)
-    V = fd.FunctionSpace(mesh, "BDM", 1)
-    Q = fd.FunctionSpace(mesh, "DG", 0)
-    W = V * Q
-
-    x, y = fd.SpatialCoordinate(mesh)
-    w0 = fd.Function(W)
-    u0, p0 = w0.split()
-    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.001
-    M = 4
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
-
-    def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
-
-    def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
-
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="none")
-    PD.solve()
-
-    # sequential solver
-    un = fd.Function(W)
-    unp1 = fd.Function(W)
-
-    un.assign(w0)
-    v = fd.TestFunction(W)
-
-    eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
-    eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
-    eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
-                                                   *(fd.split(v)))
-    eqn += fd.Constant(dt*theta)*form_function(*(fd.split(unp1)),
-                                               *(fd.split(v)))
-
-    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
-    ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters=solver_parameters)
-    ssolver.solve()
-
-    err = fd.Function(W, name="err")
-    pun = fd.Function(W, name="pun")
-    puns = pun.split()
-    for i in range(M):
-        ssolver.solve()
-        un.assign(unp1)
-        walls = PD.w_all.split()[2*i:2*i+2]
-        for k in range(2):
-            puns[k].assign(walls[k])
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
-
-
-@pytest.mark.xfail
-def test_relax():
-    # tests the relaxation method
-    # using the heat equation as an example
-
-    mesh = fd.UnitSquareMesh(20, 20)
-    V = fd.FunctionSpace(mesh, "CG", 1)
-
-    x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.001
-    M = 4
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
-
-    # Solving U_t + F(U) = 0
-    # defining F(U)
-    def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
-
-    # defining the structure of U_t
-    def form_mass(u, v):
-        return u*v*fd.dx
-
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=V, w0=u0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="picard", tol=1.0e-12)
-    PD.solve()
-
-    # sequential solver
-    un = fd.Function(V)
-    unp1 = fd.Function(V)
-
-    un.assign(u0)
-    v = fd.TestFunction(V)
-
-    eqn = (unp1 - un)*v*fd.dx
-    eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
-    eqn += fd.Constant(dt*theta)*form_function(unp1, v)
-
-    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
-    ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters=solver_parameters)
-
-    err = fd.Function(V, name="err")
-    pun = fd.Function(V, name="pun")
-    for i in range(M):
-        ssolver.solve()
-        un.assign(unp1)
-        pun.assign(PD.w_all.sub(i))
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
-
-
-@pytest.mark.xfail
-def test_relax_mixed():
-    # checks that the all-at-once system is the same as solving
-    # timesteps sequentially using the mixed wave equation as an
-    # example by substituting the sequential solution and evaluating
-    # the residual
-
-    mesh = fd.PeriodicUnitSquareMesh(20, 20)
-    V = fd.FunctionSpace(mesh, "BDM", 1)
-    Q = fd.FunctionSpace(mesh, "DG", 0)
-    W = V * Q
-
-    x, y = fd.SpatialCoordinate(mesh)
-    w0 = fd.Function(W)
-    u0, p0 = w0.split()
-    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.001
-    M = 4
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
-
-    def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
-
-    def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
-
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="picard", tol=1.0e-12)
-    PD.solve(verbose=True)
-
-    # sequential solver
-    un = fd.Function(W)
-    unp1 = fd.Function(W)
-
-    un.assign(w0)
-    v = fd.TestFunction(W)
-
-    eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
-    eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
-    eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
-                                                   *(fd.split(v)))
-    eqn += fd.Constant(dt*theta)*form_function(*(fd.split(unp1)),
-                                               *(fd.split(v)))
-
-    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
-    ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters=solver_parameters)
-    ssolver.solve()
-
-    err = fd.Function(W, name="err")
-    pun = fd.Function(W, name="pun")
-    puns = pun.split()
-    for i in range(M):
-        ssolver.solve()
-        un.assign(unp1)
-        walls = PD.w_all.split()[2*i:2*i+2]
-        for k in range(2):
-            puns[k].assign(walls[k])
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
-
-
-@pytest.mark.xfail
-def test_diag_precon():
-    # Test PCDIAGFFT by using it
-    # within the relaxation method
-    # using the heat equation as an example
-    # we compare one iteration using just the diag PC
-    # with the direct solver
-
-    mesh = fd.UnitSquareMesh(20, 20)
-    V = fd.FunctionSpace(mesh, "CG", 1)
-
-    x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.01
-    M = 4
-
-    diagfft_options = {
-        'ksp_type': 'preonly',
+    # Parameters for the diag
+    sparameters = {
+        "ksp_type": "preonly",
         'pc_type': 'lu',
-        'pc_factor_mat_solver_type': 'mumps',
-        'mat_type': 'aij'}
-
-    solver_parameters = {
-        'snes_type': 'ksponly',
-        'mat_type': 'matfree',
-        'ksp_type': 'preonly',
-        'ksp_rtol': 1.0e-10,
-        'ksp_converged_reason': None,
-        'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_factor_mat_solver_type': 'mumps'
     }
-    for i in range(M):
-        solver_parameters["diagfft_"+str(i)+"_"] = diagfft_options
-
-    def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
-
-    def form_mass(u, v):
-        return u*v*fd.dx
-
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=V, w0=u0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="picard", tol=1.0e-12, maxits=1)
-    PD.solve(verbose=True)
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
-    PDe = asQ.paradiag(form_function=form_function,
-                       form_mass=form_mass, W=V, w0=u0, dt=dt,
-                       theta=theta, alpha=alpha, M=M,
-                       solver_parameters=solver_parameters,
-                       circ="picard", tol=1.0e-12, maxits=1)
-    PDe.solve(verbose=True)
-    unD = fd.Function(V, name='diag')
-    un = fd.Function(V, name='full')
-    err = fd.Function(V, name='error')
-    unD.assign(u0)
-    un.assign(u0)
-    for i in range(M):
-        walls = PD.w_all.split()[i]
-        wallsE = PDe.w_all.split()[i]
-        unD.assign(walls)
-        un.assign(wallsE)
-        err.assign(un-unD)
-        assert(fd.norm(err) < 1.0e-13)
-
-
-@pytest.mark.xfail
-def test_diag_precon_mixed():
-    # checks that the all-at-once system is the same as solving
-    # timesteps sequentially using the mixed wave equation as an
-    # example by substituting the sequential solution and evaluating
-    # the residual
-
-    mesh = fd.PeriodicUnitSquareMesh(20, 20)
-    V = fd.FunctionSpace(mesh, "BDM", 1)
-    Q = fd.FunctionSpace(mesh, "DG", 0)
-    W = V * Q
-
-    x, y = fd.SpatialCoordinate(mesh)
-    w0 = fd.Function(W)
-    u0, p0 = w0.split()
-    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.001
-    M = 4
-
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
-
-    def form_function(uu, up, vu, vp):
-        return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
-
-    def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up*vp)*fd.dx
-
-    diagfft_options = {'ksp_type': 'gmres', 'pc_type': 'lu',
-                       'ksp_monitor': None,
-                       'ksp_converged_reason': None,
-                       'pc_factor_mat_solver_type': 'mumps',
-                       'mat_type': 'aij'}
 
     solver_parameters_diag = {
-        'snes_type': 'ksponly',
-        'mat_type': 'matfree',
-        'ksp_type': 'preonly',
-        'ksp_rtol': 1.0e-10,
-        'ksp_converged_reason': None,
-        'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
-    }
-    for i in range(M):
-        solver_parameters_diag["diagfft_"+str(i)+"_"] = diagfft_options
-
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters_diag,
-                      circ="picard", tol=1.0e-12)
-    PD.solve(verbose=True)
-
-    # sequential solver
-    un = fd.Function(W)
-    unp1 = fd.Function(W)
-
-    un.assign(w0)
-    v = fd.TestFunction(W)
-
-    eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
-    eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
-    eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
-                                                   *(fd.split(v)))
-    eqn += fd.Constant(dt*theta)*form_function(*(fd.split(unp1)),
-                                               *(fd.split(v)))
-
-    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'}
-    ssolver = fd.NonlinearVariationalSolver(sprob,
-                                            solver_parameters=solver_parameters)
-    ssolver.solve()
-
-    err = fd.Function(W, name="err")
-    pun = fd.Function(W, name="pun")
-    puns = pun.split()
-    for i in range(M):
-        ssolver.solve()
-        un.assign(unp1)
-        walls = PD.w_all.split()[2*i:2*i+2]
-        for k in range(2):
-            puns[k].assign(walls[k])
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-15)
-
-
-@pytest.mark.xfail
-def test_diag_precon_nl():
-    # Test PCDIAGFFT by using it within the relaxation method
-    # using the NONLINEAR heat equation as an example
-    # we compare one iteration using just the diag PC
-    # with the direct solver
-
-    mesh = fd.UnitSquareMesh(20, 20)
-    V = fd.FunctionSpace(mesh, "CG", 1)
-
-    x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.01
-    M = 4
-    c = fd.Constant(0.1)
-
-    diagfft_options = {
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'ksp_monitor': None,
-        'ksp_converged_reason': None,
-        'pc_factor_mat_solver_type': 'mumps',
-        'mat_type': 'aij'}
-
-    solver_parameters = {
+        "snes_linesearch_type": "basic",
         'snes_monitor': None,
         'snes_converged_reason': None,
         'mat_type': 'matfree',
-        'ksp_rtol': 1.0e-10,
-        'ksp_max_it': 12,
-        'ksp_converged_reason': None,
+        'ksp_type': 'gmres',
+        'ksp_monitor': None,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
-    }
-    for i in range(M):
-        solver_parameters["diagfft_"+str(i)+"_"] = diagfft_options
+        'pc_python_type': 'asQ.DiagFFTPC'}
+
+    for i in range(np.sum(M)):
+        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
 
     def form_function(u, v):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
@@ -1219,69 +677,14 @@ def test_diag_precon_nl():
     def form_mass(u, v):
         return u*v*fd.dx
 
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=V, w0=u0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="picard", tol=1.0e-12, maxits=1)
-    PD.solve(verbose=True)
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij'
-                         }
-    PDe = asQ.paradiag(form_function=form_function,
-                       form_mass=form_mass, W=V, w0=u0, dt=dt,
-                       theta=theta, alpha=alpha, M=M,
-                       solver_parameters=solver_parameters,
-                       circ="picard", tol=1.0e-12, maxits=1)
-    PDe.solve(verbose=True)
-    unD = fd.Function(V, name='diag')
-    un = fd.Function(V, name='full')
-    err = fd.Function(V, name='error')
-    unD.assign(u0)
-    un.assign(u0)
-    for i in range(M):
-        walls = PD.w_all.split()[i]
-        wallsE = PDe.w_all.split()[i]
-        unD.assign(walls)
-        un.assign(wallsE)
-        err.assign(un-unD)
-        assert(fd.norm(err) < 1.0e-12)
-
-
-@pytest.mark.xfail
-def test_quasi():
-    # tests the quasi-Newton option
-    # using the heat equation as an example
-
-    mesh = fd.UnitSquareMesh(20, 20)
-    V = fd.FunctionSpace(mesh, "CG", 1)
-
-    x, y = fd.SpatialCoordinate(mesh)
-    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.001
-    M = 4
-    solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
-                         'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij',
-                         'snes_monitor': None}
-
-    # Solving U_t + F(U) = 0
-    # defining F(U)
-    def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
-
-    # defining the structure of U_t
-    def form_mass(u, v):
-        return u*v*fd.dx
-
-    PD = asQ.paradiag(form_function=form_function,
-                      form_mass=form_mass, W=V, w0=u0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
-                      solver_parameters=solver_parameters,
-                      circ="quasi")
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=V, w0=u0,
+                      dt=dt, theta=theta,
+                      alpha=alpha,
+                      M=M, solver_parameters=solver_parameters_diag,
+                      circ="quasi", tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
     PD.solve()
 
     # sequential solver
@@ -1300,25 +703,36 @@ def test_quasi():
     ssolver = fd.NonlinearVariationalSolver(sprob,
                                             solver_parameters=solver_parameters)
 
-    err = fd.Function(V, name="err")
-    pun = fd.Function(V, name="pun")
-    for i in range(M):
+    # Calculation of time slices in serial:
+    VFull = reduce(mul, (V for _ in range(Ml)))
+    vfull = fd.Function(VFull)
+    vfull_list = vfull.split()
+    rT = ensemble.ensemble_comm.rank
+
+    for i in range(Ml):
         ssolver.solve()
+        vfull_list[i].assign(unp1)
         un.assign(unp1)
-        pun.assign(PD.w_all.sub(i))
-        err.assign(un-pun)
-        assert(fd.norm(err) < 1.0e-10)
+
+    nM = M[rT]
+    for i in range(nM):
+        # sum over the entries of M until rT determines left position left
+        left = np.sum(M[:rT], dtype=int)
+        ind1 = left + i
+        assert(fd.errornorm(vfull.sub(ind1), PD.w_all.sub(i)) < 1.0e-9)
 
 
-@pytest.mark.xfail
-def test_diag_precon_nl_mixed():
-    # Test PCDIAGFFT by using it
-    # within the relaxation method
-    # using the NONLINEAR wave equation as an example
-    # we compare one iteration using just the diag PC
-    # with the direct solver
+@pytest.mark.parallel(nprocs=8)
+def test_solve_para_form_mixed():
+    # checks that the all-at-once system is the same as solving
+    # timesteps sequentially using the NONLINEAR mixed wave equation as an
+    # example by substituting the sequential solution and evaluating
+    # the residual
 
-    mesh = fd.PeriodicUnitSquareMesh(20, 20)
+    # set up the ensemble communicator for space-time parallelism
+    nspatial_domains = 2
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.PeriodicUnitSquareMesh(4, 4, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
@@ -1326,13 +740,35 @@ def test_diag_precon_nl_mixed():
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
     u0, p0 = w0.split()
-    p0.interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
+    p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = 4
     c = fd.Constant(10)
     eps = fd.Constant(0.001)
+
+    M = [2, 2, 2, 2]
+    Ml = np.sum(M)
+
+    # Parameters for the diag
+    sparameters = {
+        "ksp_type": "preonly",
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'
+    }
+
+    solver_parameters_diag = {
+        "snes_linesearch_type": "basic",
+        'snes_monitor': None,
+        'snes_converged_reason': None,
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'ksp_monitor': None,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC'}
+
+    for i in range(np.sum(M)):
+        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
 
     def form_function(uu, up, vu, vp):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
@@ -1341,68 +777,56 @@ def test_diag_precon_nl_mixed():
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up * vp) * fd.dx
 
-    diagfft_options = {
-        'ksp_type': 'gmres',
-        'pc_type': 'lu',
-        'ksp_monitor': None,
-        'ksp_converged_reason': None,
-        'pc_factor_mat_solver_type': 'mumps',
-        'mat_type': 'aij'}
-
-    solver_parameters_diag = {
-        'snes_monitor': None,
-        'snes_converged_reason': None,
-        'mat_type': 'matfree',
-        'ksp_rtol': 1.0e-10,
-        'ksp_max_it': 6,
-        'ksp_converged_reason': None,
-        'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
-    }
-    for i in range(M):
-        solver_parameters_diag["diagfft_"+str(i)+"_"] = diagfft_options
-
-    PD = asQ.paradiag(form_function=form_function,
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
                       theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters_diag,
-                      circ="quasi", tol=1.0e-12,
-                      maxits=1)
-    PD.solve(verbose=True)
+                      circ="quasi",
+                      tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
+    PD.solve()
 
+    # sequential solver
+    un = fd.Function(W)
+    unp1 = fd.Function(W)
+
+    un.assign(w0)
+    v = fd.TestFunction(W)
+
+    eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
+    eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
+    eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
+                                                   *(fd.split(v)))
+    eqn += fd.Constant(dt*theta)*form_function(*(fd.split(unp1)),
+                                               *(fd.split(v)))
+
+    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
                          'pc_factor_mat_solver_type': 'mumps',
-                         'mat_type': 'aij',
-                         # 'snes_monitor':None,
-                         # 'snes_converged_reason':None,
-                         }
-    PDe = asQ.paradiag(form_function=form_function,
-                       form_mass=form_mass, W=W, w0=w0, dt=dt,
-                       theta=theta, alpha=alpha, M=M,
-                       solver_parameters=solver_parameters,
-                       circ="quasi", tol=1.0e-12,
-                       maxits=1)
-    PDe.solve(verbose=True)
+                         'mat_type': 'aij'}
+    ssolver = fd.NonlinearVariationalSolver(sprob,
+                                            solver_parameters=solver_parameters)
+    ssolver.solve()
 
-    # define functions
-    un = fd.Function(W, name='full')
-    unD = fd.Function(W, name='diag')
-    err = fd.Function(W, name='error')
-    # write initial conditions
-    un.assign(w0)
-    unD.assign(w0)
-    # split
-    pun = fd.Function(W, name='pun')
-    punD = fd.Function(W, name='punD')
-    puns = pun.split()
-    punDs = punD.split()
+    # Calculation of time slices in serial:
+    VFull = reduce(mul, (W for _ in range(Ml)))
+    vfull = fd.Function(VFull)
+    vfull_list = vfull.split()
 
-    for i in range(M):
-        walls = PD.w_all.split()[2 * i:2 * i + 2]
-        wallsE = PDe.w_all.split()[2 * i:2 * i + 2]
+    rT = ensemble.ensemble_comm.rank
+
+    for i in range(Ml):
+        ssolver.solve()
         for k in range(2):
-            puns[k].assign(walls[k])
-            punDs[k].assign(wallsE[k])
-        err.assign(punD - pun)
-        print(fd.norm(err))
-        assert (fd.norm(err) < 1.0e-15)
+            vfull.sub(2*i+k).assign(unp1.sub(k))
+        un.assign(unp1)
+
+    nM = M[rT]
+    for i in range(nM):
+        # sum over the entries of M until rT determines left position left
+        left = np.sum(M[:rT], dtype=int)
+        ind1 = 2*left + 2*i
+        ind2 = 2*left + 2*i + 1
+        assert(fd.errornorm(vfull_list[ind1], PD.w_all.sub(2*i)) < 1.0e-9)
+        assert(fd.errornorm(vfull_list[ind2], PD.w_all.sub(2*i+1)) < 1.0e-9)
