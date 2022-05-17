@@ -807,7 +807,7 @@ def test_solve_para_form(bc_opt):
         return u*v*fd.dx
 
     if bc_opt:
-        bcs = [fd.DirichletBC(V, 0., "on_boundary")]
+        bcs = [fd.DirichletBC(V, 1., "on_boundary")]
     else:
         bcs = []
 
