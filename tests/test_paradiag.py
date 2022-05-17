@@ -771,20 +771,11 @@ def test_solve_para_form_mixed():
             vfull.sub(2*i+k).assign(unp1.sub(k))
         un.assign(unp1)
 
-    # write the serial vector in local time junks
-    v_all = fd.Function(PD.W_all)
-    v_alls = v_all.split()
-
     nM = M[rT]
     for i in range(nM):
         # sum over the entries of M until rT determines left position left
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        v_alls[2*i].assign(vfull_list[ind1])  # ith time slice V
-        v_alls[2*i + 1].assign(vfull_list[ind2])  # ith time slice Q
-
-    w_alls = PD.w_all.split()
-    for tt in range(2*nM):
-        err = fd.norm(v_alls[tt] - w_alls[tt])
-        assert (err < 1e-09)
+        assert(fd.errornorm(vfull.sub(ind1), PD.w_all.sub(2*i)) < 1.0e-9)
+        assert(fd.errornorm(vfull.sub(ind2), PD.w_all.sub(2*i+1)) < 1.0e-9)
