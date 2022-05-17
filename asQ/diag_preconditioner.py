@@ -24,6 +24,7 @@ class DiagFFTPC(object):
             self.update(pc)
         else:
             self.initialize(pc)
+            self.update(pc)
             self.initialized = True
 
     def initialize(self, pc):
@@ -122,10 +123,7 @@ class DiagFFTPC(object):
                                                          MixedCpts[i]) for i in range(dim)])
         else:
             self.ncpts = 1
-            if isinstance(Ve, fd.FiniteElement):
-                self.CblockV = fd.FunctionSpace(mesh,
-                                                fd.VectorElement(Ve, dim=2))
-            elif isinstance(Ve, fd.VectorElement):
+            if isinstance(Ve, fd.VectorElement):
                 shape = (2, Ve.num_sub_elements())
                 self.CblockV = fd.FunctionSpace(mesh,
                                                 fd.TensorElement(Ve, shape))
@@ -134,7 +132,8 @@ class DiagFFTPC(object):
                 self.CblockV = fd.FunctionSpace(mesh,
                                                 fd.TensorElement(Ve, shape))
             else:
-                raise NotImplementedError
+                self.CblockV = fd.FunctionSpace(mesh,
+                                                fd.VectorElement(Ve, dim=2))
 
         # get the boundary conditions
         self.set_CblockV_bcs()
@@ -249,7 +248,8 @@ class DiagFFTPC(object):
 
             block_prefix = self.prefix+str(ii)+'_'
             jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out,
-                                                bcs=self.CblockV_bcs)
+                                                bcs=self.CblockV_bcs,
+                                                constant_jacobian=False)
             Jsolver = fd.LinearVariationalSolver(jprob,
                                                  appctx=appctx_h,
                                                  options_prefix=block_prefix)
@@ -265,6 +265,7 @@ class DiagFFTPC(object):
 
             self.Jsolvers.append(Jsolver)
 
+            
     def set_CblockV_bcs(self):
         self.CblockV_bcs = []
         for bc in self.paradiag.W_bcs:
@@ -283,6 +284,7 @@ class DiagFFTPC(object):
                     self.CblockV_bcs.append(all_bc)
 
     def update(self, pc):
+        print("I updated.")
         self.u0.assign(0)
         for i in range(self.M[self.rT]):
             # copy the data into solver input
