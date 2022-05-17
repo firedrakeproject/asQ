@@ -5,16 +5,13 @@ import pytest
 from petsc4py import PETSc
 
 
+@pytest.mark.parallel(nprocs=4)
 def test_next_window():
     # test resetting paradiag to start to next time-window
 
     # prep paradiag setup
-    nspatial_domains = 1
-    M = [4]
-
-    dt = 1
-    theta = 0.5
-    alpha = 0.0001
+    nspatial_domains = 2
+    M = [2, 2]
 
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
@@ -39,8 +36,8 @@ def test_next_window():
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
                       form_mass=form_mass, W=V, w0=v0,
-                      dt=dt, theta=theta,
-                      alpha=alpha, M=M)
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
 
     # set next window from new solution
     PD.next_window(v1)

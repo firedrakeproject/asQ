@@ -292,7 +292,7 @@ class paradiag(object):
             else:
                 request_recv = self.ensemble.irecv(self.w0,
                                                    source=ncomm-1,
-                                                   tag=r)
+                                                   tag=rank)
                 mpi_requests.extend(request_recv)
             MPI.Request.Waitall(mpi_requests)
 
