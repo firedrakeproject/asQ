@@ -567,12 +567,8 @@ def test_jacobian_mixed_parallel():
 
     # generalization of the error evaluation to nM time slices
     PD_J = fd.Function(PD.W_all)
-    PD_Js = PD_J.split()
-    for i in range(nM):
-        with PD_Js[2*i].dat.vec_ro as v:
-            v.array[:] = Y1.array_r[i*vlen + i*plen: (i+1)*vlen + i*plen]
-        with PD_Js[2*i+1].dat.vec_ro as v:
-            v.array[:] = Y1.array_r[(i+1)*vlen + i*plen: (i+1)*vlen + (i+1)*plen]
+    with PD_J.dat.vec_wo as v:
+        v.array[:] = Y1.array_r
 
     for i in range(nM):
         left = np.sum(M[:rT], dtype=int)
@@ -677,6 +673,7 @@ def test_solve_para_form():
         left = np.sum(M[:rT], dtype=int)
         ind1 = left + i
         v_alls[i].assign(vfull_list[ind1])  # ith time slice V
+        assert(fd.errornorm(Vfull_list[ind1], w_alls[i]) < 1.0e-9)
 
     w_alls = PD.w_all.split()
     for tt in range(nM):
