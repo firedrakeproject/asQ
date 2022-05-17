@@ -206,9 +206,6 @@ def test_jacobian_heat_equation():
     # using the heat equation
     # solves using unpreconditioned GMRES
 
-    from petsc4py import PETSc
-    PETSc.Sys.popErrorHandler()
-
     # only one spatial domain
     ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
@@ -328,25 +325,13 @@ def test_set_para_form():
     Ffull = fd.assemble(fullform)
 
     PD._assemble_function(PD.snes, PD.X, PD.F)
-    PD_F1 = fd.Function(V)
-    PD_F2 = fd.Function(V)
-    vlen = V.node_set.size
-    with PD_F1.dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[0:vlen]
-    with PD_F2.dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen:]
+    PD_Ff = fd.Function(PD.W_all)
 
-    error1 = fd.Function(V)
-    error2 = fd.Function(V)
-    r1 = fd.Function(V)
-    r2 = fd.Function(V)
-    r1.assign(Ffull.sub(rT * 2))
-    r2.assign(Ffull.sub(rT * 2 + 1))
+    with PD_Ff.dat.vec_wo as v:
+        v.array[:] = PD.F.array_r
 
-    error1.assign(r1 - PD_F1)
-    error2.assign(r2 - PD_F2)
-    assert(fd.norm(error1) < 1.0e-12)
-    assert(fd.norm(error2) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT * 2), PD_Ff.sub(0)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT * 2 + 1), PD_Ff.sub(1)) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=8)
