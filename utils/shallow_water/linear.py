@@ -14,17 +14,17 @@ def form_mass_u(mesh, u, w):
     return fd.inner(u, w)*fd.dx
 
 
-def form_mass(mesh, h, u, p, w):
+def form_mass(mesh, u, h, w, p):
     return form_mass_h(mesh, h, p) + form_mass_u(mesh, u, w)
 
 
 # spatial forms for depth and velocity fields
 
-def form_function_h(mesh, H, h, u, p):
+def form_function_h(mesh, H, u, h, p):
     return (H*p*fd.div(u))*fd.dx
 
 
-def form_function_u(mesh, g, f, h, u, w, perp=fd.cross):
+def form_function_u(mesh, g, f, u, h, w, perp=fd.cross):
 
     outward_normals = fd.CellNormal(mesh)
 
@@ -34,5 +34,5 @@ def form_function_u(mesh, g, f, h, u, w, perp=fd.cross):
     return (fd.inner(w, f*prp(u)) - g*h*fd.div(w))*fd.dx
 
 
-def form_function(mesh, g, H, f, h, u, p, w):
-    return form_function_h(mesh, H, h, u, p) + form_function_u(mesh, g, f, h, u, w)
+def form_function(mesh, g, H, f, u, h, w, p):
+    return form_function_h(mesh, H, u, h, p) + form_function_u(mesh, g, f, u, h, w)
