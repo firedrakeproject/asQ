@@ -352,8 +352,8 @@ class paradiag(object):
         for bc in self.W_all_bcs:
             bc.homogenize()
             bc.apply(self.F_all)
-            bc.restore()            
-        
+            bc.restore()
+
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
 
