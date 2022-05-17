@@ -180,7 +180,7 @@ class paradiag(object):
 
         # convert the W bcs into W_all bcs
         self.set_W_all_bcs()
-        
+
         # function containing the part of the
         # all-at-once solution assigned to this rank
         self.w_all = fd.Function(self.W_all)
@@ -194,7 +194,7 @@ class paradiag(object):
         # apply boundary conditions
         for bc in self.W_all_bcs:
             bc.apply(self.w_all)
-        
+
         # function to assemble the nonlinear residual
         self.F_all = fd.Function(self.W_all)
 
@@ -259,6 +259,7 @@ class paradiag(object):
         for bc in self.W_bcs:
             for r in range(self.M[self.rT]):
                 if is_mixed_element:
+                    i = bc.function_space().index
                     index = r*self.ncpts+i
                 else:
                     index = r
@@ -340,7 +341,7 @@ class paradiag(object):
         the nonlinear residual.
         """
         self.update(X)
-        
+
         # Set the flag for the circulant option
         if self.circ == "picard":
             self.Circ.assign(1.0)
