@@ -162,10 +162,10 @@ class DiagFFTPC(object):
                 usr.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(0), *idxs))), idxs))
                 usi.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(1), *idxs))), idxs))
         else:
-            vsr.append(vs[0, ...])
-            vsi.append(vs[1, ...])
-            usr.append(us[0, ...])
-            usi.append(us[1, ...])
+            vsr.append(vs[0])
+            vsi.append(vs[1])
+            usr.append(us[0])
+            usi.append(us[1])
 
         # input and output functions
         self.Jprob_in = fd.Function(self.CblockV)
