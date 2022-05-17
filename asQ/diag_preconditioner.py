@@ -114,7 +114,6 @@ class DiagFFTPC(object):
                     shape = (2,) + SubV._shape
                     MixedCpts.append(fd.TensorElement(SubV, shape))
                 else:
-                    print(SubV)
                     raise NotImplementedError
 
             dim = len(MixedCpts)
