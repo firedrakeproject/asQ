@@ -8,6 +8,64 @@ from operator import mul
 
 
 @pytest.mark.parallel(nprocs=4)
+def test_next_window():
+    # test resetting paradiag to start to next time-window
+
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(10, 10, comm=ensemble.comm)
+
+    V = fd.FunctionSpace(mesh, "DG", 1)
+    v0 = fd.Function(V, name="v0")
+    v1 = fd.Function(V, name="v1")
+
+    def form_function(v, u):
+        return v*u*fd.dx
+
+    def form_mass(v, u):
+        return v*u*fd.dx
+
+    # two random solutions
+    np.random.seed(572046)
+    v0.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
+    v1.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=V, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    # set next window from new solution
+    PD.next_window(v1)
+
+    # check all timesteps == v1
+    rank = PD.rT
+
+    for step in range(PD.M[rank]):
+        err = fd.errornorm(v1, PD.w_alls[step])
+        assert(err < 1e-12)
+
+    # force last timestep = v0
+    ncomm = ensemble.ensemble_comm.size
+    if rank == ncomm-1:
+        PD.w_alls[-1].assign(v0)
+
+    # set next window from end of last window
+    PD.next_window()
+
+    # check all timesteps == v0
+    for step in range(PD.M[rank]):
+        err = fd.errornorm(v0, PD.w_alls[step])
+        assert(err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
 def test_steady_swe():
     # test that steady-state is maintained for shallow water eqs
     import utils.units as units
@@ -94,8 +152,8 @@ def test_steady_swe():
     walls = PD.w_all.split()
     hn.assign(hn-H+b)
 
-    hmag = fd.sqrt(fd.assemble(hn*hn*fd.dx))
-    umag = fd.sqrt(fd.assemble(fd.inner(un, un)*fd.dx))
+    hmag = fd.norm(hn)
+    umag = fd.norm(un)
 
     for step in range(M[PD.rT]):
 
@@ -103,14 +161,8 @@ def test_steady_swe():
         hp = walls[2*step+1]
         hp.assign(hp-H+b)
 
-        dh = hp - hn
-        du = up - un
-
-        herr = fd.sqrt(fd.assemble(dh*dh*fd.dx))
-        uerr = fd.sqrt(fd.assemble(fd.inner(du, du)*fd.dx))
-
-        herr /= hmag
-        uerr /= umag
+        herr = fd.errornorm(hn, hp)/hmag
+        uerr = fd.errornorm(un, up)/umag
 
         htol = pow(10, -ref_level)
         utol = pow(10, -ref_level)
@@ -182,7 +234,7 @@ def test_linear_swe_FFT():
     for i in range(np.sum(M)):
         solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
-    dt = 60*60*3600
+    dt = 150*earth.day
 
     alpha = 1.0e-3
     theta = 0.5
@@ -552,6 +604,7 @@ def test_jacobian_mixed_parallel():
     # copy from w_all into the PETSc vec PD.X
     with PD.w_all.dat.vec_ro as v:
         v.copy(PD.X)
+    PD.update(PD.X)
 
     # use PD to calculate the Jacobian
     Jac1 = PD.JacobianMatrix

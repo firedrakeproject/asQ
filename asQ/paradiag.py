@@ -108,7 +108,7 @@ class JacobianMatrix(object):
 class paradiag(object):
     def __init__(self, ensemble,
                  form_function, form_mass, W, w0, dt, theta,
-                 alpha, M, bcs=None, solver_parameters=None,
+                 alpha, M, solver_parameters={},
                  circ="picard",
                  tol=1.0e-6, maxits=10,
                  ctx={}, block_mat_type="aij"):
@@ -234,7 +234,7 @@ class paradiag(object):
         def form_jacobian(snes, X, J, P):
             # copy the snes state vector into self.X
             X.copy(self.X)
-            self.update(self.X)
+            self.update(X)
             J.assemble()
             P.assemble()
 
@@ -299,6 +299,38 @@ class paradiag(object):
         # wait for the data [we should really do this after internal
         # assembly but have avoided that for now]
         MPI.Request.Waitall(mpi_requests)
+
+    def next_window(self, w1=None):
+        """
+        Reset paradiag ready for next time-window
+        :arg w1: initial solution for next time-window.If None,
+                 will use the final timestep from previous window
+        """
+        rank = self.rT
+        ncomm = self.ensemble.ensemble_comm.size
+        ncpts = self.ncpts
+
+        if w1 is not None:  # use given function
+            self.w0.assign(w1)
+        else:  # last rank broadcasts final timestep
+            if rank == ncomm-1:
+                # index of start of final timestep
+                i0 = ncpts*(self.M[-1]-1)
+                for k in range(ncpts):
+                    wend = self.w_alls[i0+k]
+                    self.w0.sub(k).assign(wend)
+
+            # there should really be a bcast method on the ensemble
+            # if this gets added in firedrake then this will need updating
+            for dat in self.w0.dat:
+                self.ensemble.ensemble_comm.Bcast(dat.data, root=ncomm-1)
+
+        # persistence forecast
+        for i in range(self.M[rank]):
+            for k in range(ncpts):
+                self.w_alls[ncpts*i+k].assign(self.w0.sub(k))
+
+        return
 
     def _assemble_function(self, snes, X, Fvec):
         r"""
