@@ -98,7 +98,7 @@ class JacobianMatrix(object):
 class paradiag(object):
     def __init__(self, ensemble,
                  form_function, form_mass, W, w0, dt, theta,
-                 alpha, M, solver_parameters=None,
+                 alpha, M, solver_parameters={},
                  circ="picard",
                  tol=1.0e-6, maxits=10,
                  ctx={}, block_mat_type="aij"):
@@ -261,6 +261,25 @@ class paradiag(object):
         # wait for the data [we should really do this after internal
         # assembly but have avoided that for now]
         MPI.Request.Waitall(mpi_requests)
+
+    def next_window(self, w1=None):
+        """
+        Reset paradiag ready for next time-window
+        :arg w1: initial solution for next time-window.If None, 
+                 will use the last timestep from previous window
+        """
+        if w1 is not None:
+            self.w0.assign(w1)
+        else:
+            raise NotImplementedError
+
+        r = self.rT
+        ncpts = self.ncpts
+        for i in range(self.M[r]):
+            for k in range(ncpts):
+                self.w_alls[ncpts*i+k].assign(self.w0.sub(k))
+
+        return
 
     def _assemble_function(self, snes, X, Fvec):
         r"""

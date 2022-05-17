@@ -5,6 +5,186 @@ import pytest
 from petsc4py import PETSc
 
 
+def test_next_window():
+    # test resetting paradiag to start to next time-window
+
+    # prep paradiag setup
+    nspatial_domains = 1
+    M = [4]
+
+    dt = 1
+    theta = 0.5
+    alpha = 0.0001
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(10, 10, comm=ensemble.comm)
+
+    V = fd.FunctionSpace(mesh, "DG", 1)
+    v0 = fd.Function(V, name="v0")
+    v1 = fd.Function(V, name="v1")
+
+    def form_function( v, u ):
+        return v*u*fd.dx
+
+    def form_mass( v, u ):
+        return v*u*fd.dx
+
+    # two random solutions
+    np.random.seed(572046)
+    v0.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
+    v1.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=V, w0=v0,
+                      dt=dt, theta=theta,
+                      alpha=alpha, M=M)
+
+    # pdg.next_window(v1)
+    PD.next_window(v1)
+
+    # check all timesteps == v1
+    r = PD.rT
+
+    vcheck = fd.Function(V, name="vcheck")
+    for step in range(PD.M[r]):
+        err = fd.errornorm(v1, PD.w_alls[step])
+        assert(err < 1e-12)
+
+    # force last timestep = v0
+
+    # pdg.next_window()
+
+    # check all timesteps == v0
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_williamson5_timeseries():
+
+    from utils.shallow_water.verifications.williamson5 import serial_solve, parallel_solve
+
+    # test parameters
+    M = [2, 2]
+    nsteps = sum(M)
+    nspatial_domains = 2
+
+    base_level = 1
+    ref_level = 2
+    dt = 0.05
+    coords_degree = 3
+    degree = 1
+    alpha = 0.0001
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    r = ensemble.ensemble_comm.rank
+
+    # block solver options
+    sparameters = {
+        "snes_atol": 1e-8,
+        "mat_type": "matfree",
+        "ksp_type": "fgmres",
+        "ksp_atol": 1e-8,
+        "ksp_max_it": 400,
+        "pc_type": "mg",
+        "pc_mg_cycle_type": "v",
+        "pc_mg_type": "multiplicative",
+        "mg_levels_ksp_type": "gmres",
+        "mg_levels_ksp_max_it": 3,
+        "mg_levels_pc_type": "python",
+        "mg_levels_pc_python_type": "firedrake.PatchPC",
+        "mg_levels_patch_pc_patch_save_operators": True,
+        "mg_levels_patch_pc_patch_partition_of_unity": True,
+        "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
+        "mg_levels_patch_pc_patch_construct_codim": 0,
+        "mg_levels_patch_pc_patch_construct_type": "vanka",
+        "mg_levels_patch_pc_patch_local_type": "additive",
+        "mg_levels_patch_pc_patch_precompute_element_tensors": True,
+        "mg_levels_patch_pc_patch_symmetrise_sweep": False,
+        "mg_levels_patch_sub_ksp_type": "preonly",
+        "mg_levels_patch_sub_pc_type": "lu",
+        "mg_levels_patch_sub_pc_factor_shift_type": "nonzero",
+        "mg_coarse_pc_type": "python",
+        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+        "mg_coarse_assembled_pc_type": "lu",
+        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
+    }
+
+    # paradiag solver options
+    sparameters_diag = {
+        'snes_linesearch_type': 'basic',
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'ksp_max_it': 10,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC'}
+
+    # list of serial timesteps
+
+    wserial = serial_solve(base_level=base_level,
+                           ref_level=ref_level,
+                           tmax=nsteps,
+                           dumpt=1,
+                           dt=dt,
+                           coords_degree=coords_degree,
+                           degree=degree,
+                           sparameters=sparameters,
+                           comm=ensemble.comm,
+                           verbose=False)
+
+    # only keep the timesteps on the current time-slice
+    timestep_start = sum(M[:r])
+    timestep_end = timestep_start + M[r]
+
+    wserial = wserial[timestep_start:timestep_end]
+
+    # list of parallel timesteps
+
+    # block solve is linear for parallel solution
+    sparameters['ksp_type'] = 'preonly'
+
+    wparallel = parallel_solve(base_level=base_level,
+                               ref_level=ref_level,
+                               M=M,
+                               dumpt=1,
+                               dt=dt,
+                               coords_degree=coords_degree,
+                               degree=degree,
+                               sparameters=sparameters,
+                               sparameters_diag=sparameters_diag,
+                               ensemble=ensemble,
+                               alpha=alpha,
+                               verbose=False)
+
+    # compare the solutions
+
+    W = wserial[0].function_space()
+
+    ws = fd.Function(W)
+    wp = fd.Function(W)
+
+    us, hs = ws.split()
+    up, hp = wp.split()
+
+    for i in range(M[r]):
+
+        us.assign(wserial[i].split()[0])
+        hs.assign(wserial[i].split()[1])
+
+        up.assign(wparallel[i].split()[0])
+        hp.assign(wparallel[i].split()[1])
+
+        herror = fd.errornorm(hs, hp)/fd.norm(hs)
+        uerror = fd.errornorm(us, up)/fd.norm(us)
+
+        htol = 1e-3
+        utol = 1e-3
+
+        assert(uerror < utol)
+        assert(herror < htol)
+
+
 @pytest.mark.parallel(nprocs=4)
 def test_steady_swe():
     # test that steady-state is maintained for shallow water eqs
@@ -92,8 +272,8 @@ def test_steady_swe():
     walls = PD.w_all.split()
     hn.assign(hn-H+b)
 
-    hmag = fd.sqrt(fd.assemble(hn*hn*fd.dx))
-    umag = fd.sqrt(fd.assemble(fd.inner(un, un)*fd.dx))
+    hmag = fd.norm(hn)
+    umag = fd.norm(un)
 
     for step in range(M[PD.rT]):
 
@@ -101,14 +281,8 @@ def test_steady_swe():
         hp = walls[2*step+1]
         hp.assign(hp-H+b)
 
-        dh = hp - hn
-        du = up - un
-
-        herr = fd.sqrt(fd.assemble(dh*dh*fd.dx))
-        uerr = fd.sqrt(fd.assemble(fd.inner(du, du)*fd.dx))
-
-        herr /= hmag
-        uerr /= umag
+        herr = fd.errornorm(hn, hp)/hmag
+        uerr = fd.errornorm(un, up)/umag
 
         htol = pow(10, -ref_level)
         utol = pow(10, -ref_level)
@@ -180,7 +354,7 @@ def test_linear_swe_FFT():
     for i in range(np.sum(M)):
         solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
-    dt = 60*60*3600
+    dt = 150*earth.day
 
     alpha = 1.0e-3
     theta = 0.5
