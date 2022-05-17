@@ -265,17 +265,38 @@ class paradiag(object):
     def next_window(self, w1=None):
         """
         Reset paradiag ready for next time-window
-        :arg w1: initial solution for next time-window.If None, 
+        :arg w1: initial solution for next time-window.If None,
                  will use the last timestep from previous window
         """
-        if w1 is not None:
-            self.w0.assign(w1)
-        else:
-            raise NotImplementedError
-
-        r = self.rT
+        rank = self.rT
+        ncomm = self.ensemble.ensemble_comm.size
         ncpts = self.ncpts
-        for i in range(self.M[r]):
+
+        if w1 is not None:  # use given function
+            self.w0.assign(w1)
+        else:  # last rank broadcasts last timestep
+            # communication should all be done with a broadcast
+            # need to find how to bcast with the ensemble
+            mpi_requests = []
+            if rank == ncomm-1:
+                for k in range(ncpts):
+                    # index of start of last timestep
+                    i0 = ncpts*(self.M[-1]-1)
+                    wend = self.w_alls[i0+k]
+                    self.w0.sub(k).assign(wend)
+                for r in range(len(self.M)-1):
+                    request_send = self.ensemble.isend(self.w0,
+                                                       dest=r,
+                                                       tag=r)
+                    mpi_requests.extend(request_send)
+            else:
+                request_recv = self.ensemble.irecv(self.w0,
+                                                   source=ncomm-1,
+                                                   tag=r)
+                mpi_requests.extend(request_recv)
+            MPI.Request.Waitall(mpi_requests)
+
+        for i in range(self.M[rank]):
             for k in range(ncpts):
                 self.w_alls[ncpts*i+k].assign(self.w0.sub(k))
 

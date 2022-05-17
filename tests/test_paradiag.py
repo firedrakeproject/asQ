@@ -24,10 +24,10 @@ def test_next_window():
     v0 = fd.Function(V, name="v0")
     v1 = fd.Function(V, name="v1")
 
-    def form_function( v, u ):
+    def form_function(v, u):
         return v*u*fd.dx
 
-    def form_mass( v, u ):
+    def form_mass(v, u):
         return v*u*fd.dx
 
     # two random solutions
@@ -42,22 +42,28 @@ def test_next_window():
                       dt=dt, theta=theta,
                       alpha=alpha, M=M)
 
-    # pdg.next_window(v1)
+    # set next window from new solution
     PD.next_window(v1)
 
     # check all timesteps == v1
-    r = PD.rT
+    rank = PD.rT
 
-    vcheck = fd.Function(V, name="vcheck")
-    for step in range(PD.M[r]):
+    for step in range(PD.M[rank]):
         err = fd.errornorm(v1, PD.w_alls[step])
         assert(err < 1e-12)
 
     # force last timestep = v0
+    ncomm = ensemble.ensemble_comm.size
+    if rank == ncomm-1:
+        PD.w_alls[-1].assign(v0)
 
-    # pdg.next_window()
+    # set next window from end of last window
+    PD.next_window()
 
     # check all timesteps == v0
+    for step in range(PD.M[rank]):
+        err = fd.errornorm(v0, PD.w_alls[step])
+        assert(err < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=4)
