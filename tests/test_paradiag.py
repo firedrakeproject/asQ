@@ -663,22 +663,12 @@ def test_solve_para_form():
         vfull_list[i].assign(unp1)
         un.assign(unp1)
 
-    # write the serial vector in local time junks
-    v_all = fd.Function(PD.W_all)
-    v_alls = v_all.split()
-
     nM = M[rT]
     for i in range(nM):
         # sum over the entries of M until rT determines left position left
         left = np.sum(M[:rT], dtype=int)
         ind1 = left + i
-        v_alls[i].assign(vfull_list[ind1])  # ith time slice V
-        assert(fd.errornorm(Vfull_list[ind1], w_alls[i]) < 1.0e-9)
-
-    w_alls = PD.w_all.split()
-    for tt in range(nM):
-        err = fd.norm(v_alls[tt] - w_alls[tt])
-        assert(err < 1e-09)
+        assert(fd.errornorm(vfull.sub(ind1), PD.w_all.sub(i)) < 1.0e-9)
 
 
 @pytest.mark.parallel(nprocs=8)
