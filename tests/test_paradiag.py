@@ -424,37 +424,15 @@ def test_set_para_form_mixed_parallel():
     Ffull = fd.assemble(fullform)
 
     PD._assemble_function(PD.snes, PD.X, PD.F)
-    PD_F1 = fd.Function(W)
-    PD_F2 = fd.Function(W)
-    vlen = V.node_set.size
-    plen = Q.node_set.size
+    PD_F = fd.Function(PD.W_all)
 
-    with PD_F1.sub(0).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[0:vlen]
-    with PD_F1.sub(1).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen:vlen + plen]
-    with PD_F2.sub(0).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen + plen:vlen + plen + vlen]
-    with PD_F2.sub(1).dat.vec_ro as v:
-        v.array[:] = PD.F.array_r[vlen + plen + vlen:]
+    with PD_F.dat.vec_wo as v:
+        v.array[:] = PD.F.array_r
 
-    r11, r12 = fd.Function(W).split()
-    r21, r22 = fd.Function(W).split()
-    e11, e12 = fd.Function(W).split()
-    e21, e22 = fd.Function(W).split()
-    r11.assign(Ffull.sub(rT * 4))
-    r12.assign(Ffull.sub(rT * 4 + 1))
-    r21.assign(Ffull.sub(rT * 4 + 2))
-    r22.assign(Ffull.sub(rT * 4 + 3))
-    e11.assign(r11 - PD_F1.sub(0))
-    e12.assign(r12 - PD_F1.sub(1))
-    e21.assign(r21 - PD_F2.sub(0))
-    e22.assign(r22 - PD_F2.sub(1))
-
-    assert(fd.norm(e11) < 1.0e-12)
-    assert(fd.norm(e12) < 1.0e-12)
-    assert(fd.norm(e21) < 1.0e-12)
-    assert(fd.norm(e22) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4), PD_F.sub(0)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+1), PD_F.sub(1)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+2), PD_F.sub(2)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+3), PD_F.sub(3)) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=8)
