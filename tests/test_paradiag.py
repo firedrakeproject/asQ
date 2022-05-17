@@ -64,6 +64,130 @@ def test_next_window():
 
 
 @pytest.mark.parallel(nprocs=4)
+def test_williamson5_timeseries():
+    from utils.shallow_water.verifications.williamson5 import serial_solve, parallel_solve
+
+    # test parameters
+    M = [2, 2]
+    nsteps = sum(M)
+    nspatial_domains = 2
+
+    base_level = 1
+    ref_level = 2
+    dt = 0.05
+    coords_degree = 3
+    degree = 1
+    alpha = 0.0001
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    r = ensemble.ensemble_comm.rank
+
+    # block solver options
+    sparameters = {
+        "snes_atol": 1e-8,
+        "mat_type": "matfree",
+        "ksp_type": "fgmres",
+        "ksp_atol": 1e-8,
+        "ksp_max_it": 400,
+        "pc_type": "mg",
+        "pc_mg_cycle_type": "v",
+        "pc_mg_type": "multiplicative",
+        "mg_levels_ksp_type": "gmres",
+        "mg_levels_ksp_max_it": 3,
+        "mg_levels_pc_type": "python",
+        "mg_levels_pc_python_type": "firedrake.PatchPC",
+        "mg_levels_patch_pc_patch_save_operators": True,
+        "mg_levels_patch_pc_patch_partition_of_unity": True,
+        "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
+        "mg_levels_patch_pc_patch_construct_codim": 0,
+        "mg_levels_patch_pc_patch_construct_type": "vanka",
+        "mg_levels_patch_pc_patch_local_type": "additive",
+        "mg_levels_patch_pc_patch_precompute_element_tensors": True,
+        "mg_levels_patch_pc_patch_symmetrise_sweep": False,
+        "mg_levels_patch_sub_ksp_type": "preonly",
+        "mg_levels_patch_sub_pc_type": "lu",
+        "mg_levels_patch_sub_pc_factor_shift_type": "nonzero",
+        "mg_coarse_pc_type": "python",
+        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+        "mg_coarse_assembled_pc_type": "lu",
+        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
+    }
+
+    # paradiag solver options
+    sparameters_diag = {
+        'snes_linesearch_type': 'basic',
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'ksp_max_it': 10,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC'}
+
+    # list of serial timesteps
+
+    wserial = serial_solve(base_level=base_level,
+                           ref_level=ref_level,
+                           tmax=nsteps,
+                           dumpt=1,
+                           dt=dt,
+                           coords_degree=coords_degree,
+                           degree=degree,
+                           sparameters=sparameters,
+                           comm=ensemble.comm,
+                           verbose=False)
+
+    # only keep the timesteps on the current time-slice
+    timestep_start = sum(M[:r])
+    timestep_end = timestep_start + M[r]
+
+    wserial = wserial[timestep_start:timestep_end]
+
+    # list of parallel timesteps
+
+    # block solve is linear for parallel solution
+    sparameters['ksp_type'] = 'preonly'
+
+    wparallel = parallel_solve(base_level=base_level,
+                               ref_level=ref_level,
+                               M=M,
+                               dumpt=1,
+                               dt=dt,
+                               coords_degree=coords_degree,
+                               degree=degree,
+                               sparameters=sparameters,
+                               sparameters_diag=sparameters_diag,
+                               ensemble=ensemble,
+                               alpha=alpha,
+                               verbose=False)
+
+    # compare the solutions
+
+    W = wserial[0].function_space()
+
+    ws = fd.Function(W)
+    wp = fd.Function(W)
+
+    us, hs = ws.split()
+    up, hp = wp.split()
+
+    for i in range(M[r]):
+
+        us.assign(wserial[i].split()[0])
+        hs.assign(wserial[i].split()[1])
+
+        up.assign(wparallel[i].split()[0])
+        hp.assign(wparallel[i].split()[1])
+
+        herror = fd.errornorm(hs, hp)/fd.norm(hs)
+        uerror = fd.errornorm(us, up)/fd.norm(us)
+
+        htol = 1e-3
+        utol = 1e-3
+
+        assert(uerror < utol)
+        assert(herror < htol)
+
+
+@pytest.mark.parallel(nprocs=4)
 def test_steady_swe():
     # test that steady-state is maintained for shallow water eqs
     import utils.units as units
@@ -103,10 +227,10 @@ def test_steady_swe():
     # finite element forms
 
     def form_function(u, h, v, q):
-        return swe.form_function(mesh, g, b, f, h, u, q, v)
+        return swe.form_function(mesh, g, b, f, u, h, v, q)
 
     def form_mass(u, h, v, q):
-        return swe.form_mass(mesh, h, u, q, v)
+        return swe.form_mass(mesh, u, h, v, q)
 
     # Parameters for the diag
     sparameters = {
@@ -197,10 +321,10 @@ def test_linear_swe_FFT():
     H = case5.H0
 
     def form_function(u, h, v, q):
-        return swe.form_function(mesh, g, H, f, h, u, q, v)
+        return swe.form_function(mesh, g, H, f, u, h, v, q)
 
     def form_mass(u, h, v, q):
-        return swe.form_mass(mesh, h, u, q, v)
+        return swe.form_mass(mesh, u, h, v, q)
 
     # W = V1 * V2
     w0 = fd.Function(W)

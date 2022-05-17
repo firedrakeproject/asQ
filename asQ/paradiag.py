@@ -101,7 +101,7 @@ class paradiag(object):
                  alpha, M, solver_parameters={},
                  circ="picard",
                  tol=1.0e-6, maxits=10,
-                 ctx={}, block_mat_type="aij"):
+                 ctx={}, block_ctx={}, block_mat_type="aij"):
         """A class to implement paradiag timestepping.
 
         :arg ensemble: the ensemble communicator
@@ -127,6 +127,7 @@ class paradiag(object):
         :arg maxits: integer, the maximum number of iterations for the
         relaxation method, if used.
         :arg ctx: application context for solvers.
+        :arg block_ctx: non-petsc context for solvers.
         :arg block_mat_type: set the type of the diagonal block systems.
         Default is aij.
         """
@@ -146,13 +147,16 @@ class paradiag(object):
         self.tol = tol
         self.maxits = maxits
         self.circ = circ
+        self.ctx = ctx
+        self.block_ctx = block_ctx
 
         # A coefficient that switches the alpha-circulant term on
         self.Circ = fd.Constant(1.0)
 
         # checks that the ensemble communicator is set up correctly
         nM = len(M)  # the expected number of time ranks
-        assert ensemble.ensemble_comm.size == nM
+        # print(nM, ensemble.ensemble_comm.size)
+        assert(nM == ensemble.ensemble_comm.size)
         rT = ensemble.ensemble_comm.rank  # the time rank
         self.rT = rT
         # function space for the component of them
