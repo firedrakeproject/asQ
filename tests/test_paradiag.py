@@ -563,8 +563,6 @@ def test_jacobian_mixed_parallel():
     # do the matrix multiplication with vfull:
     jacout = fd.assemble(fd.action(Jac2, vfull))
 
-    vlen, plen = V.node_set.size, Q.node_set.size
-
     # generalization of the error evaluation to nM time slices
     PD_J = fd.Function(PD.W_all)
     with PD_J.dat.vec_wo as v:
@@ -777,5 +775,5 @@ def test_solve_para_form_mixed():
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        assert(fd.errornorm(vfull.sub(ind1), PD.w_all.sub(2*i)) < 1.0e-9)
-        assert(fd.errornorm(vfull.sub(ind2), PD.w_all.sub(2*i+1)) < 1.0e-9)
+        assert(fd.errornorm(vfull_list[ind1], PD.w_all.sub(2*i)) < 1.0e-9)
+        assert(fd.errornorm(vfull_list[ind2], PD.w_all.sub(2*i+1)) < 1.0e-9)
