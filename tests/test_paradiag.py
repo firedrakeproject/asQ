@@ -808,7 +808,7 @@ def test_solve_para_form(bc_opt):
 
     if bc_opt == "inhomogeneous":
         bcs = [fd.DirichletBC(V, fd.sin(2*fd.pi*x), "on_boundary")]
-    elif bc_opt =="homogeneous":
+    elif bc_opt == "homogeneous":
         bcs = [fd.DirichletBC(V, 0., "on_boundary")]
     else:
         bcs = []
