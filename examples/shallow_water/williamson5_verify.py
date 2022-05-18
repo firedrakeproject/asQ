@@ -1,3 +1,4 @@
+import numpy as np
 import firedrake as fd
 from petsc4py import PETSc
 
@@ -7,9 +8,10 @@ PETSc.Sys.popErrorHandler()
 
 # get command arguments
 import argparse
-parser = argparse.ArgumentParser(description='Williamson 5 testcase for approximate Schur complement solver.')
+parser = argparse.ArgumentParser(description='Williamson 5 testcase for ParaDiag solver using fully implicit SWE solver.')
 parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve. Default 1.')
 parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid. Default 2.')
+parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows. Default 1.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices. Default 2.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice. Default 2.')
 parser.add_argument('--nspatial_domains', type=int, default=2, help='Size of spatial partition. Default 2.')
@@ -28,12 +30,12 @@ if args.show_args:
 
 M = [args.slice_length for _ in range(args.nslices)]
 
-nsteps = sum(M)
+nsteps = args.nwindows*sum(M)
 
 # mesh set up
 ensemble = fd.Ensemble(fd.COMM_WORLD, args.nspatial_domains)
 
-r = ensemble.ensemble_comm.rank
+trank = ensemble.ensemble_comm.rank
 
 # block solver options
 sparameters = {
@@ -73,14 +75,16 @@ sparameters_diag = {
     'ksp_monitor': None,
     'ksp_converged_reason': None,
     'snes_linesearch_type': 'basic',
-    # 'snes_atol': 1e-8,
-    # 'snes_rtol': 1e-8,
+    'snes_atol': 1e-0,
+    'snes_rtol': 1e-16,
+    'snes_stol': 1e-100,
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     # 'ksp_type': 'preonly',
     'ksp_max_it': 10,
     # 'ksp_atol': 1e-8,
     # 'ksp_rtol': 1e-8,
+    # 'ksp_stol': 1e-8,
     # 'ksp_monitor_true_residual': None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
@@ -103,14 +107,10 @@ wserial = serial_solve(base_level=args.base_level,
                        verbose=False)
 
 # only keep the timesteps on the current time-slice
-timestep_start = sum(M[:r])
-timestep_end = timestep_start + M[r]
-
-wserial = wserial[timestep_start:timestep_end]
+timestep_start = sum(M[:trank])
+timestep_end = timestep_start + M[trank]
 
 PETSc.Sys.Print('')
-
-
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 PETSc.Sys.Print('')
 
@@ -120,6 +120,8 @@ sparameters['ksp_type'] = 'preonly'
 wparallel = parallel_solve(base_level=args.base_level,
                            ref_level=args.ref_level,
                            M=M,
+                           nwindows=args.nwindows,
+                           nspatial_domains=args.nspatial_domains,
                            dumpt=1,
                            dt=args.dt,
                            coords_degree=args.coords_degree,
@@ -130,9 +132,11 @@ wparallel = parallel_solve(base_level=args.base_level,
                            alpha=args.alpha,
                            verbose=True)
 
-
+PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Comparing solutions --- === ###')
 PETSc.Sys.Print('')
+
+window_length = sum(M)
 
 W = wserial[0].function_space()
 
@@ -142,19 +146,42 @@ wp = fd.Function(W)
 us, hs = ws.split()
 up, hp = wp.split()
 
-for i in range(M[r]):
+# calculate error against serial
+local_errors = np.zeros((2, nsteps))
 
-    tstep = sum(M[:r]) + i
+for w in range(args.nwindows):
 
-    us.assign(wserial[i].split()[0])
-    hs.assign(wserial[i].split()[1])
+    # time step at beginning this window, and the local slice
+    window_step0 = w*window_length
+    slice_step0 = window_step0 + sum(M[:trank])
 
-    up.assign(wparallel[i].split()[0])
-    hp.assign(wparallel[i].split()[1])
+    # each rank calculates error for own slice
+    for i in range(M[trank]):
 
-    herror = fd.errornorm(hs, hp)/fd.norm(hs)
-    uerror = fd.errornorm(us, up)/fd.norm(us)
+        tstep = slice_step0 + i
 
-    PETSc.Sys.Print('timestep:', tstep, '|', 'uerror:', uerror, '|', 'herror: ', herror, comm=ensemble.comm)
+        up.assign(wparallel[w][i].split()[0])
+        hp.assign(wparallel[w][i].split()[1])
 
-PETSc.Sys.Print('')
+        us.assign(wserial[tstep].split()[0])
+        hs.assign(wserial[tstep].split()[1])
+
+        uerror = fd.errornorm(us, up)/fd.norm(us)
+        herror = fd.errornorm(hs, hp)/fd.norm(hs)
+
+        local_errors[0][tstep] = uerror
+        local_errors[1][tstep] = herror
+
+# errors over whole series
+errors = np.zeros((2, nsteps))
+ensemble.ensemble_comm.Allreduce(local_errors, errors)
+
+if trank == 0:
+    for tstep in range(nsteps):
+        uerror = errors[0][tstep]
+        herror = errors[1][tstep]
+
+        PETSc.Sys.Print('timestep:', f'{tstep:>3}', '|', 'uerror:', f'{uerror:<.4e}', '|', 'herror: ', f'{herror:<.4e}', comm=ensemble.comm)
+
+    PETSc.Sys.Print('', comm=ensemble.comm)
+    # PETSc.Sys.Print('nonlinear iterations:', nonlinear_its, '|', 'linear iterations:', linear_its, comm=ensemble.comm)

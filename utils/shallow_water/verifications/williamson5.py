@@ -57,13 +57,13 @@ def serial_solve(base_level=1,
     b = case5.topography_function(x, y, z, V2, name="Topography")
     g = earth.Gravity
 
-    Un = fd.Function(W)
-    Unp1 = fd.Function(W)
+    wn = fd.Function(W)
+    wn1 = fd.Function(W)
 
     v, phi = fd.TestFunctions(W)
 
-    u0, h0 = fd.split(Un)
-    u1, h1 = fd.split(Unp1)
+    u0, h0 = fd.split(wn)
+    u1, h1 = fd.split(wn1)
 
     half = fd.Constant(0.5)
     dT = fd.Constant(0.)
@@ -112,7 +112,7 @@ def serial_solve(base_level=1,
 
     dT.assign(dt*units.hour)
 
-    nprob = fd.NonlinearVariationalProblem(equation, Unp1)
+    nprob = fd.NonlinearVariationalProblem(equation, wn1)
     nsolver = fd.NonlinearVariationalSolver(nprob,
                                             solver_parameters=sparameters,
                                             appctx={})
@@ -123,22 +123,23 @@ def serial_solve(base_level=1,
     un = case5.velocity_function(x, y, z, V1, name="Velocity")
     etan = case5.elevation_function(x, y, z, V2, name="Elevation")
 
-    u0, h0 = Un.split()
+    u0, h0 = wn.split()
     u0.assign(un)
     h0.assign(etan + H - b)
 
-    Unp1.assign(Un)
+    wn1.assign(wn)
 
     t = 0.
-    time_series = [Un.copy(deepcopy=True)]
+    time_series = []
+    time_series.append(wn.copy(deepcopy=True))
     for tstep in range(0, tmax):
         t += dt
 
         nsolver.solve()
-        Un.assign(Unp1)
+        wn.assign(wn1)
 
         if tstep % dumpt == 0:
-            time_series.append(Un.copy(deepcopy=True))
+            time_series.append(wn.copy(deepcopy=True))
             if verbose is True:
                 PETSc.Sys.Print('===---', 'iteration:', tstep, '|', 'time:', t/(60*60), '---===')
 
@@ -148,6 +149,7 @@ def serial_solve(base_level=1,
 def parallel_solve(base_level=1,
                    ref_level=2,
                    M=[2, 2],
+                   nwindows=1,
                    nspatial_domains=2,
                    dumpt=1,
                    dt=1,
@@ -246,7 +248,7 @@ def parallel_solve(base_level=1,
             'pc_python_type': 'asQ.DiagFFTPC'
         }
 
-    if verbose is True:
+    if verbose:
         sparameters_diag['snes_monitor'] = None
         sparameters_diag['snes_converged_reason'] = None
         sparameters_diag['ksp_monitor'] = None
@@ -277,18 +279,33 @@ def parallel_solve(base_level=1,
                       circ=None, tol=1.0e-8, maxits=None,
                       ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
-    PD.solve()
+    trank = PD.rT
 
-    # list of solutions at this time-slice
+    # list of snapshots: time_series[window][slice-local-index]
     time_series = []
     wp = fd.Function(W)
     up, hp = wp.split()
 
-    for i in range(M[PD.rT]):
+    for w in range(nwindows):
+        if verbose:
+            PETSc.Sys.Print('')
+            PETSc.Sys.Print(f'### === --- Calculating time-window {w} --- === ###')
+            PETSc.Sys.Print('')
 
-        up.assign(PD.w_all.split()[2*i])
-        hp.assign(PD.w_all.split()[2*i+1])
+        PD.solve()
 
-        time_series.append(wp.copy(deepcopy=True))
+        # build time series for this window
+        window_series = []
+
+        for i in range(M[trank]):
+
+            up.assign(PD.w_all.split()[2*i])
+            hp.assign(PD.w_all.split()[2*i+1])
+
+            window_series.append(wp.copy(deepcopy=True))
+
+        time_series.append(window_series)
+
+        PD.next_window()
 
     return time_series
