@@ -2,6 +2,7 @@ import numpy as np
 import firedrake as fd
 from petsc4py import PETSc
 
+from utils.shallow_water.williamson1992 import case5
 from utils.shallow_water.verifications.williamson5 import serial_solve, parallel_solve
 
 PETSc.Sys.popErrorHandler()
@@ -149,6 +150,10 @@ up, hp = wp.split()
 # calculate error against serial
 local_errors = np.zeros((2, nsteps))
 
+b = case5.topography_function(*fd.SpatialCoordinate(W.mesh()),
+                              fd.FunctionSpace(W.mesh(), "DG", args.degree),
+                              name="Topography")
+
 for w in range(args.nwindows):
 
     # time step at beginning this window, and the local slice
@@ -162,9 +167,11 @@ for w in range(args.nwindows):
 
         up.assign(wparallel[w][i].split()[0])
         hp.assign(wparallel[w][i].split()[1])
+        hp.assign(hp + b - case5.H0)
 
         us.assign(wserial[tstep].split()[0])
         hs.assign(wserial[tstep].split()[1])
+        hs.assign(hs + b - case5.H0)
 
         uerror = fd.errornorm(us, up)/fd.norm(us)
         herror = fd.errornorm(hs, hp)/fd.norm(hs)
