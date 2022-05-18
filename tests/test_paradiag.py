@@ -756,8 +756,12 @@ def test_jacobian_mixed_parallel():
         assert(fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
 
 
+bc_opts = ["none", "homogeneous", "inhomogeneous"]
+
+
 @pytest.mark.parallel(nprocs=8)
-def test_solve_para_form():
+@pytest.mark.parametrize("bc_opt", bc_opts)
+def test_solve_para_form(bc_opt):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR heat equation as an example by
     # solving the all-at-once system and comparing with the sequential
@@ -788,6 +792,7 @@ def test_solve_para_form():
     solver_parameters_diag = {
         "snes_linesearch_type": "basic",
         'snes_monitor': None,
+        'snes_stol': 1.0e-100,
         'snes_converged_reason': None,
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
@@ -804,12 +809,20 @@ def test_solve_para_form():
     def form_mass(u, v):
         return u*v*fd.dx
 
+    if bc_opt == "inhomogeneous":
+        bcs = [fd.DirichletBC(V, fd.sin(2*fd.pi*x), "on_boundary")]
+    elif bc_opt == "homogeneous":
+        bcs = [fd.DirichletBC(V, 0., "on_boundary")]
+    else:
+        bcs = []
+
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
                       form_mass=form_mass, W=V, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      M=M, solver_parameters=solver_parameters_diag,
+                      M=M, bcs=bcs,
+                      solver_parameters=solver_parameters_diag,
                       circ="quasi", tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
     PD.solve()
@@ -825,7 +838,7 @@ def test_solve_para_form():
     eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
     eqn += fd.Constant(dt*theta)*form_function(unp1, v)
 
-    sprob = fd.NonlinearVariationalProblem(eqn, unp1)
+    sprob = fd.NonlinearVariationalProblem(eqn, unp1, bcs=bcs)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
     ssolver = fd.NonlinearVariationalSolver(sprob,
                                             solver_parameters=solver_parameters)

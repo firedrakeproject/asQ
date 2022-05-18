@@ -91,6 +91,16 @@ class JacobianMatrix(object):
                     tensor=self.F_prev)
         self.F += self.F_prev
 
+        # Apply boundary conditions
+        # assumes paradiag.w_all contains the current state we are
+        # interested in
+        # For Jacobian action we should just return the values in X
+        # at boundary nodes
+        for bc in self.paradiag.W_all_bcs:
+            bc.homogenize()
+            bc.apply(self.F, u=self.u)
+            bc.restore()
+
         with self.F.dat.vec_ro as v:
             v.copy(Y)
 
@@ -98,7 +108,8 @@ class JacobianMatrix(object):
 class paradiag(object):
     def __init__(self, ensemble,
                  form_function, form_mass, W, w0, dt, theta,
-                 alpha, M, solver_parameters={},
+                 alpha, M, bcs=[],
+                 solver_parameters={},
                  circ="picard",
                  tol=1.0e-6, maxits=10,
                  ctx={}, block_ctx={}, block_mat_type="aij"):
@@ -116,6 +127,7 @@ class paradiag(object):
         :arg alpha: float, circulant matrix parameter
         :arg M: a list of integers, the number of timesteps
         assigned to each rank
+        :arg bcs: a list of DirichletBC boundary conditions on W
         :arg solver_parameters: options dictionary for nonlinear solver
         :arg circ: a string describing the option on where to use the
         alpha-circulant modification. "picard" - do a nonlinear wave
@@ -136,6 +148,7 @@ class paradiag(object):
         self.ensemble = ensemble
         self.form_mass = form_mass
         self.W = W
+        self.W_bcs = bcs
         self.ncpts = len(W.split())
         self.w0 = w0
         self.dt = dt
@@ -164,6 +177,10 @@ class paradiag(object):
         # implemented as a massive mixed function space
 
         self.W_all = reduce(mul, (self.W for _ in range(M[rT])))
+
+        # convert the W bcs into W_all bcs
+        self.set_W_all_bcs()
+
         # function containing the part of the
         # all-at-once solution assigned to this rank
         self.w_all = fd.Function(self.W_all)
@@ -173,6 +190,10 @@ class paradiag(object):
             for k in range(self.ncpts):
                 w_alls[self.ncpts*i+k].assign(self.w0.sub(k))
         self.w_alls = w_alls
+
+        # apply boundary conditions
+        for bc in self.W_all_bcs:
+            bc.apply(self.w_all)
 
         # function to assemble the nonlinear residual
         self.F_all = fd.Function(self.W_all)
@@ -230,6 +251,22 @@ class paradiag(object):
 
         # complete the snes setup
         self.opts.set_from_options(self.snes)
+
+    def set_W_all_bcs(self):
+        is_mixed_element = isinstance(self.W.ufl_element(), fd.MixedElement)
+
+        self.W_all_bcs = []
+        for bc in self.W_bcs:
+            for r in range(self.M[self.rT]):
+                if is_mixed_element:
+                    i = bc.function_space().index
+                    index = r*self.ncpts+i
+                else:
+                    index = r
+                all_bc = fd.DirichletBC(self.W_all.sub(index),
+                                        bc.function_arg,
+                                        bc.sub_domain)
+                self.W_all_bcs.append(all_bc)
 
     def update(self, X):
         # Update self.w_alls and self.w_recv
@@ -312,6 +349,10 @@ class paradiag(object):
             self.Circ.assign(0.0)
         # assembly stage
         fd.assemble(self.para_form, tensor=self.F_all)
+
+        # apply boundary conditions
+        for bc in self.W_all_bcs:
+            bc.apply(self.F_all, u=self.w_all)
 
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
