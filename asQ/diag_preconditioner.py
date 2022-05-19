@@ -140,7 +140,7 @@ class DiagFFTPC(object):
 
         # Now need to build the block solver
         vs = fd.TestFunctions(self.CblockV)
-        uts =fd.TrialFunctions(self.CblockV)
+        uts = fd.TrialFunctions(self.CblockV)
         self.u0 = fd.Function(self.CblockV)  # we will create a linearisation
         us = fd.split(self.u0)
 
@@ -228,11 +228,11 @@ class DiagFFTPC(object):
         Nri = form_function(*usr, *vsi)
         Nir = form_function(*usi, *vsr)
         Nii = form_function(*usi, *vsi)
-        Jrr = fd.derivative(Nrr, u0)
-        Jri = fd.derivative(Nri, u0)
-        Jir = fd.derivative(Nir, u0)
-        Jii = fd.derivative(Nii, u0)
-        
+        Jrr = fd.derivative(Nrr, self.u0)
+        Jri = fd.derivative(Nri, self.u0)
+        Jir = fd.derivative(Nir, self.u0)
+        Jii = fd.derivative(Nii, self.u0)
+
         # building the block problem solvers
         for i in range(M[rT]):
             ii = np.sum(M[:rT])+i  # global time time index
@@ -254,8 +254,6 @@ class DiagFFTPC(object):
             appctx_h["D1r"] = D1r
             appctx_h["D1i"] = D1i
 
-            ut = TrialFunctions(self.CblockV)
-            
             # The linear operator
             A = (
                 D1r*form_mass(*utsr, *vsr)
@@ -273,7 +271,7 @@ class DiagFFTPC(object):
             L = fd.inner(v, self.Jprob_in)*fd.dx
 
             block_prefix = self.prefix+str(ii)+'_'
-            jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out,
+            jprob = fd.LinearVariationalProblem(A, L, self.Jprob_out,
                                                 bcs=self.CblockV_bcs)
             Jsolver = fd.LinearVariationalSolver(jprob,
                                                  appctx=appctx_h,
