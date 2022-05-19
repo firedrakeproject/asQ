@@ -753,7 +753,7 @@ def test_jacobian_mixed_parallel():
         assert(fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
 
 
-bc_opts = [False, True]
+bc_opts = ["none", "homogeneous", "inhomogeneous"]
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -806,7 +806,9 @@ def test_solve_para_form(bc_opt):
     def form_mass(u, v):
         return u*v*fd.dx
 
-    if bc_opt:
+    if bc_opt == "inhomogeneous":
+        bcs = [fd.DirichletBC(V, fd.sin(2*fd.pi*x), "on_boundary")]
+    elif bc_opt == "homogeneous":
         bcs = [fd.DirichletBC(V, 0., "on_boundary")]
     else:
         bcs = []

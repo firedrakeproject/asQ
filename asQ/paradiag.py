@@ -191,6 +191,10 @@ class paradiag(object):
                 w_alls[self.ncpts*i+k].assign(self.w0.sub(k))
         self.w_alls = w_alls
 
+        # apply boundary conditions
+        for bc in self.W_all_bcs:
+            bc.apply(self.w_all)
+
         # function to assemble the nonlinear residual
         self.F_all = fd.Function(self.W_all)
 
@@ -249,22 +253,20 @@ class paradiag(object):
         self.opts.set_from_options(self.snes)
 
     def set_W_all_bcs(self):
+        is_mixed_element = isinstance(self.W.ufl_element(), fd.MixedElement)
+
         self.W_all_bcs = []
         for bc in self.W_bcs:
-            if isinstance(self.W.ufl_element(), fd.MixedElement):
-                i = bc.function_space().index
-                ncpts = self.W.ufl_element().num_sub_elements()
-                for r in range(self.M[self.rT]):
-                    all_bc = fd.DirichletBC(self.W_all.sub(r*ncpts+i),
-                                            bc.function_arg,
-                                            bc.sub_domain)
-                    self.W_all_bcs.append(all_bc)
-            else:
-                for r in range(self.M[self.rT]):
-                    all_bc = fd.DirichletBC(self.W_all.sub(r),
-                                            bc.function_arg,
-                                            bc.sub_domain)
-                    self.W_all_bcs.append(all_bc)
+            for r in range(self.M[self.rT]):
+                if is_mixed_element:
+                    i = bc.function_space().index
+                    index = r*self.ncpts+i
+                else:
+                    index = r
+                all_bc = fd.DirichletBC(self.W_all.sub(index),
+                                        bc.function_arg,
+                                        bc.sub_domain)
+                self.W_all_bcs.append(all_bc)
 
     def update(self, X):
         # Update self.w_alls and self.w_recv
@@ -277,10 +279,6 @@ class paradiag(object):
 
         with self.w_all.dat.vec_wo as v:
             v.array[:] = X.array_r
-
-        # apply the boundary conditions
-        for bc in self.W_all_bcs:
-            bc.apply(self.w_all)
 
         mpi_requests = []
         # Communication stage
@@ -354,9 +352,7 @@ class paradiag(object):
 
         # apply boundary conditions
         for bc in self.W_all_bcs:
-            bc.homogenize()
-            bc.apply(self.F_all)
-            bc.restore()
+            bc.apply(self.F_all, u=self.w_all)
 
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)

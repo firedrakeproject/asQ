@@ -140,6 +140,7 @@ class DiagFFTPC(object):
 
         # Now need to build the block solver
         vs = fd.TestFunctions(self.CblockV)
+        uts = fd.TrialFunctions(self.CblockV)
         self.u0 = fd.Function(self.CblockV)  # we will create a linearisation
         us = fd.split(self.u0)
 
@@ -150,6 +151,8 @@ class DiagFFTPC(object):
         # extract the real and imaginary parts
         vsr = []
         vsi = []
+        utsr = []
+        utsi = []
         usr = []
         usi = []
 
@@ -164,11 +167,17 @@ class DiagFFTPC(object):
                 idxs = fd.indices(len(part.ufl_shape) - 1)
                 usr.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(0), *idxs))), idxs))
                 usi.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(1), *idxs))), idxs))
+                part = uts[i]
+                idxs = fd.indices(len(part.ufl_shape) - 1)
+                utsr.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(0), *idxs))), idxs))
+                utsi.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(1), *idxs))), idxs))
         else:
             vsr.append(vs[0])
             vsi.append(vs[1])
             usr.append(us[0])
             usi.append(us[1])
+            utsr.append(uts[0])
+            utsi.append(uts[1])
 
         # input and output functions
         self.Jprob_in = fd.Function(self.CblockV)
@@ -207,6 +216,23 @@ class DiagFFTPC(object):
         u = fd.TrialFunction(self.CblockV)
         a = fd.assemble(fd.inner(u, v)*fd.dx)
         self.Proj = fd.LinearSolver(a, options_prefix=self.prefix+"mass_")
+
+        # building the Jacobian of the nonlinear term
+        # what we want is a block diagonal matrix in the 2x2 system
+        # coupling the real and imaginary parts.
+        # We achieve this by copying w_all into both components of u0
+        # building the nonlinearity separately for the real and imaginary
+        # parts and then linearising.
+
+        Nrr = form_function(*usr, *vsr)
+        Nri = form_function(*usr, *vsi)
+        Nir = form_function(*usi, *vsr)
+        Nii = form_function(*usi, *vsi)
+        Jrr = fd.derivative(Nrr, self.u0)
+        Jri = fd.derivative(Nri, self.u0)
+        Jir = fd.derivative(Nir, self.u0)
+        Jii = fd.derivative(Nii, self.u0)
+
         # building the block problem solvers
         for i in range(M[rT]):
             ii = np.sum(M[:rT])+i  # global time time index
@@ -228,28 +254,25 @@ class DiagFFTPC(object):
             appctx_h["D1r"] = D1r
             appctx_h["D1i"] = D1i
 
-            A = (
-                D1r*form_mass(*usr, *vsr)
-                - D1i*form_mass(*usi, *vsr)
-                + D2r*form_function(*usr, *vsr)
-                - D2i*form_function(*usi, *vsr)
-                + D1r*form_mass(*usi, *vsi)
-                + D1i*form_mass(*usr, *vsi)
-                + D2r*form_function(*usi, *vsi)
-                + D2i*form_function(*usr, *vsi)
-            )
-
             # The linear operator
-            J = fd.derivative(A, self.u0)
+            A = (
+                D1r*form_mass(*utsr, *vsr)
+                - D1i*form_mass(*utsi, *vsr)
+                + D2r*Jrr
+                - D2i*Jir
+                + D1r*form_mass(*utsi, *vsi)
+                + D1i*form_mass(*utsr, *vsi)
+                + D2r*Jii
+                + D2i*Jri
+            )
 
             # The rhs
             v = fd.TestFunction(self.CblockV)
             L = fd.inner(v, self.Jprob_in)*fd.dx
 
             block_prefix = self.prefix+str(ii)+'_'
-            jprob = fd.LinearVariationalProblem(J, L, self.Jprob_out,
-                                                bcs=self.CblockV_bcs,
-                                                constant_jacobian=False)
+            jprob = fd.LinearVariationalProblem(A, L, self.Jprob_out,
+                                                bcs=self.CblockV_bcs)
             Jsolver = fd.LinearVariationalSolver(jprob,
                                                  appctx=appctx_h,
                                                  options_prefix=block_prefix)
@@ -269,33 +292,39 @@ class DiagFFTPC(object):
     def set_CblockV_bcs(self):
         self.CblockV_bcs = []
         for bc in self.paradiag.W_bcs:
-            if isinstance(self.paradiag.W.ufl_element(), fd.MixedElement):
-                i = bc.function_space().index
-                for r in range(2):  # Complex coefficient index
+            is_mixed_element = isinstance(self.paradiag.W.ufl_element(),
+                                          fd.MixedElement)
+            for r in range(2):  # Complex coefficient index
+                if is_mixed_element:
+                    i = bc.function_space().index
                     all_bc = fd.DirichletBC(self.CblockV.sub(i).sub(r),
-                                            bc.function_arg,
+                                            0*bc.function_arg,
                                             bc.sub_domain)
-                    self.CblockV_bcs.append(all_bc)
-            else:
-                for r in range(2):  # Complex coefficient index
+                else:
                     all_bc = fd.DirichletBC(self.CblockV.sub(r),
-                                            bc.function_arg,
+                                            0*bc.function_arg,
                                             bc.sub_domain)
-                    self.CblockV_bcs.append(all_bc)
+                self.CblockV_bcs.append(all_bc)
 
     def update(self, pc):
-        print("I updated.")
+        # we need to update u0 from w_all, containing state.
+        # we copy w_all into the "real" and "imaginary" parts of u0
+        # this is so that when we linearise the nonlinearity, we get
+        # an operator that is block diagonal in the 2x2 system coupling
+        # real and imaginary parts.
         self.u0.assign(0)
         for i in range(self.M[self.rT]):
             # copy the data into solver input
             if self.ncpts > 1:
                 u0s = self.u0.split()
-                for cpt in range(self.ncpts):
-                    u0s[cpt].sub(0).assign(u0s[cpt].sub(0)
-                                           + self.w_all.split()[self.ncpts*i+cpt])
-            else:
-                self.u0.sub(0).assign(self.u0.sub(0)
-                                      + self.w_all.split()[i])
+            for r in range(2):
+                if self.ncpts > 1:
+                    for cpt in range(self.ncpts):
+                        u0s[cpt].sub(r).assign(u0s[cpt].sub(r)
+                                               + self.w_all.split()[self.ncpts*i+cpt])
+                else:
+                    self.u0.sub(r).assign(self.u0.sub(r)
+                                          + self.w_all.split()[i])
 
         # average only over current time-slice
         if self.jac_average == 'slice':
