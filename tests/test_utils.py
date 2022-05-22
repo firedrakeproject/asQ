@@ -171,7 +171,7 @@ def test_convective_cfl_1D():
     '''
     test that the convective cfl calculation is the correct
     '''
-    import utils.shallow_water as swe
+    from utils import diagnostics
 
     n = 5
     dx = fd.Constant(1./5)
@@ -192,7 +192,7 @@ def test_convective_cfl_1D():
     cfl_check = fd.Constant(vel*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.convective_cfl(u, dt)
+    cfl = diagnostics.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -201,7 +201,7 @@ def test_convective_cfl_1D():
     cfl_check = fd.Constant(vel*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.convective_cfl(u, dt)
+    cfl = diagnostics.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -215,7 +215,7 @@ def test_convective_cfl_1D():
         cfl_check = fd.Constant(vel*dt/dx)
 
         u.assign(vel)
-        cfl = swe.nonlinear.convective_cfl(u, dt)
+        cfl = diagnostics.convective_cfl(u, dt)
 
         assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -224,7 +224,7 @@ def test_convective_cfl_2D():
     '''
     test that the convective cfl calculation is the correct
     '''
-    import utils.shallow_water as swe
+    from utils import diagnostics
 
     n = 5
     dx = 1./5
@@ -245,7 +245,7 @@ def test_convective_cfl_2D():
     cfl_check = fd.Constant(zero*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.convective_cfl(u, dt)
+    cfl = diagnostics.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -254,7 +254,7 @@ def test_convective_cfl_2D():
     cfl_check = fd.Constant(one*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.convective_cfl(u, dt)
+    cfl = diagnostics.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -263,7 +263,7 @@ def test_convective_cfl_2D():
     cfl_check = fd.Constant(one*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.convective_cfl(u, dt)
+    cfl = diagnostics.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -272,7 +272,7 @@ def test_convective_cfl_2D():
     cfl_check = fd.Constant(2*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.convective_cfl(u, dt)
+    cfl = diagnostics.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -288,7 +288,7 @@ def test_convective_cfl_2D():
         cfl_check = fd.Constant((vx+vy)*dt/dx)
 
         u.assign(vel)
-        cfl = swe.nonlinear.convective_cfl(u, dt)
+        cfl = diagnostics.convective_cfl(u, dt)
 
         assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -297,7 +297,7 @@ def test_get_cfl_calculator_1D():
     '''
     test that the convective cfl calculator is the correct
     '''
-    import utils.shallow_water as swe
+    from utils import diagnostics
 
     n = 5
     dx = fd.Constant(1./5)
@@ -313,7 +313,7 @@ def test_get_cfl_calculator_1D():
 
     dt = fd.Constant(0.5)
 
-    cfl_calculator = swe.nonlinear.convective_cfl_calculator(mesh)
+    cfl_calculator = diagnostics.convective_cfl_calculator(mesh)
 
     # test zero velocity case
     vel = zero
@@ -352,7 +352,7 @@ def test_get_cfl_calculator_2D():
     '''
     test that the convective cfl calculator is the correct
     '''
-    import utils.shallow_water as swe
+    from utils import diagnostics
 
     n = 5
     dx = 1./5
@@ -368,7 +368,7 @@ def test_get_cfl_calculator_2D():
 
     dt = fd.Constant(0.5)
 
-    cfl_calculator = swe.nonlinear.convective_cfl_calculator(mesh)
+    cfl_calculator = diagnostics.convective_cfl_calculator(mesh)
 
     # test zero velocity case
     vel = fd.as_vector([zero, zero])
