@@ -167,9 +167,9 @@ def test_williamson5_velocity():
         assert(abs(evalc(u[2]) - evalc(ucheck[2])) < 1e-12)
 
 
-def test_cfl_calculator_1D():
+def test_convective_cfl_1D():
     '''
-    test that the convective cfl calculator is the correct
+    test that the convective cfl calculation is the correct
     '''
     import utils.shallow_water as swe
 
@@ -192,7 +192,7 @@ def test_cfl_calculator_1D():
     cfl_check = fd.Constant(vel*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.cfl_calculator(u, dt)
+    cfl = swe.nonlinear.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -201,7 +201,7 @@ def test_cfl_calculator_1D():
     cfl_check = fd.Constant(vel*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.cfl_calculator(u, dt)
+    cfl = swe.nonlinear.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -215,14 +215,14 @@ def test_cfl_calculator_1D():
         cfl_check = fd.Constant(vel*dt/dx)
 
         u.assign(vel)
-        cfl = swe.nonlinear.cfl_calculator(u, dt)
+        cfl = swe.nonlinear.convective_cfl(u, dt)
 
         assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
 
-def test_cfl_calculator_2D():
+def test_convective_cfl_2D():
     '''
-    test that the convective cfl calculator is the correct
+    test that the convective cfl calculation is the correct
     '''
     import utils.shallow_water as swe
 
@@ -245,7 +245,7 @@ def test_cfl_calculator_2D():
     cfl_check = fd.Constant(zero*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.cfl_calculator(u, dt)
+    cfl = swe.nonlinear.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -254,7 +254,7 @@ def test_cfl_calculator_2D():
     cfl_check = fd.Constant(one*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.cfl_calculator(u, dt)
+    cfl = swe.nonlinear.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -263,7 +263,7 @@ def test_cfl_calculator_2D():
     cfl_check = fd.Constant(one*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.cfl_calculator(u, dt)
+    cfl = swe.nonlinear.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -272,7 +272,7 @@ def test_cfl_calculator_2D():
     cfl_check = fd.Constant(2*dt/dx)
 
     u.assign(vel)
-    cfl = swe.nonlinear.cfl_calculator(u, dt)
+    cfl = swe.nonlinear.convective_cfl(u, dt)
 
     assert(fd.errornorm(cfl_check, cfl) < 1e-12)
 
@@ -288,6 +288,136 @@ def test_cfl_calculator_2D():
         cfl_check = fd.Constant((vx+vy)*dt/dx)
 
         u.assign(vel)
-        cfl = swe.nonlinear.cfl_calculator(u, dt)
+        cfl = swe.nonlinear.convective_cfl(u, dt)
+
+        assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+
+
+def test_get_cfl_calculator_1D():
+    '''
+    test that the convective cfl calculator is the correct
+    '''
+    import utils.shallow_water as swe
+
+    n = 5
+    dx = fd.Constant(1./5)
+
+    mesh = fd.UnitIntervalMesh(n)
+
+    V = fd.VectorFunctionSpace(mesh, "DG", 0)
+
+    u = fd.Function(V, name="velocity")
+
+    zero = fd.Constant(0)
+    one = fd.Constant(1)
+
+    dt = fd.Constant(0.5)
+
+    cfl_calculator = swe.nonlinear.convective_cfl_calculator(mesh)
+
+    # test zero velocity case
+    vel = zero
+    cfl_check = fd.Constant(vel*dt/dx)
+
+    u.assign(vel)
+    cfl = cfl_calculator(u, dt)
+
+    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+
+    # test unit velocity case
+    vel = one
+    cfl_check = fd.Constant(vel*dt/dx)
+
+    u.assign(vel)
+    cfl = cfl_calculator(u, dt)
+
+    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+
+    # rng
+    np.random.seed(23767)
+
+    nrng = 10
+    for i in range(nrng):
+        dt.assign(np.random.rand())
+        vel.assign(np.random.rand())
+        cfl_check = fd.Constant(vel*dt/dx)
+
+        u.assign(vel)
+        cfl = cfl_calculator(u, dt)
+
+        assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+
+
+def test_get_cfl_calculator_2D():
+    '''
+    test that the convective cfl calculator is the correct
+    '''
+    import utils.shallow_water as swe
+
+    n = 5
+    dx = 1./5
+
+    mesh = fd.UnitSquareMesh(n, n, quadrilateral=True)
+
+    V = fd.VectorFunctionSpace(mesh, "DG", 0)
+
+    u = fd.Function(V, name="velocity")
+
+    zero = fd.Constant(0)
+    one = fd.Constant(1)
+
+    dt = fd.Constant(0.5)
+
+    cfl_calculator = swe.nonlinear.convective_cfl_calculator(mesh)
+
+    # test zero velocity case
+    vel = fd.as_vector([zero, zero])
+    cfl_check = fd.Constant(zero*dt/dx)
+
+    u.assign(vel)
+    cfl = cfl_calculator(u, dt)
+
+    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+
+    # test unit velocity x case
+    vel = fd.as_vector([one, zero])
+    cfl_check = fd.Constant(one*dt/dx)
+
+    u.assign(vel)
+    cfl = cfl_calculator(u, dt)
+
+    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+
+    # test unit velocity y case
+    vel = fd.as_vector([zero, one])
+    cfl_check = fd.Constant(one*dt/dx)
+
+    u.assign(vel)
+    cfl = cfl_calculator(u, dt)
+
+    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+
+    # test unit velocity xy case
+    vel = fd.as_vector([one, one])
+    cfl_check = fd.Constant(2*dt/dx)
+
+    u.assign(vel)
+    cfl = cfl_calculator(u, dt)
+
+    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+
+    # rng
+    np.random.seed(23767)
+
+    nrng = 10
+    for i in range(nrng):
+        dt.assign(np.random.rand())
+        vx = np.random.rand()
+        vy = np.random.rand()
+        vel = fd.as_vector([vx, vy])
+        cfl_check = fd.Constant((vx+vy)*dt/dx)
+
+        u.assign(vel)
+        cfl = cfl_calculator(u, dt)
 
         assert(fd.errornorm(cfl_check, cfl) < 1e-12)

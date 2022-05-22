@@ -55,32 +55,40 @@ def form_function(mesh, g, b, f, u, h, v, q):
 
 # calculate diagnostic fields
 
-def cfl_calculator(u, dt):
+def convective_cfl_calculator(mesh):
     '''
     Return a function that, when passed a velocity field and a timestep, will return a function that is the cfl number.
     '''
-    mesh = u.function_space().mesh()
     DG0 = fd.FunctionSpace(mesh, "DG", 0)
     v = fd.TestFunction(DG0)
 
+    cfl_denominator = fd.Function(DG0, name="CFL denominator")
+    cfl_numerator = fd.Function(DG0, name="CFL numerator")
+    cfl = fd.Function(DG0, name="cfl")
+
     # mesh volume
     One = fd.Function(DG0).assign(1.0)
-    cfl_denominator = fd.Function(DG0, name="CFL denominator")
     fd.assemble(One*v*fd.dx, tensor=cfl_denominator)
 
-    # area weighted convective waves
-    n = fd.FacetNormal(mesh)
-    un = 0.5*(fd.inner(-u, n) + abs(fd.inner(-u, n)))  # gives fluxes into cell only
+    def cfl_calc(u, dt):
+        # area weighted convective flux
+        n = fd.FacetNormal(u.function_space().mesh())
+        un = 0.5*(fd.inner(-u, n) + abs(fd.inner(-u, n)))
+        cfl_numerator_form = (
+            2*fd.avg(un*v)*fd.dS
+            + un*v*fd.ds
+        )
+        fd.assemble(cfl_numerator_form, tensor=cfl_numerator)
 
-    cfl_numerator = fd.Function(DG0, name="CFL numerator")
-    cfl_numerator_form = (
-        2*fd.avg(un*v)*fd.dS
-        + un*v*fd.ds
-    )
-    fd.assemble(cfl_numerator_form, tensor=cfl_numerator)
+        dT = fd.Constant(dt)
+        cfl.assign(dT*cfl_numerator/cfl_denominator)
+        return cfl
 
-    dT = fd.Constant(dt)
-    cfl = fd.Function(DG0, name="cfl")
-    cfl.assign(dT*cfl_numerator/cfl_denominator)
+    return cfl_calc
 
-    return cfl
+
+def convective_cfl(u, dt):
+    '''
+    Return a function that, when passed a velocity field and a timestep, will return a function that is the cfl number.
+    '''
+    return convective_cfl_calculator(u.function_space().mesh())(u, dt)
