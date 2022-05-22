@@ -4,7 +4,7 @@ import firedrake as fd
 
 def convective_cfl_calculator(mesh):
     '''
-    Return a function that, when passed a velocity field and a timestep, will return a function that is the cfl number.
+    Return a function that calculates the cfl field from a velocity field and a timestep
     '''
     DG0 = fd.FunctionSpace(mesh, "DG", 0)
     v = fd.TestFunction(DG0)
@@ -39,3 +39,46 @@ def convective_cfl(u, dt):
     Return a function that, when passed a velocity field and a timestep, will return a function that is the cfl number.
     '''
     return convective_cfl_calculator(u.function_space().mesh())(u, dt)
+
+
+def potential_vorticity(velocity_function_space,
+                        element="CG",
+                        degree=3,
+                        perp=fd.cross):
+    '''
+    Return a function that calculates the potential vorticity field of a velocity field
+    :arg velocity_function_space: the FunctionSpace that the velocity field lives in
+    :arg element: the element type of the potential vorticity field
+    :arg degree: the degree of the potential vorticity field
+    :arg perp: the perpendicular operation required by the potential vorticity calculation
+    '''
+
+    mesh = velocity_function_space().mesh
+    outward_normals = fd.CellNormal(mesh)
+
+    def prp(v):
+        return perp(outward_normals, v)
+
+    V = fd.FunctionSpace(mesh, element, degree)
+
+    q = fd.TrialFunction(V)
+    p = fd.TestFunction(V)
+
+    vel = fd.Function(velocity_function_space)
+    pv = fd.Function(V, name="Relative vorticity")
+
+    pv_eqn = q*p*fd.dx + fd.inner(prp(fd.grap(p)), vel)*fd.dx
+
+    pv_prob = fd.LinearVariationalProblem(fd.lhs(pv_eqn),
+                                          fd.rhs(pv_eqn),
+                                          pv)
+
+    params = {'ksp_type': 'cg'}
+    pv_solver = fd.LinearVariationalSolver(pv_prob, params)
+
+    def pv_calc(u):
+        vel.assign(u)
+        pv_solver.solve()
+        return pv
+
+    return pv_calc
