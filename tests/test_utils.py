@@ -1,6 +1,7 @@
 
 from math import pi
 
+import firedrake as fd
 import utils
 import numpy as np
 
@@ -164,3 +165,56 @@ def test_williamson5_velocity():
         assert(abs(evalc(u[0]) - evalc(ucheck[0])) < 1e-12)
         assert(abs(evalc(u[1]) - evalc(ucheck[1])) < 1e-12)
         assert(abs(evalc(u[2]) - evalc(ucheck[2])) < 1e-12)
+
+
+def test_cfl_calculator_1D():
+    '''
+    test that the convective cfl calculator is the correct
+    '''
+    import utils.shallow_water as swe
+
+    n = 5
+    dx = fd.Constant(1./5)
+
+    mesh = fd.UnitIntervalMesh(n)
+
+    V = fd.VectorFunctionSpace(mesh, "DG", 0)
+
+    u = fd.Function(V, name="velocity")
+
+    zero = fd.Constant(0)
+    one = fd.Constant(1)
+
+    dt = fd.Constant(0.5)
+
+    # test zero velocity case
+    vel = zero
+    cfl_check = fd.Constant(vel*dt/dx)
+
+    u.assign(vel)
+    cfl = swe.nonlinear.cfl_calculator(u, dt)
+
+    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+
+    # test unit velocity case
+    vel = one
+    cfl_check = fd.Constant(vel*dt/dx)
+
+    u.assign(vel)
+    cfl = swe.nonlinear.cfl_calculator(u, dt)
+
+    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+
+    # rng
+    np.random.seed(23767)
+
+    nrng = 10
+    for i in range(nrng):
+        dt.assign(np.random.rand())
+        vel.assign(np.random.rand())
+        cfl_check = fd.Constant(vel*dt/dx)
+
+        u.assign(vel)
+        cfl = swe.nonlinear.cfl_calculator(u, dt)
+
+        assert(fd.errornorm(cfl_check, cfl) < 1e-12)
