@@ -50,11 +50,12 @@ def convective_cfl(u, dt):
     return convective_cfl_calculator(u.function_space().mesh())(u, dt)
 
 
-def potential_vorticity(velocity_function_space,
-                        element="CG",
-                        degree=3,
-                        name="Relative vorticity",
-                        perp=fd.cross):
+def potential_vorticity_calculator(
+        velocity_function_space,
+        element="CG",
+        degree=3,
+        name="Relative vorticity",
+        perp=fd.cross):
     '''
     Return a function that calculates the potential vorticity field of a velocity field
 
@@ -65,7 +66,7 @@ def potential_vorticity(velocity_function_space,
     :arg perp: the perpendicular operation required by the potential vorticity calculation
     '''
 
-    mesh = velocity_function_space().mesh
+    mesh = velocity_function_space.mesh()
     outward_normals = fd.CellNormal(mesh)
 
     def prp(v):
@@ -79,14 +80,15 @@ def potential_vorticity(velocity_function_space,
     vel = fd.Function(velocity_function_space)
     pv = fd.Function(V, name=name)
 
-    pv_eqn = q*p*fd.dx + fd.inner(prp(fd.grap(p)), vel)*fd.dx
+    pv_eqn = q*p*fd.dx + fd.inner(prp(fd.grad(p)), vel)*fd.dx
 
     pv_prob = fd.LinearVariationalProblem(fd.lhs(pv_eqn),
                                           fd.rhs(pv_eqn),
                                           pv)
 
     params = {'ksp_type': 'cg'}
-    pv_solver = fd.LinearVariationalSolver(pv_prob, params)
+    pv_solver = fd.LinearVariationalSolver(pv_prob,
+                                           solver_parameters=params)
 
     def pv_calc(u):
         vel.assign(u)
