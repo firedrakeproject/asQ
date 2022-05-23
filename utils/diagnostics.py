@@ -13,26 +13,29 @@ def convective_cfl_calculator(mesh,
     DG0 = fd.FunctionSpace(mesh, "DG", 0)
     v = fd.TestFunction(DG0)
 
-    cfl_denominator = fd.Function(DG0, name="CFL denominator")
-    cfl_numerator = fd.Function(DG0, name="CFL numerator")
+    cell_volume = fd.Function(DG0, name="Cell volume")
+    cell_flux = fd.Function(DG0, name="Cell surface flux")
     cfl = fd.Function(DG0, name=name)
 
     # mesh volume
-    One = fd.Function(DG0).assign(1.0)
-    fd.assemble(One*v*fd.dx, tensor=cfl_denominator)
+    One = fd.Function(DG0, name="One").assign(1)
+    fd.assemble(One*v*fd.dx, tensor=cell_volume)
+
+    def both(u):
+        return 2*fd.avg(u)
 
     def cfl_calc(u, dt):
         # area weighted convective flux
         n = fd.FacetNormal(u.function_space().mesh())
         un = 0.5*(fd.inner(-u, n) + abs(fd.inner(-u, n)))
-        cfl_numerator_form = (
-            2*fd.avg(un*v)*fd.dS
+        cell_flux_form = (
+            both(un*v)*fd.dS
             + un*v*fd.ds
         )
-        fd.assemble(cfl_numerator_form, tensor=cfl_numerator)
+        fd.assemble(cell_flux_form, tensor=cell_flux)
 
         dT = fd.Constant(dt)
-        cfl.assign(dT*cfl_numerator/cfl_denominator)
+        cfl.assign(dT*cell_flux/cell_volume)
         return cfl
 
     return cfl_calc
@@ -40,7 +43,9 @@ def convective_cfl_calculator(mesh,
 
 def convective_cfl(u, dt):
     '''
-    Return a function that, when passed a velocity field and a timestep, will return a function that is the cfl number.
+    Return the convective CFL number for the velocity field u with timestep dt
+    :arg u: the velocity Function
+    :arg dt: the timestep
     '''
     return convective_cfl_calculator(u.function_space().mesh())(u, dt)
 
