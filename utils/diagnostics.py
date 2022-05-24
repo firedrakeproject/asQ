@@ -21,6 +21,14 @@ def convective_cfl_calculator(mesh,
     One = fd.Function(DG0, name="One").assign(1)
     fd.assemble(One*v*fd.dx, tensor=cell_volume)
 
+    # choose correct facet integral for mesh type
+    if mesh.extruded:
+        dS = fd.dS_v + fd.dS_h
+        ds = fd.ds_v + fd.ds_t + fd.ds_b
+    else:
+        dS = fd.dS
+        ds = fd.ds
+
     def both(u):
         return 2*fd.avg(u)
 
@@ -29,8 +37,8 @@ def convective_cfl_calculator(mesh,
         n = fd.FacetNormal(u.function_space().mesh())
         un = 0.5*(fd.inner(-u, n) + abs(fd.inner(-u, n)))
         cell_flux_form = (
-            both(un*v)*fd.dS
-            + un*v*fd.ds
+            both(un*v)*dS
+            + un*v*ds
         )
         fd.assemble(cell_flux_form, tensor=cell_flux)
 
