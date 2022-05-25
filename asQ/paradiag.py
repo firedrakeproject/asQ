@@ -57,11 +57,11 @@ class JacobianMatrix(object):
 
         mpi_requests = []
         # Communication stage
+
         # send
-        usends = self.usend.split()
         r = self.paradiag.ensemble.ensemble_comm.rank  # the time rank
-        for k in range(self.paradiag.ncpts):
-            usends[k].assign(self.ulist[self.paradiag.ncpts*(self.paradiag.M[r]-1)+k])
+        ts = self.paradiag.M[r]-1
+        self.paradiag.get_timestep(ts, index_type='slice', wout=self.usend, f_alls=self.ulist)
 
         request_send = self.paradiag.ensemble.isend(self.usend, dest=((r+1) % n), tag=r)
         mpi_requests.extend(request_send)
@@ -264,13 +264,14 @@ class paradiag(object):
                                         bc.sub_domain)
                 self.W_all_bcs.append(all_bc)
 
-    def set_timestep(self, step, wnew, index_type='window'):
+    def set_timestep(self, step, wnew, index_type='window', f_alls=None):
         '''
         Set solution at a timestep to new value
 
         :arg step: index of timestep to set.
         :arg wnew: new solution for timestep
         :arg index_type: is index in window or slice?
+        :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
         '''
 
         if index_type == 'window':
@@ -296,13 +297,16 @@ class paradiag(object):
         else:
             raise ValueError("index_type must be one of 'window' or 'slice'")
 
+        if f_alls is None:
+            f_alls = self.w_alls
+
         # index of first component of this step
         index0 = self.ncpts*step_local
 
         for k in range(self.ncpts):
-            self.w_alls[index0+k].assign(wnew.sub(k))
+            f_alls[index0+k].assign(wnew.sub(k))
 
-    def get_timestep(self, step, index_type='window', wout=None, name=None):
+    def get_timestep(self, step, index_type='window', wout=None, name=None, f_alls=None):
         '''
         Get solution at a timestep to new value
 
@@ -310,6 +314,7 @@ class paradiag(object):
         :arg index_type: is index in window or slice?
         :arg wout: function to set to timestep (timestep returned if None)
         :arg name: name of returned function
+        :arg f_alls: an all-at-once function to get timestep from. If None, self.w_alls is used
         '''
 
         if index_type == 'window':
@@ -334,6 +339,9 @@ class paradiag(object):
 
         else:
             raise ValueError("index_type must be one of 'window' or 'slice'")
+
+        if f_alls is None:
+            f_alls = self.w_alls
 
         # where to put timestep?
         if wout is None:
@@ -349,7 +357,7 @@ class paradiag(object):
         index0 = self.ncpts*step_local
 
         for k in range(self.ncpts):
-            wget.sub(k).assign(self.w_alls[index0+k])
+            wget.sub(k).assign(f_alls[index0+k])
 
         if wout is None:
             return wreturn
