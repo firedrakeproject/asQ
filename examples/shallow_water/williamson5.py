@@ -160,9 +160,3 @@ PD = asQ.paradiag(ensemble=ensemble,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
 PD.solve()
-
-asQ.post.write_timeseries(PD,
-                          file_name='output/'+args.filename,
-                          function_names=['Velocity', 'Depth'],
-                          frequency=1,
-                          time_scale=1./units.hour)
