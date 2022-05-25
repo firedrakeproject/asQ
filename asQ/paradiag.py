@@ -163,6 +163,9 @@ class paradiag(object):
         self.ctx = ctx
         self.block_ctx = block_ctx
 
+        if w0.function_space() != W:
+            raise ValueError("Function w0 must be in FunctionSpace W")
+
         # A coefficient that switches the alpha-circulant term on
         self.Circ = fd.Constant(1.0)
 
