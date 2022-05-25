@@ -268,6 +268,44 @@ class paradiag(object):
                                         bc.sub_domain)
                 self.W_all_bcs.append(all_bc)
 
+    def set_timestep(self, step, wnew, index_type='window'):
+        '''
+        Set solution at a timestep to new value
+
+        :arg step: index of timestep to set.
+        :arg wnew: new solution for timestep
+        :arg index_type: is index in window or slice?
+        '''
+
+        if index_type == 'window':
+            if (step < 0) or (sum(self.M) <= step):
+                raise ValueError(f"step {step} is outside window size {sum(self.M)}")
+
+            # is timestep on this time-slice?
+            step0 = sum(self.M[:self.rT])
+            step1 = sum(self.M[:self.rT+1])
+
+            on_this_slice = (step >= step0) and (step < step1)
+
+            if not on_this_slice:
+                return
+            else:
+                step_local = step - step0
+
+        elif index_type == 'slice':
+            if (step < 0) or (self.M[self.rT] <= step):
+                raise ValueError(f"step {step} is outside slice size {self.M[self.rT]}")
+            step_local = step
+
+        else:
+            raise ValueError("index_type must be one of 'window' or 'slice'")
+
+        # index of first component of this step
+        index0 = self.ncpts*step_local
+
+        for k in range(self.ncpts):
+            self.w_alls[index0+k].assign(wnew.sub(k))
+
     def update(self, X):
         # Update self.w_alls and self.w_recv
         # from X.
@@ -306,6 +344,7 @@ class paradiag(object):
     def next_window(self, w1=None):
         """
         Reset paradiag ready for next time-window
+
         :arg w1: initial solution for next time-window.If None,
                  will use the final timestep from previous window
         """

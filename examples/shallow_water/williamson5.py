@@ -164,26 +164,3 @@ PD.solve()
 uout = fd.Function(V1, name='velocity').interpolate(fd.as_vector([*x]))
 hout = fd.Function(V2, name='depth').interpolate(H)
 walls = PD.w_all.split()
-
-cfile_name = 'output/'+args.filename+'.h5'
-with fd.CheckpointFile('williamson5.h5', 'w', comm=ensemble.comm) as cfile:
-    cfile.save_mesh(mesh)
-    cfile.save_function(hout)
-
-#if PD.rT == 0:
-#    with fd.CheckpointFile(cfile_name, 'w', comm=ensemble.comm) as cfile:
-#        cfile.save_mesh(mesh)
-#        #for i in range(M[PD.rT]):
-#        for i in range(1):
-#            tstep = i + sum(M[:PD.rT])
-#            index0 = i*PD.ncpts
-#            #uout.assign(walls[index0+0])
-#            #hout.assign(walls[index0+1])
-#            #cfile.save_function(uout, idx=tstep)
-#            cfile.save_function(hout)
-
-#asQ.post.write_timeseries(PD,
-#                          file_name='output/'+args.filename,
-#                          function_names=['velocity', 'depth'],
-#                          frequency=1,
-#                          time_scale=1./units.hour)
