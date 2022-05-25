@@ -60,19 +60,14 @@ class JacobianMatrix(object):
         # send
         usends = self.usend.split()
         r = self.paradiag.ensemble.ensemble_comm.rank  # the time rank
-        # r = ensemble.ensemble_comm.rank # the time rank
         for k in range(self.paradiag.ncpts):
             usends[k].assign(self.ulist[self.paradiag.ncpts*(self.paradiag.M[r]-1)+k])
-        if r < n-1:
-            request_send = self.paradiag.ensemble.isend(self.usend, dest=r+1, tag=r)
-        else:
-            request_send = self.paradiag.ensemble.isend(self.usend, dest=0, tag=r)
+
+        request_send = self.paradiag.ensemble.isend(self.usend, dest=((r+1) % n), tag=r)
         mpi_requests.extend(request_send)
+
         # receive
-        if r > 0:
-            request_recv = self.paradiag.ensemble.irecv(self.urecv, source=r-1, tag=r-1)
-        else:
-            request_recv = self.paradiag.ensemble.irecv(self.urecv, source=n-1, tag=n-1)
+        request_recv = self.paradiag.ensemble.irecv(self.urecv, source=((r-1) % n), tag=r-1)
         mpi_requests.extend(request_recv)
 
         # wait for the data [we should really do this after internal
@@ -187,12 +182,10 @@ class paradiag(object):
         # function containing the part of the
         # all-at-once solution assigned to this rank
         self.w_all = fd.Function(self.W_all)
-        w_alls = self.w_all.split()
+        self.w_alls = self.w_all.split()
         # initialise it from the initial condition
         for i in range(M[rT]):
-            for k in range(self.ncpts):
-                w_alls[self.ncpts*i+k].assign(self.w0.sub(k))
-        self.w_alls = w_alls
+            self.set_timestep(i, w0, index_type='slice')
 
         # apply boundary conditions
         for bc in self.W_all_bcs:
@@ -376,20 +369,13 @@ class paradiag(object):
         mpi_requests = []
         # Communication stage
         # send
-        usends = self.w_send.split()
         r = self.ensemble.ensemble_comm.rank  # the time rank
-        for k in range(self.ncpts):
-            usends[k].assign(self.w_alls[self.ncpts*(self.M[r]-1)+k])
-        if r < n-1:
-            request_send = self.ensemble.isend(self.w_send, dest=r+1, tag=r)
-        else:
-            request_send = self.ensemble.isend(self.w_send, dest=0, tag=r)
+        self.get_timestep(self.M[r]-1, wout=self.w_send, index_type='slice')
+
+        request_send = self.ensemble.isend(self.w_send, dest=((r+1) % n), tag=r)
         mpi_requests.extend(request_send)
-        # receive
-        if r > 0:
-            request_recv = self.ensemble.irecv(self.w_recv, source=r-1, tag=r-1)
-        else:
-            request_recv = self.ensemble.irecv(self.w_recv, source=n-1, tag=n-1)
+
+        request_recv = self.ensemble.irecv(self.w_recv, source=((r-1) % n), tag=r-1)
         mpi_requests.extend(request_recv)
 
         # wait for the data [we should really do this after internal
@@ -405,17 +391,13 @@ class paradiag(object):
         """
         rank = self.rT
         ncomm = self.ensemble.ensemble_comm.size
-        ncpts = self.ncpts
 
         if w1 is not None:  # use given function
             self.w0.assign(w1)
         else:  # last rank broadcasts final timestep
             if rank == ncomm-1:
                 # index of start of final timestep
-                i0 = ncpts*(self.M[-1]-1)
-                for k in range(ncpts):
-                    wend = self.w_alls[i0+k]
-                    self.w0.sub(k).assign(wend)
+                self.get_timestep(self.M[-1]-1, wout=self.w0, index_type='slice')
 
             # there should really be a bcast method on the ensemble
             # if this gets added in firedrake then this will need updating
@@ -424,8 +406,7 @@ class paradiag(object):
 
         # persistence forecast
         for i in range(self.M[rank]):
-            for k in range(ncpts):
-                self.w_alls[ncpts*i+k].assign(self.w0.sub(k))
+            self.set_timestep(i, self.w0, index_type='slice')
 
         return
 
