@@ -8,6 +8,191 @@ from operator import mul
 
 
 @pytest.mark.parallel(nprocs=4)
+def test_get_timestep():
+    '''
+    test getting a specific timestep
+    only valid if test_set_timestep passes
+    '''
+
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    V = fd.FunctionSpace(mesh, "DG", 1)
+    v0 = fd.Function(V, name="v0")
+    v1 = fd.Function(V, name="v1")
+
+    def form_function(v, u):
+        return v*u*fd.dx
+
+    def form_mass(v, u):
+        return v*u*fd.dx
+
+    # two random solutions
+    np.random.seed(572046)
+    v0.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
+    v1.dat.data[:] = np.random.rand(*(v1.dat.data.shape))
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=V, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    # set each step using window index
+    rank = PD.rT
+    for step in range(sum(M)):
+        PD.set_timestep(step, v1, index_type='window')
+
+        # is step on this time-slice?
+        step0 = sum(M[:rank])
+        step1 = sum(M[:rank+1])
+        on_this_slice = (step >= step0) and (step < step1)
+        if on_this_slice:
+            # slice-local timestep
+            err = fd.errornorm(v1, PD.get_timestep(step, index_type='window'))
+            assert(err < 1e-12)
+
+    # set each step using slice index
+    vcheck = fd.Function(V)
+    for step in range(M[rank]):
+        PD.set_timestep(step, v0, index_type='slice')
+
+        PD.get_timestep(step, index_type='slice', wout=vcheck)
+        err = fd.errornorm(v0, vcheck)
+        assert(err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_get_timestep_mixed():
+    '''
+    test getting a specific timestep
+    only valid if test_set_timestep_mixed passes
+    '''
+
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    V = fd.FunctionSpace(mesh, "DG", 1)
+    W = V*V
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
+
+    def form_function(p, q, u, v):
+        return (p*u + q*v)*fd.dx
+
+    def form_mass(p, q, u, v):
+        return (p*u + q*v)*fd.dx
+
+    # two random solutions
+    np.random.seed(572046)
+    for v in v0.split():
+        v.dat.data[:] = np.random.rand(*(v.dat.data.shape))
+
+    for v in v1.split():
+        v.dat.data[:] = np.random.rand(*(v.dat.data.shape))
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=W, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    # set each step using window index
+    rank = PD.rT
+    for step in range(sum(M)):
+        PD.set_timestep(step, v1, index_type='window')
+
+        # is step on this time-slice?
+        step0 = sum(M[:rank])
+        step1 = sum(M[:rank+1])
+        on_this_slice = (step >= step0) and (step < step1)
+        if on_this_slice:
+            # slice-local timestep
+            err = fd.errornorm(v1, PD.get_timestep(step, index_type='window'))
+            assert(err < 1e-12)
+
+    # set each step using slice index
+    vcheck = fd.Function(W)
+    for step in range(M[rank]):
+        PD.set_timestep(step, v0, index_type='slice')
+
+        PD.get_timestep(step, index_type='slice', wout=vcheck)
+        err = fd.errornorm(v0, vcheck)
+        assert(err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_set_timestep():
+    '''
+    test setting a specific timestep
+    '''
+
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    V = fd.FunctionSpace(mesh, "DG", 1)
+    v0 = fd.Function(V, name="v0")
+    v1 = fd.Function(V, name="v1")
+
+    def form_function(v, u):
+        return v*u*fd.dx
+
+    def form_mass(v, u):
+        return v*u*fd.dx
+
+    # two random solutions
+    np.random.seed(572046)
+    v0.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
+    v1.dat.data[:] = np.random.rand(*(v1.dat.data.shape))
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=V, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    # set each step using window index
+    rank = PD.rT
+    for step in range(sum(M)):
+        PD.set_timestep(step, v1, index_type='window')
+
+        # is step on this time-slice?
+        step0 = sum(M[:rank])
+        step1 = sum(M[:rank+1])
+        on_this_slice = (step >= step0) and (step < step1)
+        if on_this_slice:
+            # slice-local timestep
+            idx = step - step0
+            err = fd.errornorm(v1, PD.w_alls[idx])
+            assert(err < 1e-12)
+
+    # set each step using slice index
+    for step in range(M[rank]):
+        PD.set_timestep(step, v0, index_type='slice')
+
+        err = fd.errornorm(v0, PD.w_alls[step])
+        assert(err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
 def test_set_timestep_mixed():
     '''
     test setting a specific timestep
@@ -75,65 +260,6 @@ def test_set_timestep_mixed():
         vchecks[1].assign(PD.w_alls[PD.ncpts*step+1])
 
         err = fd.errornorm(v0, vcheck)
-        assert(err < 1e-12)
-
-
-@pytest.mark.parallel(nprocs=4)
-def test_set_timestep():
-    '''
-    test setting a specific timestep
-    '''
-
-    # prep paradiag setup
-    nspatial_domains = 2
-    M = [2, 2]
-
-    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
-
-    V = fd.FunctionSpace(mesh, "DG", 1)
-    v0 = fd.Function(V, name="v0")
-    v1 = fd.Function(V, name="v1")
-
-    def form_function(v, u):
-        return v*u*fd.dx
-
-    def form_mass(v, u):
-        return v*u*fd.dx
-
-    # two random solutions
-    np.random.seed(572046)
-    v0.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
-    v1.dat.data[:] = np.random.rand(*(v1.dat.data.shape))
-
-    # initialise paradiag v0
-    PD = asQ.paradiag(ensemble=ensemble,
-                      form_function=form_function,
-                      form_mass=form_mass, W=V, w0=v0,
-                      dt=1, theta=0.5,
-                      alpha=0.0001, M=M)
-
-    # set each step using window index
-    rank = PD.rT
-    for step in range(sum(M)):
-        PD.set_timestep(step, v1, index_type='window')
-
-        # is step on this time-slice?
-        step0 = sum(M[:rank])
-        step1 = sum(M[:rank+1])
-        on_this_slice = (step >= step0) and (step < step1)
-        if on_this_slice:
-            # slice-local timestep
-            idx = step - step0
-            err = fd.errornorm(v1, PD.w_alls[idx])
-            assert(err < 1e-12)
-
-    # set each step using slice index
-    for step in range(M[rank]):
-        PD.set_timestep(step, v0, index_type='slice')
-
-        err = fd.errornorm(v0, PD.w_alls[step])
         assert(err < 1e-12)
 
 

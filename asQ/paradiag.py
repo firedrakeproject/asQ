@@ -306,6 +306,58 @@ class paradiag(object):
         for k in range(self.ncpts):
             self.w_alls[index0+k].assign(wnew.sub(k))
 
+    def get_timestep(self, step, index_type='window', wout=None, name=None):
+        '''
+        Get solution at a timestep to new value
+
+        :arg step: index of timestep to set.
+        :arg index_type: is index in window or slice?
+        :arg wout: function to set to timestep (timestep returned if None)
+        :arg name: name of returned function
+        '''
+
+        if index_type == 'window':
+            if (step < 0) or (sum(self.M) <= step):
+                raise ValueError(f"step {step} is outside window size {sum(self.M)}")
+
+            # is timestep on this time-slice?
+            step0 = sum(self.M[:self.rT])
+            step1 = sum(self.M[:self.rT+1])
+
+            on_this_slice = (step >= step0) and (step < step1)
+
+            if not on_this_slice:
+                return
+            else:
+                step_local = step - step0
+
+        elif index_type == 'slice':
+            if (step < 0) or (self.M[self.rT] <= step):
+                raise ValueError(f"step {step} is outside slice size {self.M[self.rT]}")
+            step_local = step
+
+        else:
+            raise ValueError("index_type must be one of 'window' or 'slice'")
+
+        # where to put timestep?
+        if wout is None:
+            if name is None:
+                wreturn = fd.Function(self.W)
+            else:
+                wreturn = fd.Function(self.W, name=name)
+            wget = wreturn
+        else:
+            wget = wout
+
+        # index of first component of this step
+        index0 = self.ncpts*step_local
+
+        for k in range(self.ncpts):
+            wget.sub(k).assign(self.w_alls[index0+k])
+
+        if wout is None:
+            return wreturn
+
     def update(self, X):
         # Update self.w_alls and self.w_recv
         # from X.
