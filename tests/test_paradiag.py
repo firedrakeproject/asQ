@@ -629,7 +629,7 @@ def test_set_para_form_mixed_parallel():
 def test_jacobian_mixed_parallel():
     ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
-    mesh = fd.UnitSquareMesh(8, 8, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
