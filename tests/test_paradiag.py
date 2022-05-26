@@ -17,7 +17,7 @@ def test_next_window():
 
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
-    mesh = fd.UnitSquareMesh(10, 10, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
 
     V = fd.FunctionSpace(mesh, "DG", 1)
     v0 = fd.Function(V, name="v0")
@@ -77,7 +77,7 @@ def test_williamson5_timeseries():
     base_level = 1
     ref_level = 2
     dt = 0.05
-    coords_degree = 3
+    coords_degree = 1
     degree = 1
     alpha = 0.0001
 
@@ -86,10 +86,12 @@ def test_williamson5_timeseries():
 
     # block solver options
     sparameters = {
-        "snes_atol": 1e-8,
+        'snes_monitor': None,
+        'ksp_monitor': None,
+        'snes_converged_reason': None,
+        'ksp_converged_reason': None,
         "mat_type": "matfree",
         "ksp_type": "fgmres",
-        "ksp_atol": 1e-8,
         "ksp_max_it": 400,
         "pc_type": "mg",
         "pc_mg_cycle_type": "v",
@@ -117,6 +119,10 @@ def test_williamson5_timeseries():
 
     # paradiag solver options
     sparameters_diag = {
+        'snes_monitor': None,
+        'ksp_monitor': None,
+        'snes_converged_reason': None,
+        'ksp_converged_reason': None,
         'snes_linesearch_type': 'basic',
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
@@ -126,6 +132,7 @@ def test_williamson5_timeseries():
 
     # list of serial timesteps
 
+    PETSc.Sys.Print("serial solve")
     wserial = serial_solve(base_level=base_level,
                            ref_level=ref_level,
                            tmax=nsteps,
@@ -147,7 +154,12 @@ def test_williamson5_timeseries():
 
     # block solve is linear for parallel solution
     sparameters['ksp_type'] = 'preonly'
+    del sparameters['snes_monitor']
+    del sparameters['ksp_monitor']
+    del sparameters['snes_converged_reason']
+    del sparameters['ksp_converged_reason']
 
+    PETSc.Sys.Print("parallel solve")
     wparallel = parallel_solve(base_level=base_level,
                                ref_level=ref_level,
                                M=M,
@@ -298,7 +310,7 @@ def test_steady_swe():
         assert(abs(uerr) < utol)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_linear_swe_FFT():
     # minimal test for FFT PC
     import utils.planets.earth as earth
@@ -309,7 +321,7 @@ def test_linear_swe_FFT():
     nspatial_domains = 2
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
     mesh = fd.IcosahedralSphereMesh(radius=earth.radius,
-                                    refinement_level=3,
+                                    refinement_level=2,
                                     degree=2,
                                     comm=ensemble.comm)
     x = fd.SpatialCoordinate(mesh)
@@ -357,7 +369,7 @@ def test_linear_swe_FFT():
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC'}
 
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     for i in range(np.sum(M)):
         solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
@@ -379,7 +391,7 @@ def test_linear_swe_FFT():
     assert (1 < PD.snes.getConvergedReason() < 5)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_jacobian_heat_equation():
     # tests the basic snes setup
     # using the heat equation
@@ -396,7 +408,7 @@ def test_jacobian_heat_equation():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-10, 'ksp_atol': 1.0e-10,
                          'ksp_monitor': None,
@@ -429,7 +441,7 @@ def test_jacobian_heat_equation():
     assert (1 < PD.snes.getConvergedReason() < 5)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_set_para_form():
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the heat equation as an example by
@@ -446,7 +458,7 @@ def test_set_para_form():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
@@ -513,7 +525,7 @@ def test_set_para_form():
     assert(fd.errornorm(Ffull.sub(rT * 2 + 1), PD_Ff.sub(1)) < 1.0e-12)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_set_para_form_mixed_parallel():
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the heat equation as an example by
@@ -535,7 +547,7 @@ def test_set_para_form_mixed_parallel():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
@@ -614,11 +626,11 @@ def test_set_para_form_mixed_parallel():
     assert(fd.errornorm(Ffull.sub(rT*4+3), PD_F.sub(3)) < 1.0e-12)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_jacobian_mixed_parallel():
     ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
-    mesh = fd.UnitSquareMesh(20, 20, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
@@ -631,7 +643,7 @@ def test_jacobian_mixed_parallel():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     Ml = np.sum(M)
     c = fd.Constant(0.1)
     eps = fd.Constant(0.001)
@@ -759,7 +771,7 @@ def test_jacobian_mixed_parallel():
 bc_opts = ["none", "homogeneous", "inhomogeneous"]
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("bc_opt", bc_opts)
 def test_solve_para_form(bc_opt):
     # checks that the all-at-once system is the same as solving
@@ -779,7 +791,7 @@ def test_solve_para_form(bc_opt):
     theta = 0.5
     alpha = 0.001
     c = fd.Constant(1)
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     Ml = np.sum(M)
 
     # Parameters for the diag
@@ -862,7 +874,7 @@ def test_solve_para_form(bc_opt):
         assert(fd.errornorm(vfull.sub(ind1), PD.w_all.sub(i)) < 1.0e-9)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_solve_para_form_mixed():
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR mixed wave equation as an
@@ -887,7 +899,7 @@ def test_solve_para_form_mixed():
     c = fd.Constant(10)
     eps = fd.Constant(0.001)
 
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     Ml = np.sum(M)
 
     # Parameters for the diag
