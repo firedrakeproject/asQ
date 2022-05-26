@@ -160,7 +160,3 @@ PD = asQ.paradiag(ensemble=ensemble,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
 PD.solve()
-
-uout = fd.Function(V1, name='velocity').interpolate(fd.as_vector([*x]))
-hout = fd.Function(V2, name='depth').interpolate(H)
-walls = PD.w_all.split()
