@@ -25,6 +25,7 @@ class DiagFFTPC(object):
         else:
             self.initialize(pc)
             self.initialized = True
+            self.update(pc)
 
     def initialize(self, pc):
         if pc.getType() != "python":
