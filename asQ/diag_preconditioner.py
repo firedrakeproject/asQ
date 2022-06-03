@@ -20,11 +20,9 @@ class DiagFFTPC(object):
 
     def setUp(self, pc):
         """Setup method called by PETSc."""
-        if self.initialized:
-            self.update(pc)
-        else:
+        if not self.initialized:
             self.initialize(pc)
-            self.initialized = True
+        self.update(pc)
 
     def initialize(self, pc):
         if pc.getType() != "python":
@@ -287,6 +285,8 @@ class DiagFFTPC(object):
                     print(f"transfer manager not set on Jsolvers[{ii}]")
 
             self.Jsolvers.append(Jsolver)
+
+        self.initialized = True
 
     def set_CblockV_bcs(self):
         self.CblockV_bcs = []
