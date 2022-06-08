@@ -109,17 +109,14 @@ def test_get_timestep(ncpt):
 
     # set each step using window index
     rank = PD.rT
-    for step in range(sum(M)):
 
-        # is step on this time-slice?
-        step0 = sum(M[:rank])
-        step1 = sum(M[:rank+1])
-        on_this_slice = (step >= step0) and (step < step1)
-        if on_this_slice:
-            PD.set_timestep(step, v1, index_range='window')
-            # slice-local timestep
-            err = fd.errornorm(v1, PD.get_timestep(step, index_range='window'))
-            assert(err < 1e-12)
+    for slice_index in range(M[rank]):
+        window_index = PD.shift_index(slice_index,
+                                      from_range='slice',
+                                      to_range='window')
+        PD.set_timestep(window_index, v1, index_range='window')
+        err = fd.errornorm(v1, PD.get_timestep(window_index, index_range='window'))
+        assert(err < 1e-12)
 
     # set each step using slice index
     vcheck = fd.Function(W)
@@ -180,20 +177,16 @@ def test_set_timestep(ncpt):
 
     # set each step using window index
     rank = PD.rT
-    for step in range(sum(M)):
 
-        # is step on this time-slice?
-        step0 = sum(M[:rank])
-        step1 = sum(M[:rank+1])
-        on_this_slice = (step >= step0) and (step < step1)
-        if on_this_slice:
-            PD.set_timestep(step, v1, index_range='window')
-            # slice-local timestep
-            idx = step - step0
-            for i in range(ncpt):
-                vchecks[i].assign(PD.w_alls[ncpt*idx+i])
-            err = fd.errornorm(v1, vcheck)
-            assert(err < 1e-12)
+    for slice_index in range(M[rank]):
+        window_index = PD.shift_index(slice_index,
+                                      from_range='slice',
+                                      to_range='window')
+        PD.set_timestep(window_index, v1, index_range='window')
+        for i in range(ncpt):
+            vchecks[i].assign(PD.w_alls[ncpt*slice_index+i])
+        err = fd.errornorm(v1, vcheck)
+        assert(err < 1e-12)
 
     # set each step using slice index
     for step in range(M[rank]):
@@ -253,7 +246,7 @@ def test_next_window():
     # force last timestep = v0
     ncomm = ensemble.ensemble_comm.size
     if rank == ncomm-1:
-        PD.set_timestep(M[-1]-1, v0)
+        PD.set_timestep(-1, v0)
 
     # set next window from end of last window
     PD.next_window()

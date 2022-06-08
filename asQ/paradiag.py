@@ -290,7 +290,7 @@ class paradiag(object):
         :arg from_range: range of i. Either slice or window
         :arg to_range: range to shift i to. Either slice or window
         '''
-        self.check_index(i, from_range)
+        self.check_index(i, index_range=from_range)
 
         # deal with -ve indices
         if from_range == 'slice':
@@ -313,7 +313,7 @@ class paradiag(object):
         if to_range == 'window':  # 'from_range' == 'slice'
             i += index0
 
-        self.check_index(i, to_range)
+        self.check_index(i, index_range=to_range)
 
         return i
 
@@ -382,12 +382,12 @@ class paradiag(object):
         '''
 
         w = fd.Function(self.W)
-        for local_step in range(self.M[self.rT]):
-            window_step = sum(self.M[:self.rT]) + local_step
-
-            self.get_timestep(local_step, wout=w, index_range='slice')
-
-            callback(window_step, local_step, w)
+        for slice_index in range(self.M[self.rT]):
+            window_index = self.shift_index(slice_index,
+                                            from_range='slice',
+                                            to_range='window')
+            self.get_timestep(slice_index, wout=w, index_range='slice')
+            callback(window_index, slice_index, w)
 
     def update(self, X):
         # Update self.w_alls and self.w_recv
