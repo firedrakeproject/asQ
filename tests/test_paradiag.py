@@ -57,23 +57,23 @@ def test_get_timestep(ncpt):
     # set each step using window index
     rank = PD.rT
     for step in range(sum(M)):
-        PD.set_timestep(step, v1, index_type='window')
 
         # is step on this time-slice?
         step0 = sum(M[:rank])
         step1 = sum(M[:rank+1])
         on_this_slice = (step >= step0) and (step < step1)
         if on_this_slice:
+            PD.set_timestep(step, v1, index_range='window')
             # slice-local timestep
-            err = fd.errornorm(v1, PD.get_timestep(step, index_type='window'))
+            err = fd.errornorm(v1, PD.get_timestep(step, index_range='window'))
             assert(err < 1e-12)
 
     # set each step using slice index
     vcheck = fd.Function(W)
     for step in range(M[rank]):
-        PD.set_timestep(step, v0, index_type='slice')
+        PD.set_timestep(step, v0, index_range='slice')
 
-        PD.get_timestep(step, index_type='slice', wout=vcheck)
+        PD.get_timestep(step, index_range='slice', wout=vcheck)
         err = fd.errornorm(v0, vcheck)
         assert(err < 1e-12)
 
@@ -128,13 +128,13 @@ def test_set_timestep(ncpt):
     # set each step using window index
     rank = PD.rT
     for step in range(sum(M)):
-        PD.set_timestep(step, v1, index_type='window')
 
         # is step on this time-slice?
         step0 = sum(M[:rank])
         step1 = sum(M[:rank+1])
         on_this_slice = (step >= step0) and (step < step1)
         if on_this_slice:
+            PD.set_timestep(step, v1, index_range='window')
             # slice-local timestep
             idx = step - step0
             for i in range(ncpt):
@@ -144,7 +144,7 @@ def test_set_timestep(ncpt):
 
     # set each step using slice index
     for step in range(M[rank]):
-        PD.set_timestep(step, v0, index_type='slice')
+        PD.set_timestep(step, v0, index_range='slice')
 
         for i in range(ncpt):
             vchecks[i].assign(PD.w_alls[ncpt*step+i])

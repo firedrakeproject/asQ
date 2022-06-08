@@ -60,8 +60,7 @@ class JacobianMatrix(object):
 
         # send
         r = self.paradiag.ensemble.ensemble_comm.rank  # the time rank
-        ts = self.paradiag.M[r]-1
-        self.paradiag.get_timestep(ts, index_type='slice', wout=self.usend, f_alls=self.ulist)
+        self.paradiag.get_timestep(-1, index_range='slice', wout=self.usend, f_alls=self.ulist)
 
         request_send = self.paradiag.ensemble.isend(self.usend, dest=((r+1) % n), tag=r)
         mpi_requests.extend(request_send)
@@ -185,7 +184,7 @@ class paradiag(object):
         self.w_alls = self.w_all.split()
         # initialise it from the initial condition
         for i in range(M[rT]):
-            self.set_timestep(i, w0, index_type='slice')
+            self.set_timestep(i, w0, index_range='slice')
 
         # apply boundary conditions
         for bc in self.W_all_bcs:
@@ -264,38 +263,71 @@ class paradiag(object):
                                         bc.sub_domain)
                 self.W_all_bcs.append(all_bc)
 
-    def set_timestep(self, step, wnew, index_type='slice', f_alls=None):
+    def check_index(self, i, index_range='slice'):
+        '''
+        Check that timestep index is in range
+        :arg i: timestep index to chec:
+        :arg index_range: range that index is in. Either slice or window
+        '''
+        # set valid range
+        if index_range == 'slice':
+            maxidx = self.M[self.rT]
+        elif index_range == 'window':
+            maxidx = sum(self.M)
+        else:
+            raise ValueError("index_range must be one of 'window' or 'slice'")
+
+        # allow for pythonic negative indices
+        minidx = -maxidx
+
+        if not (minidx <= i < maxidx):
+            raise ValueError(f"index {i} outside {index_range} range {maxidx}")
+
+    def shift_index(self, i, from_range='slice', to_range='slice'):
+        '''
+        Shift timestep index from one range to another, and accounts for -ve indices
+        :arg i: timestep index to shift
+        :arg from_range: range of i. Either slice or window
+        :arg to_range: range to shift i to. Either slice or window
+        '''
+        self.check_index(i, from_range)
+
+        # deal with -ve indices
+        if from_range == 'slice':
+            maxidx = self.M[self.rT]
+        elif from_range == 'window':
+            maxidx = sum(self.M)
+
+        i = i % maxidx
+
+        # no shift needed
+        if to_range == from_range:
+            return i
+
+        # index of first timestep in slice
+        index0 = sum(self.M[:self.rT])
+
+        if to_range == 'slice':  # 'from_range' == 'window'
+            i -= index0
+
+        if to_range == 'window':  # 'from_range' == 'slice'
+            i += index0
+
+        self.check_index(i, to_range)
+
+        return i
+
+    def set_timestep(self, step, wnew, index_range='slice', f_alls=None):
         '''
         Set solution at a timestep to new value
 
         :arg step: index of timestep to set.
         :arg wnew: new solution for timestep
-        :arg index_type: is index in window or slice?
+        :arg index_range: is index in window or slice?
         :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
         '''
 
-        if index_type == 'window':
-            if (step < 0) or (sum(self.M) <= step):
-                raise ValueError(f"step {step} is outside window size {sum(self.M)}")
-
-            # is timestep on this time-slice?
-            step0 = sum(self.M[:self.rT])
-            step1 = sum(self.M[:self.rT+1])
-
-            on_this_slice = (step >= step0) and (step < step1)
-
-            if not on_this_slice:
-                return
-            else:
-                step_local = step - step0
-
-        elif index_type == 'slice':
-            if (step < 0) or (self.M[self.rT] <= step):
-                raise ValueError(f"step {step} is outside slice size {self.M[self.rT]}")
-            step_local = step
-
-        else:
-            raise ValueError("index_type must be one of 'window' or 'slice'")
+        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
 
         if f_alls is None:
             f_alls = self.w_alls
@@ -306,39 +338,18 @@ class paradiag(object):
         for k in range(self.ncpts):
             f_alls[index0+k].assign(wnew.sub(k))
 
-    def get_timestep(self, step, index_type='slice', wout=None, name=None, f_alls=None):
+    def get_timestep(self, step, index_range='slice', wout=None, name=None, f_alls=None):
         '''
         Get solution at a timestep to new value
 
         :arg step: index of timestep to set.
-        :arg index_type: is index in window or slice?
+        :arg index_range: is index in window or slice?
         :arg wout: function to set to timestep (timestep returned if None)
         :arg name: name of returned function
         :arg f_alls: an all-at-once function to get timestep from. If None, self.w_alls is used
         '''
 
-        if index_type == 'window':
-            if (step < 0) or (sum(self.M) <= step):
-                raise ValueError(f"step {step} is outside window size {sum(self.M)}")
-
-            # is timestep on this time-slice?
-            step0 = sum(self.M[:self.rT])
-            step1 = sum(self.M[:self.rT+1])
-
-            on_this_slice = (step >= step0) and (step < step1)
-
-            if not on_this_slice:
-                return
-            else:
-                step_local = step - step0
-
-        elif index_type == 'slice':
-            if (step < 0) or (self.M[self.rT] <= step):
-                raise ValueError(f"step {step} is outside slice size {self.M[self.rT]}")
-            step_local = step
-
-        else:
-            raise ValueError("index_type must be one of 'window' or 'slice'")
+        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
 
         if f_alls is None:
             f_alls = self.w_alls
@@ -377,8 +388,8 @@ class paradiag(object):
         mpi_requests = []
         # Communication stage
         # send
-        r = self.ensemble.ensemble_comm.rank  # the time rank
-        self.get_timestep(self.M[r]-1, wout=self.w_send, index_type='slice')
+        r = self.rT  # the time rank
+        self.get_timestep(-1, wout=self.w_send, index_range='slice')
 
         request_send = self.ensemble.isend(self.w_send, dest=((r+1) % n), tag=r)
         mpi_requests.extend(request_send)
@@ -405,7 +416,7 @@ class paradiag(object):
         else:  # last rank broadcasts final timestep
             if rank == ncomm-1:
                 # index of start of final timestep
-                self.get_timestep(self.M[-1]-1, wout=self.w0, index_type='slice')
+                self.get_timestep(-1, wout=self.w0, index_range='slice')
 
             # there should really be a bcast method on the ensemble
             # if this gets added in firedrake then this will need updating
@@ -414,7 +425,7 @@ class paradiag(object):
 
         # persistence forecast
         for i in range(self.M[rank]):
-            self.set_timestep(i, self.w0, index_type='slice')
+            self.set_timestep(i, self.w0, index_range='slice')
 
         return
 
