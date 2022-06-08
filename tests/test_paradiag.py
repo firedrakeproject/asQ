@@ -6,6 +6,59 @@ from petsc4py import PETSc
 from functools import reduce
 from operator import mul
 
+
+@pytest.mark.parallel(nprocs=4)
+def test_for_each_timestep():
+    '''
+    test paradiag.for_each_timestep
+    '''
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    ncpt=1
+    W = fd.FunctionSpace(mesh, "DG", 1)
+    v0 = fd.Function(W, name="v0")
+    v0.assign(0)
+
+    # dummy forms
+    def form_function(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    def form_mass(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=W, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    def check_timestep(expression, w):
+        assert(fd.errornorm(expression, w) < 1e-12)
+
+    # set each timestep as slice timestep index
+    for step in range(PD.M[PD.rT]):
+        v0.assign(step)
+        PD.set_timestep(step, v0, index_range='slice')
+
+    PD.for_each_timestep(
+        lambda wi, si, w: check_timestep(fd.Constant(si),w))
+
+    # set each timestep as window timestep index
+    for step in range(PD.M[PD.rT]):
+        v0.assign(PD.shift_index(step, from_range='slice', to_range='window'))
+        PD.set_timestep(step, v0, index_range='slice')
+
+    PD.for_each_timestep(
+        lambda wi, si, w: check_timestep(fd.Constant(wi),w))
+
+
 ncpts = [1, 2]
 
 

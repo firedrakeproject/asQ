@@ -373,6 +373,22 @@ class paradiag(object):
         if wout is None:
             return wreturn
 
+    def for_each_timestep(self, callback):
+        '''
+        call callback for each timestep in each slice in the current window
+        callback arguments are: timestep index in window, timestep index in slice, Function at timestep
+
+        :arg callback: the function to call for each timestep
+        '''
+
+        w = fd.Function(self.W)
+        for local_step in range(self.M[self.rT]):
+            window_step = sum(self.M[:self.rT]) + local_step
+
+            self.get_timestep(local_step, wout=w, index_range='slice')
+
+            callback(window_step, local_step, w)
+
     def update(self, X):
         # Update self.w_alls and self.w_recv
         # from X.
@@ -501,6 +517,8 @@ class paradiag(object):
               verbose=False):
         """
         Solve the system (either in one shot or as a relaxation method).
+
+        preproc and postproc must have call signature (paradiag, int)
         :arg nwindows: number of windows to solve for
         :arg preproc: callback called before each window solve
         :arg postproc: callback called after each window solve
