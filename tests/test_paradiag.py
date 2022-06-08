@@ -6,9 +6,12 @@ from petsc4py import PETSc
 from functools import reduce
 from operator import mul
 
+ncpts = [1, 2]
+
 
 @pytest.mark.parallel(nprocs=4)
-def test_get_timestep():
+@pytest.mark.parametrize("ncpt", ncpts)
+def test_get_timestep(ncpt):
     '''
     test getting a specific timestep
     only valid if test_set_timestep passes
@@ -23,84 +26,26 @@ def test_get_timestep():
     mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
 
     V = fd.FunctionSpace(mesh, "DG", 1)
-    v0 = fd.Function(V, name="v0")
-    v1 = fd.Function(V, name="v1")
-
-    def form_function(v, u):
-        return v*u*fd.dx
-
-    def form_mass(v, u):
-        return v*u*fd.dx
-
-    # two random solutions
-    np.random.seed(572046)
-    v0.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
-    v1.dat.data[:] = np.random.rand(*(v1.dat.data.shape))
-
-    # initialise paradiag v0
-    PD = asQ.paradiag(ensemble=ensemble,
-                      form_function=form_function,
-                      form_mass=form_mass, W=V, w0=v0,
-                      dt=1, theta=0.5,
-                      alpha=0.0001, M=M)
-
-    # set each step using window index
-    rank = PD.rT
-    for step in range(sum(M)):
-        PD.set_timestep(step, v1, index_type='window')
-
-        # is step on this time-slice?
-        step0 = sum(M[:rank])
-        step1 = sum(M[:rank+1])
-        on_this_slice = (step >= step0) and (step < step1)
-        if on_this_slice:
-            # slice-local timestep
-            err = fd.errornorm(v1, PD.get_timestep(step, index_type='window'))
-            assert(err < 1e-12)
-
-    # set each step using slice index
-    vcheck = fd.Function(V)
-    for step in range(M[rank]):
-        PD.set_timestep(step, v0, index_type='slice')
-
-        PD.get_timestep(step, index_type='slice', wout=vcheck)
-        err = fd.errornorm(v0, vcheck)
-        assert(err < 1e-12)
-
-
-@pytest.mark.parallel(nprocs=4)
-def test_get_timestep_mixed():
-    '''
-    test getting a specific timestep
-    only valid if test_set_timestep_mixed passes
-    '''
-
-    # prep paradiag setup
-    nspatial_domains = 2
-    M = [2, 2]
-
-    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
-
-    V = fd.FunctionSpace(mesh, "DG", 1)
-    W = V*V
+    W = V
+    for _ in range(1, ncpt):
+        W *= V
     v0 = fd.Function(W, name="v0")
     v1 = fd.Function(W, name="v1")
 
-    def form_function(p, q, u, v):
-        return (p*u + q*v)*fd.dx
+    # dummy forms
+    def form_function(*args):
+        return (args[0]*args[ncpt])*fd.dx
 
-    def form_mass(p, q, u, v):
-        return (p*u + q*v)*fd.dx
+    def form_mass(*args):
+        return (args[0]*args[ncpt])*fd.dx
 
     # two random solutions
     np.random.seed(572046)
-    for v in v0.split():
-        v.dat.data[:] = np.random.rand(*(v.dat.data.shape))
 
-    for v in v1.split():
-        v.dat.data[:] = np.random.rand(*(v.dat.data.shape))
+    for dat in v0.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+    for dat in v1.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
 
     # initialise paradiag v0
     PD = asQ.paradiag(ensemble=ensemble,
@@ -133,8 +78,9 @@ def test_get_timestep_mixed():
         assert(err < 1e-12)
 
 
+@pytest.mark.parametrize("ncpt", ncpts)
 @pytest.mark.parallel(nprocs=4)
-def test_set_timestep():
+def test_set_timestep(ncpt):
     '''
     test setting a specific timestep
     '''
@@ -148,82 +94,26 @@ def test_set_timestep():
     mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
 
     V = fd.FunctionSpace(mesh, "DG", 1)
-    v0 = fd.Function(V, name="v0")
-    v1 = fd.Function(V, name="v1")
-
-    def form_function(v, u):
-        return v*u*fd.dx
-
-    def form_mass(v, u):
-        return v*u*fd.dx
-
-    # two random solutions
-    np.random.seed(572046)
-    v0.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
-    v1.dat.data[:] = np.random.rand(*(v1.dat.data.shape))
-
-    # initialise paradiag v0
-    PD = asQ.paradiag(ensemble=ensemble,
-                      form_function=form_function,
-                      form_mass=form_mass, W=V, w0=v0,
-                      dt=1, theta=0.5,
-                      alpha=0.0001, M=M)
-
-    # set each step using window index
-    rank = PD.rT
-    for step in range(sum(M)):
-        PD.set_timestep(step, v1, index_type='window')
-
-        # is step on this time-slice?
-        step0 = sum(M[:rank])
-        step1 = sum(M[:rank+1])
-        on_this_slice = (step >= step0) and (step < step1)
-        if on_this_slice:
-            # slice-local timestep
-            idx = step - step0
-            err = fd.errornorm(v1, PD.w_alls[idx])
-            assert(err < 1e-12)
-
-    # set each step using slice index
-    for step in range(M[rank]):
-        PD.set_timestep(step, v0, index_type='slice')
-
-        err = fd.errornorm(v0, PD.w_alls[step])
-        assert(err < 1e-12)
-
-
-@pytest.mark.parallel(nprocs=4)
-def test_set_timestep_mixed():
-    '''
-    test setting a specific timestep
-    '''
-
-    # prep paradiag setup
-    nspatial_domains = 2
-    M = [2, 2]
-
-    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
-
-    V = fd.FunctionSpace(mesh, "DG", 1)
-    W = V*V
+    W = V
+    for _ in range(1, ncpt):
+        W *= V
     v0 = fd.Function(W, name="v0")
     v1 = fd.Function(W, name="v1")
 
-    def form_function(p, q, u, v):
-        return (p*u + q*v)*fd.dx
+    # dummy forms
+    def form_function(*args):
+        return (args[0]*args[ncpt])*fd.dx
 
-    def form_mass(p, q, u, v):
-        return (p*u + q*v)*fd.dx
+    def form_mass(*args):
+        return (args[0]*args[ncpt])*fd.dx
 
     # two random solutions
     np.random.seed(572046)
-    for v in v0.split():
-        v.dat.data[:] = np.random.rand(*(v.dat.data.shape))
 
-    for v in v1.split():
-        v.dat.data[:] = np.random.rand(*(v.dat.data.shape))
+    for dat in v0.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+    for dat in v1.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
 
     # initialise paradiag v0
     PD = asQ.paradiag(ensemble=ensemble,
@@ -247,8 +137,8 @@ def test_set_timestep_mixed():
         if on_this_slice:
             # slice-local timestep
             idx = step - step0
-            vchecks[0].assign(PD.w_alls[PD.ncpts*idx+0])
-            vchecks[1].assign(PD.w_alls[PD.ncpts*idx+1])
+            for i in range(ncpt):
+                vchecks[i].assign(PD.w_alls[ncpt*idx+i])
             err = fd.errornorm(v1, vcheck)
             assert(err < 1e-12)
 
@@ -256,8 +146,8 @@ def test_set_timestep_mixed():
     for step in range(M[rank]):
         PD.set_timestep(step, v0, index_type='slice')
 
-        vchecks[0].assign(PD.w_alls[PD.ncpts*step+0])
-        vchecks[1].assign(PD.w_alls[PD.ncpts*step+1])
+        for i in range(ncpt):
+            vchecks[i].assign(PD.w_alls[ncpt*step+i])
 
         err = fd.errornorm(v0, vcheck)
         assert(err < 1e-12)
@@ -304,20 +194,20 @@ def test_next_window():
     rank = PD.rT
 
     for step in range(PD.M[rank]):
-        err = fd.errornorm(v1, PD.w_alls[step])
+        err = fd.errornorm(v1, PD.get_timestep(step))
         assert(err < 1e-12)
 
     # force last timestep = v0
     ncomm = ensemble.ensemble_comm.size
     if rank == ncomm-1:
-        PD.w_alls[-1].assign(v0)
+        PD.set_timestep(M[-1]-1, v0)
 
     # set next window from end of last window
     PD.next_window()
 
     # check all timesteps == v0
     for step in range(PD.M[rank]):
-        err = fd.errornorm(v0, PD.w_alls[step])
+        err = fd.errornorm(v0, PD.get_timestep(step))
         assert(err < 1e-12)
 
 

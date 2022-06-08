@@ -264,7 +264,7 @@ class paradiag(object):
                                         bc.sub_domain)
                 self.W_all_bcs.append(all_bc)
 
-    def set_timestep(self, step, wnew, index_type='window', f_alls=None):
+    def set_timestep(self, step, wnew, index_type='slice', f_alls=None):
         '''
         Set solution at a timestep to new value
 
@@ -306,7 +306,7 @@ class paradiag(object):
         for k in range(self.ncpts):
             f_alls[index0+k].assign(wnew.sub(k))
 
-    def get_timestep(self, step, index_type='window', wout=None, name=None, f_alls=None):
+    def get_timestep(self, step, index_type='slice', wout=None, name=None, f_alls=None):
         '''
         Get solution at a timestep to new value
 
