@@ -494,11 +494,27 @@ class paradiag(object):
             p_form += (1-theta)*self.form_function(*w0s, *dws)
         self.para_form = p_form
 
-    def solve(self, verbose=False):
+    def solve(self,
+              nwindows=1,
+              preproc=lambda pdg, w: None,
+              postproc=lambda pdg, w: None,
+              verbose=False):
         """
         Solve the system (either in one shot or as a relaxation method).
+        :arg nwindows: number of windows to solve for
+        :arg preproc: callback called before each window solve
+        :arg postproc: callback called after each window solve
         """
 
-        with self.opts.inserted_options():
-            self.snes.solve(None, self.X)
-        self.update(self.X)
+        for wndw in range(nwindows):
+
+            preproc(self, wndw)
+
+            with self.opts.inserted_options():
+                self.snes.solve(None, self.X)
+            self.update(self.X)
+
+            postproc(self, wndw)
+
+            if wndw != nwindows-1:
+                self.next_window()
