@@ -20,7 +20,7 @@ def test_for_each_timestep():
 
     mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
 
-    ncpt=1
+    ncpt = 1
     W = fd.FunctionSpace(mesh, "DG", 1)
     v0 = fd.Function(W, name="v0")
     v0.assign(0)
@@ -48,7 +48,7 @@ def test_for_each_timestep():
         PD.set_timestep(step, v0, index_range='slice')
 
     PD.for_each_timestep(
-        lambda wi, si, w: check_timestep(fd.Constant(si),w))
+        lambda wi, si, w: check_timestep(fd.Constant(si), w))
 
     # set each timestep as window timestep index
     for step in range(PD.M[PD.rT]):
@@ -56,7 +56,7 @@ def test_for_each_timestep():
         PD.set_timestep(step, v0, index_range='slice')
 
     PD.for_each_timestep(
-        lambda wi, si, w: check_timestep(fd.Constant(wi),w))
+        lambda wi, si, w: check_timestep(fd.Constant(wi), w))
 
 
 ncpts = [1, 2]
