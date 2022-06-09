@@ -162,14 +162,14 @@ if skip_start:
     PETSc.Sys.Print('')
 
     wserial = serial_solve(
-            base_level=args.base_level,
-            ref_level=args.ref_level,
-            tmax=15,
-            dumpt=1,
-            dt=args.dt/3,
-            coords_degree=args.coords_degree,
-            sparameters=sparameters,
-            comm=ensemble.comm)
+        base_level=args.base_level,
+        ref_level=args.ref_level,
+        tmax=15,
+        dumpt=1,
+        dt=args.dt/3,
+        coords_degree=args.coords_degree,
+        sparameters=sparameters,
+        comm=ensemble.comm)
 
     wguess = fd.Function(W)
     if ensemble.ensemble_comm.rank == 0:
@@ -227,7 +227,7 @@ if PD.rT == len(M)-1:
     cfl_calc = diagnostics.convective_cfl_calculator(mesh)
 
     pvcalc = diagnostics.potential_vorticity_calculator(
-        V1,name='vorticity')
+        V1, name='vorticity')
 
     def assign_out_functions():
         uout.assign(PD.w_all.split()[-2])
@@ -241,6 +241,7 @@ if PD.rT == len(M)-1:
         ofile.write(uout, hout, pvcalc(uout), time=t/earth.day)
 
     cfl_series = []
+
     def max_cfl():
         with cfl_calc(uout, dt).dat.vec_ro as v:
             return v.max()[1]
@@ -252,7 +253,7 @@ for w in range(args.nwindows):
     PETSc.Sys.Print(f'### === --- Calculating time-window {w} --- === ###')
     PETSc.Sys.Print('')
 
-    PD.solve() 
+    PD.solve()
 
     if w == 0:
         PD.snes.getKSP().setType('gmres')
@@ -282,10 +283,10 @@ for w in range(args.nwindows):
         PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm)
         PETSc.Sys.Print('', comm=ensemble.comm)
 
-    if  not (1 < PD.snes.getConvergedReason() < 5):
+    if not (1 < PD.snes.getConvergedReason() < 5):
         PETSc.Sys.Print('SNES diverged, cancelling time integration')
         break
-        
+
     PD.next_window()
 
 PETSc.Sys.Print('')
@@ -302,5 +303,3 @@ PETSc.Sys.Print(f'windows: {(args.nwindows-1)}')
 PETSc.Sys.Print(f'timesteps: {(args.nwindows-1)*window_length}')
 PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows-1)}')
 PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows-1)}')
-
-
