@@ -85,6 +85,10 @@ class JacobianMatrix(object):
                     tensor=self.F_prev)
         self.F += self.F_prev
 
+        # unset flag if alpha-circulant approximation only in Jacobian
+        if self.paradiag.circ not in ["picard"]:
+            self.paradiag.Circ.assign(0.0)
+
         # Apply boundary conditions
         # assumes paradiag.w_all contains the current state we are
         # interested in
