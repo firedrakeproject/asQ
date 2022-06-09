@@ -57,22 +57,16 @@ class JacobianMatrix(object):
 
         mpi_requests = []
         # Communication stage
+
         # send
-        usends = self.usend.split()
         r = self.paradiag.ensemble.ensemble_comm.rank  # the time rank
-        # r = ensemble.ensemble_comm.rank # the time rank
-        for k in range(self.paradiag.ncpts):
-            usends[k].assign(self.ulist[self.paradiag.ncpts*(self.paradiag.M[r]-1)+k])
-        if r < n-1:
-            request_send = self.paradiag.ensemble.isend(self.usend, dest=r+1, tag=r)
-        else:
-            request_send = self.paradiag.ensemble.isend(self.usend, dest=0, tag=r)
+        self.paradiag.get_timestep(-1, index_range='slice', wout=self.usend, f_alls=self.ulist)
+
+        request_send = self.paradiag.ensemble.isend(self.usend, dest=((r+1) % n), tag=r)
         mpi_requests.extend(request_send)
+
         # receive
-        if r > 0:
-            request_recv = self.paradiag.ensemble.irecv(self.urecv, source=r-1, tag=r-1)
-        else:
-            request_recv = self.paradiag.ensemble.irecv(self.urecv, source=n-1, tag=n-1)
+        request_recv = self.paradiag.ensemble.irecv(self.urecv, source=((r-1) % n), tag=r-1)
         mpi_requests.extend(request_recv)
 
         # wait for the data [we should really do this after internal
@@ -163,6 +157,9 @@ class paradiag(object):
         self.ctx = ctx
         self.block_ctx = block_ctx
 
+        if w0.function_space() != W:
+            raise ValueError("Function w0 must be in FunctionSpace W")
+
         # A coefficient that switches the alpha-circulant term on
         self.Circ = fd.Constant(1.0)
 
@@ -184,12 +181,10 @@ class paradiag(object):
         # function containing the part of the
         # all-at-once solution assigned to this rank
         self.w_all = fd.Function(self.W_all)
-        w_alls = self.w_all.split()
+        self.w_alls = self.w_all.split()
         # initialise it from the initial condition
         for i in range(M[rT]):
-            for k in range(self.ncpts):
-                w_alls[self.ncpts*i+k].assign(self.w0.sub(k))
-        self.w_alls = w_alls
+            self.set_timestep(i, w0, index_range='slice')
 
         # apply boundary conditions
         for bc in self.W_all_bcs:
@@ -268,6 +263,132 @@ class paradiag(object):
                                         bc.sub_domain)
                 self.W_all_bcs.append(all_bc)
 
+    def check_index(self, i, index_range='slice'):
+        '''
+        Check that timestep index is in range
+        :arg i: timestep index to chec:
+        :arg index_range: range that index is in. Either slice or window
+        '''
+        # set valid range
+        if index_range == 'slice':
+            maxidx = self.M[self.rT]
+        elif index_range == 'window':
+            maxidx = sum(self.M)
+        else:
+            raise ValueError("index_range must be one of 'window' or 'slice'")
+
+        # allow for pythonic negative indices
+        minidx = -maxidx
+
+        if not (minidx <= i < maxidx):
+            raise ValueError(f"index {i} outside {index_range} range {maxidx}")
+
+    def shift_index(self, i, from_range='slice', to_range='slice'):
+        '''
+        Shift timestep index from one range to another, and accounts for -ve indices
+        :arg i: timestep index to shift
+        :arg from_range: range of i. Either slice or window
+        :arg to_range: range to shift i to. Either slice or window
+        '''
+        self.check_index(i, index_range=from_range)
+
+        # deal with -ve indices
+        if from_range == 'slice':
+            maxidx = self.M[self.rT]
+        elif from_range == 'window':
+            maxidx = sum(self.M)
+
+        i = i % maxidx
+
+        # no shift needed
+        if to_range == from_range:
+            return i
+
+        # index of first timestep in slice
+        index0 = sum(self.M[:self.rT])
+
+        if to_range == 'slice':  # 'from_range' == 'window'
+            i -= index0
+
+        if to_range == 'window':  # 'from_range' == 'slice'
+            i += index0
+
+        self.check_index(i, index_range=to_range)
+
+        return i
+
+    def set_timestep(self, step, wnew, index_range='slice', f_alls=None):
+        '''
+        Set solution at a timestep to new value
+
+        :arg step: index of timestep to set.
+        :arg wnew: new solution for timestep
+        :arg index_range: is index in window or slice?
+        :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
+        '''
+
+        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
+
+        if f_alls is None:
+            f_alls = self.w_alls
+
+        # index of first component of this step
+        index0 = self.ncpts*step_local
+
+        for k in range(self.ncpts):
+            f_alls[index0+k].assign(wnew.sub(k))
+
+    def get_timestep(self, step, index_range='slice', wout=None, name=None, f_alls=None):
+        '''
+        Get solution at a timestep to new value
+
+        :arg step: index of timestep to set.
+        :arg index_range: is index in window or slice?
+        :arg wout: function to set to timestep (timestep returned if None)
+        :arg name: name of returned function
+        :arg f_alls: an all-at-once function to get timestep from. If None, self.w_alls is used
+        '''
+
+        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
+
+        if f_alls is None:
+            f_alls = self.w_alls
+
+        # where to put timestep?
+        if wout is None:
+            if name is None:
+                wreturn = fd.Function(self.W)
+            else:
+                wreturn = fd.Function(self.W, name=name)
+            wget = wreturn
+        else:
+            wget = wout
+
+        # index of first component of this step
+        index0 = self.ncpts*step_local
+
+        for k in range(self.ncpts):
+            wget.sub(k).assign(f_alls[index0+k])
+
+        if wout is None:
+            return wreturn
+
+    def for_each_timestep(self, callback):
+        '''
+        call callback for each timestep in each slice in the current window
+        callback arguments are: timestep index in window, timestep index in slice, Function at timestep
+
+        :arg callback: the function to call for each timestep
+        '''
+
+        w = fd.Function(self.W)
+        for slice_index in range(self.M[self.rT]):
+            window_index = self.shift_index(slice_index,
+                                            from_range='slice',
+                                            to_range='window')
+            self.get_timestep(slice_index, wout=w, index_range='slice')
+            callback(window_index, slice_index, w)
+
     def update(self, X):
         # Update self.w_alls and self.w_recv
         # from X.
@@ -283,20 +404,13 @@ class paradiag(object):
         mpi_requests = []
         # Communication stage
         # send
-        usends = self.w_send.split()
-        r = self.ensemble.ensemble_comm.rank  # the time rank
-        for k in range(self.ncpts):
-            usends[k].assign(self.w_alls[self.ncpts*(self.M[r]-1)+k])
-        if r < n-1:
-            request_send = self.ensemble.isend(self.w_send, dest=r+1, tag=r)
-        else:
-            request_send = self.ensemble.isend(self.w_send, dest=0, tag=r)
+        r = self.rT  # the time rank
+        self.get_timestep(-1, wout=self.w_send, index_range='slice')
+
+        request_send = self.ensemble.isend(self.w_send, dest=((r+1) % n), tag=r)
         mpi_requests.extend(request_send)
-        # receive
-        if r > 0:
-            request_recv = self.ensemble.irecv(self.w_recv, source=r-1, tag=r-1)
-        else:
-            request_recv = self.ensemble.irecv(self.w_recv, source=n-1, tag=n-1)
+
+        request_recv = self.ensemble.irecv(self.w_recv, source=((r-1) % n), tag=r-1)
         mpi_requests.extend(request_recv)
 
         # wait for the data [we should really do this after internal
@@ -306,22 +420,19 @@ class paradiag(object):
     def next_window(self, w1=None):
         """
         Reset paradiag ready for next time-window
+
         :arg w1: initial solution for next time-window.If None,
                  will use the final timestep from previous window
         """
         rank = self.rT
         ncomm = self.ensemble.ensemble_comm.size
-        ncpts = self.ncpts
 
         if w1 is not None:  # use given function
             self.w0.assign(w1)
         else:  # last rank broadcasts final timestep
             if rank == ncomm-1:
                 # index of start of final timestep
-                i0 = ncpts*(self.M[-1]-1)
-                for k in range(ncpts):
-                    wend = self.w_alls[i0+k]
-                    self.w0.sub(k).assign(wend)
+                self.get_timestep(-1, wout=self.w0, index_range='slice')
 
             # there should really be a bcast method on the ensemble
             # if this gets added in firedrake then this will need updating
@@ -340,8 +451,7 @@ class paradiag(object):
 
         # persistence forecast
         for i in range(self.M[rank]):
-            for k in range(ncpts):
-                self.w_alls[ncpts*i+k].assign(self.w0.sub(k))
+            self.set_timestep(i, self.w0, index_range='slice')
 
         return
 
@@ -410,11 +520,29 @@ class paradiag(object):
             p_form += (1-theta)*self.form_function(*w0s, *dws)
         self.para_form = p_form
 
-    def solve(self, verbose=False):
+    def solve(self,
+              nwindows=1,
+              preproc=lambda pdg, w: None,
+              postproc=lambda pdg, w: None,
+              verbose=False):
         """
         Solve the system (either in one shot or as a relaxation method).
+
+        preproc and postproc must have call signature (paradiag, int)
+        :arg nwindows: number of windows to solve for
+        :arg preproc: callback called before each window solve
+        :arg postproc: callback called after each window solve
         """
 
-        with self.opts.inserted_options():
-            self.snes.solve(None, self.X)
-        self.update(self.X)
+        for wndw in range(nwindows):
+
+            preproc(self, wndw)
+
+            with self.opts.inserted_options():
+                self.snes.solve(None, self.X)
+            self.update(self.X)
+
+            postproc(self, wndw)
+
+            if wndw != nwindows-1:
+                self.next_window()
