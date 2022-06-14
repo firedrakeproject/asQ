@@ -9,7 +9,6 @@ from utils import diagnostics
 from utils.planets import earth
 import utils.shallow_water.nonlinear as swe
 from utils.shallow_water.williamson1992 import case5
-from utils.shallow_water.verifications.williamson5 import serial_solve
 
 PETSc.Sys.popErrorHandler()
 
@@ -189,6 +188,10 @@ r = PD.rT
 
 # only last slice does diagnostics/output
 if PD.rT == len(M)-1:
+    cfl_series = []
+    linear_its = 0
+    nonlinear_its = 0
+
     ofile = fd.File('output/'+args.filename+'.pvd',
                     comm=ensemble.comm)
 
@@ -211,30 +214,31 @@ if PD.rT == len(M)-1:
     def write_to_file(t):
         ofile.write(uout, hout, pvcalc(uout), time=t/earth.day)
 
-    cfl_series = []
-
     def max_cfl():
         with cfl_calc(uout, dt).dat.vec_ro as v:
             return v.max()[1]
 
-# solve for each window
-linear_its = 0
-nonlinear_its = 0
-for w in range(args.nwindows):
+
+def window_preproc(pdg, wndw):
     PETSc.Sys.Print('')
-    PETSc.Sys.Print(f'### === --- Calculating time-window {w} --- === ###')
+    PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
 
-    PD.solve()
 
-    linear_its += PD.snes.getLinearSolveIterations()
-    nonlinear_its += PD.snes.getIterationNumber()
+def window_postproc(pdg, wndw):
+    # make sure variables are properly captured
+    global linear_its
+    global nonlinear_its
+    global cfl_series
 
     # postprocess this timeslice
     if r == len(M)-1:
+        linear_its += pdg.snes.getLinearSolveIterations()
+        nonlinear_its += pdg.snes.getIterationNumber()
+
         assign_out_functions()
 
-        time = time_at_last_step(w)
+        time = time_at_last_step(wndw)
 
         # write to file at the end of each day
         for day in range(51):
@@ -250,13 +254,17 @@ for w in range(args.nwindows):
         PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm)
         PETSc.Sys.Print('', comm=ensemble.comm)
 
-    if not (1 < PD.snes.getConvergedReason() < 5):
+    if not (1 < pdg.snes.getConvergedReason() < 5):
         PETSc.Sys.Print('SNES diverged, cancelling time integration')
-        break
 
-    PD.next_window()
+    PETSc.Sys.Print('')
 
-PETSc.Sys.Print('')
+
+# solve for each window
+PD.solve(nwindows=args.nwindows,
+         preproc=window_preproc,
+         postproc=window_postproc)
+
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
@@ -266,7 +274,10 @@ if r == len(M)-1:
     PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print('', comm=ensemble.comm)
 
-PETSc.Sys.Print(f'windows: {(args.nwindows)}')
-PETSc.Sys.Print(f'timesteps: {(args.nwindows)*window_length}')
-PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows)}')
-PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows)}')
+    PETSc.Sys.Print(f'windows: {(args.nwindows)}', comm=ensemble.comm)
+    PETSc.Sys.Print(f'timesteps: {(args.nwindows)*window_length}', comm=ensemble.comm)
+    PETSc.Sys.Print('', comm=ensemble.comm)
+
+    PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows)}', comm=ensemble.comm)
+    PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows)}', comm=ensemble.comm)
+    PETSc.Sys.Print('', comm=ensemble.comm)
