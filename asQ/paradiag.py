@@ -550,5 +550,9 @@ class paradiag(object):
 
             postproc(self, wndw)
 
+            if not (1 < self.snes.getConvergedReason() < 5):
+                PETSc.Sys.Print(f'SNES diverged with error code {self.snes.getConvergedReason()}. Cancelling paradiag time integration.')
+                return
+
             if wndw != nwindows-1:
                 self.next_window()

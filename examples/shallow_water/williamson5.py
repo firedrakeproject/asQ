@@ -254,9 +254,6 @@ def window_postproc(pdg, wndw):
         PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm)
         PETSc.Sys.Print('', comm=ensemble.comm)
 
-    if not (1 < pdg.snes.getConvergedReason() < 5):
-        PETSc.Sys.Print('SNES diverged, cancelling time integration')
-
     PETSc.Sys.Print('')
 
 
