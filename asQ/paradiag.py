@@ -394,11 +394,13 @@ class paradiag(object):
             callback(window_index, slice_index, w)
 
     def update(self, X):
-        # Update self.w_alls and self.w_recv
-        # from X.
-        # The local parts of X are copied into self.w_alls
-        # and the last step from the previous slice (periodic)
-        # is copied into self.u_prev
+        '''
+        Update self.w_alls and self.w_recv
+        from X.
+        The local parts of X are copied into self.w_alls
+        and the last step from the previous slice (periodic)
+        is copied into self.u_prev
+        '''
 
         n = self.ensemble.ensemble_comm.size
 
