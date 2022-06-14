@@ -23,7 +23,7 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice. Default 2.')
 parser.add_argument('--nspatial_domains', type=int, default=2, help='Size of spatial partition. Default 2.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient. Default 0.0001.')
-parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours. Default 0.05.')
+parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours. Default 0.05.')
 parser.add_argument('--filename', type=str, default='w5diag')
 parser.add_argument('--coords_degree', type=int, default=1, help='Degree of polynomials for sphere mesh approximation. Default 1')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space).')
@@ -227,9 +227,8 @@ for w in range(args.nwindows):
 
     PD.solve()
 
-    if w != 0:
-        linear_its += PD.snes.getLinearSolveIterations()
-        nonlinear_its += PD.snes.getIterationNumber()
+    linear_its += PD.snes.getLinearSolveIterations()
+    nonlinear_its += PD.snes.getIterationNumber()
 
     # postprocess this timeslice
     if r == len(M)-1:
@@ -267,7 +266,7 @@ if r == len(M)-1:
     PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print('', comm=ensemble.comm)
 
-PETSc.Sys.Print(f'windows: {(args.nwindows-1)}')
-PETSc.Sys.Print(f'timesteps: {(args.nwindows-1)*window_length}')
-PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows-1)}')
-PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows-1)}')
+PETSc.Sys.Print(f'windows: {(args.nwindows)}')
+PETSc.Sys.Print(f'timesteps: {(args.nwindows)*window_length}')
+PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows)}')
+PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows)}')
