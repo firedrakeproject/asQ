@@ -22,9 +22,9 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice. Default 2.')
 parser.add_argument('--nspatial_domains', type=int, default=2, help='Size of spatial partition. Default 2.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient. Default 0.0001.')
-parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours. Default 0.05.')
+parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours. Default 0.5.')
 parser.add_argument('--filename', type=str, default='w5diag')
-parser.add_argument('--coords_degree', type=int, default=1, help='Degree of polynomials for sphere mesh approximation. Default 1')
+parser.add_argument('--coords_degree', type=int, default=1, help='Degree of polynomials for sphere mesh approximation. Default 1.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space).')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
@@ -73,10 +73,11 @@ un, hn = w0.split()
 
 f = case5.coriolis_expression(*x)
 b = case5.topography_function(*x, V2, name="Topography")
+H = case5.H0
 
 un.project(case5.velocity_expression(*x))
 etan = case5.elevation_function(*x, V2, name="Elevation")
-hn.assign(case5.H0 + etan - b)
+hn.assign(H + etan - b)
 
 
 # nonlinear swe forms
@@ -157,8 +158,7 @@ sparameters_diag = {
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 PETSc.Sys.Print('')
 
-
-for i in range(sum(M)):  # should this be sum(M) or max(M)?
+for i in range(sum(M)):
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
 # non-petsc information for block solve
@@ -171,9 +171,6 @@ for _ in range(sum(M)):
     transfer_managers.append(tm)
 
 block_ctx['diag_transfer_managers'] = transfer_managers
-
-# block solve is linear
-sparameters['ksp_type'] = 'preonly'
 
 PD = asQ.paradiag(ensemble=ensemble,
                   form_function=form_function,
@@ -206,7 +203,7 @@ if PD.rT == len(M)-1:
     def assign_out_functions():
         uout.assign(PD.w_all.split()[-2])
         hout.assign(PD.w_all.split()[-1])
-        hout.assign(hout + b - case5.H0)
+        hout.assign(hout + b - H)
 
     def time_at_last_step(w):
         return dt*(w + 1)*window_length
