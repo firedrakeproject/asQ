@@ -1,10 +1,11 @@
-import numpy as np
+
 import firedrake as fd
 from petsc4py import PETSc
 import asQ
 
 from utils import mg
 from utils import units
+from utils import diagnostics
 from utils.planets import earth
 import utils.shallow_water.nonlinear as swe
 from utils.shallow_water.williamson1992 import case5
@@ -34,13 +35,15 @@ args = args[0]
 if args.show_args:
     PETSc.Sys.Print(args)
 
+PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Setting up --- === ###')
 PETSc.Sys.Print('')
 
 # time steps
 
 M = [args.slice_length for _ in range(args.nslices)]
-nsteps = args.nwindows*sum(M)
+window_length = sum(M)
+nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
 
@@ -91,6 +94,7 @@ def form_mass(u, h, v, q):
 sparameters = {
     # 'snes_monitor': None,
     'mat_type': 'matfree',
+    # 'ksp_type': 'preonly',
     'ksp_type': 'fgmres',
     # 'ksp_monitor': None,
     # 'ksp_monitor_true_residual': None,
@@ -125,41 +129,35 @@ sparameters = {
 
 sparameters_diag = {
     'snes_linesearch_type': 'basic',
+    # 'snes_linesearch_damping': 1.0,
     'snes_monitor': None,
     'snes_converged_reason': None,
     'snes_atol': 1e-0,
-    'snes_rtol': 1e-16,
-    'snes_stol': 1e-100,
+    'snes_rtol': 1e-12,
+    'snes_stol': 1e-12,
+    # 'snes_divergence_tolerance': 1e6,
+    'snes_max_it': 100,
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     # 'ksp_type': 'preonly',
-    'ksp_max_it': 10,
     # 'ksp_atol': 1e-8,
     # 'ksp_rtol': 1e-8,
     # 'ksp_stol': 1e-8,
+    # 'ksp_max_it': 2000,
+    # 'ksp_gmres_restart': 100,
+    # 'ksp_gmres_modifiedgramschmidt': None,
+    # 'ksp_max_it': 300,
+    # 'ksp_convergence_test': 'skip',
+    # 'snes_max_linear_solver_fails': 5,
     'ksp_monitor': None,
     # 'ksp_monitor_true_residual': None,
     'ksp_converged_reason': None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
-PETSc.Sys.Print('### === --- Calculating serial solution --- === ###')
-PETSc.Sys.Print('')
-wserial = serial_solve(base_level=args.base_level,
-                       ref_level=args.ref_level,
-                       tmax=nsteps,
-                       dumpt=1,
-                       dt=args.dt,
-                       coords_degree=args.coords_degree,
-                       degree=args.degree,
-                       sparameters=sparameters,
-                       comm=ensemble.comm,
-                       verbose=False)
-
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
+PETSc.Sys.Print('')
 
-# block solve is linear
-sparameters['ksp_type'] = 'preonly'
 
 for i in range(sum(M)):  # should this be sum(M) or max(M)?
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
@@ -175,6 +173,9 @@ for _ in range(sum(M)):
 
 block_ctx['diag_transfer_managers'] = transfer_managers
 
+# block solve is linear
+sparameters['ksp_type'] = 'preonly'
+
 PD = asQ.paradiag(ensemble=ensemble,
                   form_function=form_function,
                   form_mass=form_mass, W=W, w0=w0,
@@ -184,15 +185,37 @@ PD = asQ.paradiag(ensemble=ensemble,
                   circ=None, tol=1.0e-6, maxits=None,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
-time_series = []
-
-ws = fd.Function(W)
-wp = fd.Function(W)
-
-us, hs = ws.split()
-up, hp = wp.split()
-
 r = PD.rT
+
+# only last slice does diagnostics/output
+if PD.rT == len(M)-1:
+    ofile = fd.File('output/'+args.filename+'.pvd',
+                    comm=ensemble.comm)
+
+    uout = fd.Function(V1, name='velocity')
+    hout = fd.Function(V2, name='depth')
+
+    cfl_calc = diagnostics.convective_cfl_calculator(mesh)
+
+    pvcalc = diagnostics.potential_vorticity_calculator(
+        V1, name='vorticity')
+
+    def assign_out_functions():
+        uout.assign(PD.w_all.split()[-2])
+        hout.assign(PD.w_all.split()[-1])
+        hout.assign(hout + b - case5.H0)
+
+    def time_at_last_step(w):
+        return dt*(w + 1)*window_length
+
+    def write_to_file(t):
+        ofile.write(uout, hout, pvcalc(uout), time=t/earth.day)
+
+    cfl_series = []
+
+    def max_cfl():
+        with cfl_calc(uout, dt).dat.vec_ro as v:
+            return v.max()[1]
 
 # solve for each window
 linear_its = 0
@@ -203,62 +226,48 @@ for w in range(args.nwindows):
     PETSc.Sys.Print('')
 
     PD.solve()
-    linear_its += PD.snes.getLinearSolveIterations()
-    nonlinear_its += PD.snes.getIterationNumber()
 
-    # build time series
-    window_series = []
+    if w != 0:
+        linear_its += PD.snes.getLinearSolveIterations()
+        nonlinear_its += PD.snes.getIterationNumber()
 
-    for i in range(M[r]):
+    # postprocess this timeslice
+    if r == len(M)-1:
+        assign_out_functions()
 
-        up.assign(PD.w_all.split()[2*i])
-        hp.assign(PD.w_all.split()[2*i+1])
+        time = time_at_last_step(w)
 
-        window_series.append(wp.copy(deepcopy=True))
+        # write to file at the end of each day
+        for day in range(51):
+            midnight = day*earth.day
+            if midnight-0.5*dt < time < midnight+0.5*dt:
+                write_to_file(time)
 
-    time_series.append(window_series)
+        cfl = max_cfl()
+        cfl_series += [cfl]
+        PETSc.Sys.Print('', comm=ensemble.comm)
+        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
+        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=ensemble.comm)
+        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm)
+        PETSc.Sys.Print('', comm=ensemble.comm)
+
+    if not (1 < PD.snes.getConvergedReason() < 5):
+        PETSc.Sys.Print('SNES diverged, cancelling time integration')
+        break
 
     PD.next_window()
 
-# compare against serial solution
-window_length = sum(M)
-
-local_errors = np.zeros((2, nsteps))
-errors = np.zeros((2, nsteps))
-
-PETSc.Sys.Print('### === --- Calculate parallel-serial differences errors --- === ###')
 PETSc.Sys.Print('')
 
-for w in range(args.nwindows):
+PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+PETSc.Sys.Print('')
 
-    window_step0 = w*window_length
-    slice_step0 = window_step0 + sum(M[:r])
+if r == len(M)-1:
+    PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
+    PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
+    PETSc.Sys.Print('', comm=ensemble.comm)
 
-    for i in range(M[r]):
-
-        tstep = slice_step0 + i
-
-        up.assign(time_series[w][i].split()[0])
-        hp.assign(time_series[w][i].split()[1])
-
-        us.assign(wserial[tstep].split()[0])
-        hs.assign(wserial[tstep].split()[1])
-
-        uerror = fd.errornorm(us, up)/fd.norm(us)
-        herror = fd.errornorm(hs, hp)/fd.norm(hs)
-
-        local_errors[0][tstep] = uerror
-        local_errors[1][tstep] = herror
-
-ensemble.ensemble_comm.Allreduce(local_errors, errors)
-
-if r == 0:
-    for tstep in range(nsteps):
-        uerror = errors[0][tstep]
-        herror = errors[1][tstep]
-
-        PETSc.Sys.Print('timestep:', tstep, '|', 'uerror:', uerror, '|', 'herror: ', herror, comm=ensemble.comm)
-
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print('nonlinear iterations:', nonlinear_its, '|', 'linear iterations:', linear_its, comm=ensemble.comm)
-    PETSc.Sys.Print('')
+PETSc.Sys.Print(f'windows: {(args.nwindows-1)}')
+PETSc.Sys.Print(f'timesteps: {(args.nwindows-1)*window_length}')
+PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows-1)}')
+PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows-1)}')
