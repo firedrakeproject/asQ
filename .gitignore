@@ -1,7 +1,8 @@
 *__pycache__*
 *.swp
-*/output/*
+*/**/output/*
 *egg-info*
 *.vtu
 *.pvtu
 *.pvd
+*.h5
