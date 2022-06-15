@@ -103,7 +103,7 @@ class DiagFFTPC(object):
             self.ncpts = Ve.num_sub_elements()
             for cpt in range(Ve.num_sub_elements()):
                 SubV = Ve.sub_elements()[cpt]
-                if isinstance(SubV, fd.EnrichedElement):
+                if isinstance(SubV, fd.EnrichedElement) or isinstance(SubV, fd.FiniteElement):
                     MixedCpts.append(fd.VectorElement(SubV, dim=2))
                 elif isinstance(SubV, fd.VectorElement):
                     shape = (2, SubV.num_sub_elements())
