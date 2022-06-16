@@ -20,12 +20,9 @@ class DiagFFTPC(object):
 
     def setUp(self, pc):
         """Setup method called by PETSc."""
-        if self.initialized:
-            self.update(pc)
-        else:
+        if not self.initialized:
             self.initialize(pc)
-            self.update(pc)
-            self.initialized = True
+        self.update(pc)
 
     def initialize(self, pc):
         if pc.getType() != "python":
@@ -106,7 +103,7 @@ class DiagFFTPC(object):
             self.ncpts = Ve.num_sub_elements()
             for cpt in range(Ve.num_sub_elements()):
                 SubV = Ve.sub_elements()[cpt]
-                if isinstance(SubV, fd.EnrichedElement):
+                if isinstance(SubV, fd.EnrichedElement) or isinstance(SubV, fd.FiniteElement):
                     MixedCpts.append(fd.VectorElement(SubV, dim=2))
                 elif isinstance(SubV, fd.VectorElement):
                     shape = (2, SubV.num_sub_elements())
@@ -288,7 +285,8 @@ class DiagFFTPC(object):
 
             self.Jsolvers.append(Jsolver)
 
-            
+        self.initialized = True
+
     def set_CblockV_bcs(self):
         self.CblockV_bcs = []
         for bc in self.paradiag.W_bcs:

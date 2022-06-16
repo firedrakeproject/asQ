@@ -8,6 +8,198 @@ from operator import mul
 
 
 @pytest.mark.parallel(nprocs=4)
+def test_for_each_timestep():
+    '''
+    test paradiag.for_each_timestep
+    '''
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    ncpt = 1
+    W = fd.FunctionSpace(mesh, "DG", 1)
+    v0 = fd.Function(W, name="v0")
+    v0.assign(0)
+
+    # dummy forms
+    def form_function(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    def form_mass(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=W, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    def check_timestep(expression, w):
+        assert(fd.errornorm(expression, w) < 1e-12)
+
+    # set each timestep as slice timestep index
+    for step in range(PD.M[PD.rT]):
+        v0.assign(step)
+        PD.set_timestep(step, v0, index_range='slice')
+
+    PD.for_each_timestep(
+        lambda wi, si, w: check_timestep(fd.Constant(si), w))
+
+    # set each timestep as window timestep index
+    for step in range(PD.M[PD.rT]):
+        v0.assign(PD.shift_index(step, from_range='slice', to_range='window'))
+        PD.set_timestep(step, v0, index_range='slice')
+
+    PD.for_each_timestep(
+        lambda wi, si, w: check_timestep(fd.Constant(wi), w))
+
+
+ncpts = [1, 2]
+
+
+@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parametrize("ncpt", ncpts)
+def test_get_timestep(ncpt):
+    '''
+    test getting a specific timestep
+    only valid if test_set_timestep passes
+    '''
+
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    V = fd.FunctionSpace(mesh, "DG", 1)
+    W = V
+    for _ in range(1, ncpt):
+        W *= V
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
+
+    # dummy forms
+    def form_function(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    def form_mass(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    # two random solutions
+    np.random.seed(572046)
+
+    for dat in v0.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+    for dat in v1.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=W, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    # set each step using window index
+    rank = PD.rT
+
+    for slice_index in range(M[rank]):
+        window_index = PD.shift_index(slice_index,
+                                      from_range='slice',
+                                      to_range='window')
+        PD.set_timestep(window_index, v1, index_range='window')
+        err = fd.errornorm(v1, PD.get_timestep(window_index, index_range='window'))
+        assert(err < 1e-12)
+
+    # set each step using slice index
+    vcheck = fd.Function(W)
+    for step in range(M[rank]):
+        PD.set_timestep(step, v0, index_range='slice')
+
+        PD.get_timestep(step, index_range='slice', wout=vcheck)
+        err = fd.errornorm(v0, vcheck)
+        assert(err < 1e-12)
+
+
+@pytest.mark.parametrize("ncpt", ncpts)
+@pytest.mark.parallel(nprocs=4)
+def test_set_timestep(ncpt):
+    '''
+    test setting a specific timestep
+    '''
+
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    V = fd.FunctionSpace(mesh, "DG", 1)
+    W = V
+    for _ in range(1, ncpt):
+        W *= V
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
+
+    # dummy forms
+    def form_function(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    def form_mass(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    # two random solutions
+    np.random.seed(572046)
+
+    for dat in v0.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+    for dat in v1.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=W, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    vcheck = fd.Function(W)
+    vchecks = vcheck.split()
+
+    # set each step using window index
+    rank = PD.rT
+
+    for slice_index in range(M[rank]):
+        window_index = PD.shift_index(slice_index,
+                                      from_range='slice',
+                                      to_range='window')
+        PD.set_timestep(window_index, v1, index_range='window')
+        for i in range(ncpt):
+            vchecks[i].assign(PD.w_alls[ncpt*slice_index+i])
+        err = fd.errornorm(v1, vcheck)
+        assert(err < 1e-12)
+
+    # set each step using slice index
+    for step in range(M[rank]):
+        PD.set_timestep(step, v0, index_range='slice')
+
+        for i in range(ncpt):
+            vchecks[i].assign(PD.w_alls[ncpt*step+i])
+
+        err = fd.errornorm(v0, vcheck)
+        assert(err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
 def test_next_window():
     # test resetting paradiag to start to next time-window
 
@@ -17,7 +209,7 @@ def test_next_window():
 
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
-    mesh = fd.UnitSquareMesh(10, 10, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
 
     V = fd.FunctionSpace(mesh, "DG", 1)
     v0 = fd.Function(V, name="v0")
@@ -48,20 +240,20 @@ def test_next_window():
     rank = PD.rT
 
     for step in range(PD.M[rank]):
-        err = fd.errornorm(v1, PD.w_alls[step])
+        err = fd.errornorm(v1, PD.get_timestep(step))
         assert(err < 1e-12)
 
     # force last timestep = v0
     ncomm = ensemble.ensemble_comm.size
     if rank == ncomm-1:
-        PD.w_alls[-1].assign(v0)
+        PD.set_timestep(-1, v0)
 
     # set next window from end of last window
     PD.next_window()
 
     # check all timesteps == v0
     for step in range(PD.M[rank]):
-        err = fd.errornorm(v0, PD.w_alls[step])
+        err = fd.errornorm(v0, PD.get_timestep(step))
         assert(err < 1e-12)
 
 
@@ -77,7 +269,7 @@ def test_williamson5_timeseries():
     base_level = 1
     ref_level = 2
     dt = 0.05
-    coords_degree = 3
+    coords_degree = 1
     degree = 1
     alpha = 0.0001
 
@@ -86,10 +278,12 @@ def test_williamson5_timeseries():
 
     # block solver options
     sparameters = {
-        "snes_atol": 1e-8,
+        'snes_monitor': None,
+        'ksp_monitor': None,
+        'snes_converged_reason': None,
+        'ksp_converged_reason': None,
         "mat_type": "matfree",
         "ksp_type": "fgmres",
-        "ksp_atol": 1e-8,
         "ksp_max_it": 400,
         "pc_type": "mg",
         "pc_mg_cycle_type": "v",
@@ -117,6 +311,10 @@ def test_williamson5_timeseries():
 
     # paradiag solver options
     sparameters_diag = {
+        'snes_monitor': None,
+        'ksp_monitor': None,
+        'snes_converged_reason': None,
+        'ksp_converged_reason': None,
         'snes_linesearch_type': 'basic',
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
@@ -126,6 +324,7 @@ def test_williamson5_timeseries():
 
     # list of serial timesteps
 
+    PETSc.Sys.Print("serial solve")
     wserial = serial_solve(base_level=base_level,
                            ref_level=ref_level,
                            tmax=nsteps,
@@ -147,7 +346,12 @@ def test_williamson5_timeseries():
 
     # block solve is linear for parallel solution
     sparameters['ksp_type'] = 'preonly'
+    del sparameters['snes_monitor']
+    del sparameters['ksp_monitor']
+    del sparameters['snes_converged_reason']
+    del sparameters['ksp_converged_reason']
 
+    PETSc.Sys.Print("parallel solve")
     wparallel = parallel_solve(base_level=base_level,
                                ref_level=ref_level,
                                M=M,
@@ -295,7 +499,7 @@ def test_steady_swe():
         assert(abs(uerr) < utol)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_linear_swe_FFT():
     # minimal test for FFT PC
     import utils.planets.earth as earth
@@ -306,7 +510,7 @@ def test_linear_swe_FFT():
     nspatial_domains = 2
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
     mesh = fd.IcosahedralSphereMesh(radius=earth.radius,
-                                    refinement_level=3,
+                                    refinement_level=2,
                                     degree=2,
                                     comm=ensemble.comm)
     x = fd.SpatialCoordinate(mesh)
@@ -354,7 +558,7 @@ def test_linear_swe_FFT():
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC'}
 
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     for i in range(np.sum(M)):
         solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
@@ -376,7 +580,7 @@ def test_linear_swe_FFT():
     assert (1 < PD.snes.getConvergedReason() < 5)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_jacobian_heat_equation():
     # tests the basic snes setup
     # using the heat equation
@@ -393,7 +597,7 @@ def test_jacobian_heat_equation():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-10, 'ksp_atol': 1.0e-10,
                          'ksp_monitor': None,
@@ -426,7 +630,7 @@ def test_jacobian_heat_equation():
     assert (1 < PD.snes.getConvergedReason() < 5)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_set_para_form():
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the heat equation as an example by
@@ -443,7 +647,7 @@ def test_set_para_form():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
@@ -510,7 +714,7 @@ def test_set_para_form():
     assert(fd.errornorm(Ffull.sub(rT * 2 + 1), PD_Ff.sub(1)) < 1.0e-12)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_set_para_form_mixed_parallel():
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the heat equation as an example by
@@ -532,7 +736,7 @@ def test_set_para_form_mixed_parallel():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
@@ -611,11 +815,11 @@ def test_set_para_form_mixed_parallel():
     assert(fd.errornorm(Ffull.sub(rT*4+3), PD_F.sub(3)) < 1.0e-12)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_jacobian_mixed_parallel():
     ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
 
-    mesh = fd.UnitSquareMesh(20, 20, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
     V = fd.FunctionSpace(mesh, "BDM", 1)
     Q = fd.FunctionSpace(mesh, "DG", 0)
     W = V * Q
@@ -628,7 +832,7 @@ def test_jacobian_mixed_parallel():
     dt = 0.01
     theta = 0.5
     alpha = 0.001
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     Ml = np.sum(M)
     c = fd.Constant(0.1)
     eps = fd.Constant(0.001)
@@ -756,7 +960,7 @@ def test_jacobian_mixed_parallel():
 bc_opts = ["none", "homogeneous", "inhomogeneous"]
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("bc_opt", bc_opts)
 def test_solve_para_form(bc_opt):
     # checks that the all-at-once system is the same as solving
@@ -776,7 +980,7 @@ def test_solve_para_form(bc_opt):
     theta = 0.5
     alpha = 0.001
     c = fd.Constant(1)
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     Ml = np.sum(M)
 
     # Parameters for the diag
@@ -859,7 +1063,7 @@ def test_solve_para_form(bc_opt):
         assert(fd.errornorm(vfull.sub(ind1), PD.w_all.sub(i)) < 1.0e-9)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(nprocs=6)
 def test_solve_para_form_mixed():
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR mixed wave equation as an
@@ -884,7 +1088,7 @@ def test_solve_para_form_mixed():
     c = fd.Constant(10)
     eps = fd.Constant(0.001)
 
-    M = [2, 2, 2, 2]
+    M = [2, 2, 2]
     Ml = np.sum(M)
 
     # Parameters for the diag
