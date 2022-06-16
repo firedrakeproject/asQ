@@ -56,3 +56,14 @@ def elevation_expression(x, y, z, href=H0, uref=U0):
 def elevation_function(x, y, z, V2, href=H0, uref=U0, name="elevation"):
     eta = fd.Function(V2, name=name)
     return eta.project(elevation_expression(x, y, z, href=href, uref=uref))
+
+
+# topography field b
+def topography_expression(x, y, z):
+    return fd.Constant(0)
+
+
+def topography_function(x, y, z, V2,
+                        name="topography"):
+    b = fd.Function(V2, name=name)
+    return b.interpolate(topography_expression(x, y, z))

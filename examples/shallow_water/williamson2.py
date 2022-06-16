@@ -71,7 +71,7 @@ w0 = fd.Function(W)
 un, hn = w0.split()
 
 f = case2.coriolis_expression(*x)
-b = fd.Constant(0)
+b = case2.topography_function(*x, V2, name="Topography")
 H = case2.H0
 
 un.project(case2.velocity_expression(*x))
@@ -137,7 +137,7 @@ sparameters_diag = {
     # 'snes_divergence_tolerance': 1e6,
     'snes_max_it': 100,
     'mat_type': 'matfree',
-    'ksp_type': 'gmres',
+    'ksp_type': 'fgmres',
     # 'ksp_type': 'preonly',
     # 'ksp_atol': 1e-8,
     # 'ksp_rtol': 1e-8,
@@ -179,23 +179,23 @@ PD = asQ.paradiag(ensemble=ensemble,
                   M=M, solver_parameters=sparameters_diag,
                   circ=None, tol=1.0e-6, maxits=None,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
+
 PD.solve()
 
 # check against initial conditions
 walls = PD.w_all.split()
-hn.assign(hn-H+b)
+hn.assign(hn - H + b)
 
-hmag = fd.sqrt(fd.assemble(hn*hn*fd.dx))
-umag = fd.sqrt(fd.assemble(fd.inner(un, un)*fd.dx))
 
-for step in range(M[PD.rT]):
-
-    up = walls[2*step]
-    hp = walls[2*step+1]
-    hp.assign(hp-H+b)
+def solution_test(window_index, slice_index, w):
+    up = w.split()[0]
+    hp = w.split()[1]
+    hp.assign(hp - H + b)
 
     herr = fd.errornorm(hn, hp)/fd.norm(hn)
     uerr = fd.errornorm(un, up)/fd.norm(un)
 
-    timestep = sum(M[:PD.rT]) + step
-    PETSc.Sys.Print(f"timestep={timestep}, herr={herr}, uerr={uerr}", comm=ensemble.comm)
+    PETSc.Sys.Print(f"timestep={window_index}, herr={herr}, uerr={uerr}", comm=ensemble.comm)
+
+
+PD.for_each_timestep(solution_test)
