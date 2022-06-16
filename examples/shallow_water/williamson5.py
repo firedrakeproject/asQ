@@ -181,7 +181,6 @@ PD = asQ.paradiag(ensemble=ensemble,
                   circ=None, tol=1.0e-6, maxits=None,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
-r = PD.rT
 
 # only last slice does diagnostics/output
 if PD.rT == len(M)-1:
@@ -229,7 +228,7 @@ def window_postproc(pdg, wndw):
     global cfl_series
 
     # postprocess this timeslice
-    if r == len(M)-1:
+    if PD.rT == len(M)-1:
         linear_its += pdg.snes.getLinearSolveIterations()
         nonlinear_its += pdg.snes.getIterationNumber()
 
@@ -263,7 +262,7 @@ PD.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
-if r == len(M)-1:
+if PD.rT == len(M)-1:
     PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print('', comm=ensemble.comm)

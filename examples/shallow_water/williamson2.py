@@ -1,4 +1,5 @@
 
+import numpy as np
 import firedrake as fd
 from petsc4py import PETSc
 import asQ
@@ -180,22 +181,53 @@ PD = asQ.paradiag(ensemble=ensemble,
                   circ=None, tol=1.0e-6, maxits=None,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
-PD.solve()
+
+def window_preproc(pdg, wndw):
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
+    PETSc.Sys.Print('')
+
 
 # check against initial conditions
-walls = PD.w_all.split()
-hn.assign(hn - H + b)
+wcheck = w0.copy(deepcopy=True)
+ucheck, hcheck = wcheck.split()
+hcheck.assign(hcheck - H + b)
 
 
-def solution_test(window_index, slice_index, w):
+def steady_state_test(w):
     up = w.split()[0]
     hp = w.split()[1]
     hp.assign(hp - H + b)
 
-    herr = fd.errornorm(hn, hp)/fd.norm(hn)
-    uerr = fd.errornorm(un, up)/fd.norm(un)
+    uerr = fd.errornorm(ucheck, up)/fd.norm(ucheck)
+    herr = fd.errornorm(hcheck, hp)/fd.norm(hcheck)
 
-    PETSc.Sys.Print(f"timestep={window_index}, herr={herr}, uerr={uerr}", comm=ensemble.comm)
+    return uerr, herr
 
 
-PD.for_each_timestep(solution_test)
+# check each timestep against steady state
+def window_postproc(pdg, wndw):
+    errors = np.zeros((window_length, 2))
+    local_errors = np.zeros_like(errors)
+
+    # collect errors for this slice
+    def for_each_callback(window_index, slice_index, w):
+        nonlocal local_errors
+        local_errors[window_index, :] = steady_state_test(w)
+
+    pdg.for_each_timestep(for_each_callback)
+
+    # collect and print errors for full window
+    ensemble.ensemble_comm.Reduce(local_errors, errors, root=0)
+    if pdg.rT == 0:
+        for window_index in range(window_length):
+            timestep = wndw*window_length + window_index
+            uerr = errors[window_index, 0]
+            herr = errors[window_index, 1]
+            PETSc.Sys.Print(f"timestep={timestep}, uerr={uerr}, herr={herr}",
+                            comm=ensemble.comm)
+
+
+PD.solve(nwindows=args.nwindows,
+         preproc=window_preproc,
+         postproc=window_postproc)
