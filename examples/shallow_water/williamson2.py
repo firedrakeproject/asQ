@@ -7,7 +7,7 @@ import asQ
 from utils import mg
 from utils import units
 from utils.planets import earth
-import utils.shallow_water.nonlinear as swe
+import utils.shallow_water as swe
 import utils.shallow_water.williamson1992.case2 as case2
 
 PETSc.Sys.popErrorHandler()
@@ -62,9 +62,8 @@ mesh = mg.icosahedral_mesh(R0=earth.radius,
 x = fd.SpatialCoordinate(mesh)
 
 # Mixed function space for velocity and depth
-degree = args.degree
-V1 = fd.FunctionSpace(mesh, "BDM", degree+1)
-V2 = fd.FunctionSpace(mesh, "DG", degree)
+V1 = swe.default_velocity_function_space(mesh, degree=args.degree)
+V2 = swe.default_depth_function_space(mesh, degree=args.degree)
 W = fd.MixedFunctionSpace((V1, V2))
 
 # initial conditions
@@ -83,11 +82,11 @@ hn.assign(H + etan - b)
 # nonlinear swe forms
 
 def form_function(u, h, v, q):
-    return swe.form_function(mesh, earth.Gravity, b, f, u, h, v, q)
+    return swe.nonlinear.form_function(mesh, earth.Gravity, b, f, u, h, v, q)
 
 
 def form_mass(u, h, v, q):
-    return swe.form_mass(mesh, u, h, v, q)
+    return swe.nonlinear.form_mass(mesh, u, h, v, q)
 
 
 # parameters for the implicit diagonal solve in step-(b)
