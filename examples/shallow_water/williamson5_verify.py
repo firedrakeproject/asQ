@@ -81,12 +81,7 @@ sparameters_diag = {
     'snes_stol': 1e-100,
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
-    # 'ksp_type': 'preonly',
     'ksp_max_it': 10,
-    # 'ksp_atol': 1e-8,
-    # 'ksp_rtol': 1e-8,
-    # 'ksp_stol': 1e-8,
-    # 'ksp_monitor_true_residual': None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
@@ -187,8 +182,5 @@ if trank == 0:
     for tstep in range(nsteps):
         uerror = errors[0][tstep]
         herror = errors[1][tstep]
-
         PETSc.Sys.Print('timestep:', f'{tstep:>3}', '|', 'uerror:', f'{uerror:<.4e}', '|', 'herror: ', f'{herror:<.4e}', comm=ensemble.comm)
-
     PETSc.Sys.Print('', comm=ensemble.comm)
-    # PETSc.Sys.Print('nonlinear iterations:', nonlinear_its, '|', 'linear iterations:', linear_its, comm=ensemble.comm)
