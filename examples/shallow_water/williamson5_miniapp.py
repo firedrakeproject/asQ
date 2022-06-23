@@ -177,15 +177,15 @@ for _ in range(sum(M)):
 
 block_ctx['diag_transfer_managers'] = transfer_managers
 
-PD = asQ.paradiag(ensemble=ensemble,
-                  form_function=form_function,
-                  form_mass=form_mass, W=W, w0=w0,
-                  dt=dt, theta=0.5,
-                  alpha=args.alpha,
-                  M=M, solver_parameters=sparameters_diag,
-                  circ=None, tol=1.0e-6, maxits=None,
-                  ctx={}, block_ctx=block_ctx, block_mat_type="aij")
+miniapp = swe.ShallowWaterMiniApp(ensemble=ensemble,
+                                  form_function=form_function,
+                                  form_mass=form_mass, W=W, w0=w0,
+                                  dt=dt, theta=0.5,
+                                  alpha=args.alpha,
+                                  M=M, solver_parameters=sparameters_diag,
+                                  block_ctx=block_ctx)
 
+PD = miniapp.paradiag
 
 # only last slice does diagnostics/output
 if PD.rT == len(M)-1:

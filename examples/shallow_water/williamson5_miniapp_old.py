@@ -48,51 +48,27 @@ dt = args.dt*units.hour
 
 # multigrid mesh set up
 
-ensemble = fd.Ensemble(fd.COMM_WORLD, args.nspatial_domains)
 
-# mesh set up
-distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
+def create_mesh(comm):
+    distribution_parameters = {
+        "partition": True,
+        "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)
+    }
+    return mg.icosahedral_mesh(R0=earth.radius,
+                               base_level=args.base_level,
+                               degree=args.coords_degree,
+                               distribution_parameters=distribution_parameters,
+                               nrefs=args.ref_level-args.base_level,
+                               comm=comm)
 
-mesh = mg.icosahedral_mesh(R0=earth.radius,
-                           base_level=args.base_level,
-                           degree=args.coords_degree,
-                           distribution_parameters=distribution_parameters,
-                           nrefs=args.ref_level-args.base_level,
-                           comm=ensemble.comm)
-x = fd.SpatialCoordinate(mesh)
+f_exp = case5.coriolis_expression
+b_exp = case5.topography_expression
+u_exp = case5.velocity_expression
 
-# Mixed function space for velocity and depth
-V1 = swe.default_velocity_function_space(mesh, degree=args.degree)
-V2 = swe.default_depth_function_space(mesh, degree=args.degree)
-W = fd.MixedFunctionSpace((V1, V2))
 
-# initial conditions
-w0 = fd.Function(W)
-un, hn = w0.split()
-
-f = case5.coriolis_expression(*x)
-b = case5.topography_function(*x, V2, name="Topography")
-H = case5.H0
-
-un.project(case5.velocity_expression(*x))
-etan = case5.elevation_expression(*x)
-
-def h_exp():
-    b_exp = case5.topography_expression
+def h_exp(x, y, z):
     eta_exp = case5.elevation_expression
-    return case5.H0 + eta_exp(*x) - b_exp(*x)
-
-hn.project(h_exp())
-
-
-# nonlinear swe forms
-
-def form_function(u, h, v, q):
-    return swe.nonlinear.form_function(mesh, earth.Gravity, b, f, u, h, v, q)
-
-
-def form_mass(u, h, v, q):
-    return swe.nonlinear.form_mass(mesh, u, h, v, q)
+    return case5.H0 + eta_exp(x, y, z) - b_exp(x, y, z)
 
 
 # parameters for the implicit diagonal solve in step-(b)
@@ -143,7 +119,7 @@ sparameters_diag = {
     # 'snes_divergence_tolerance': 1e6,
     'snes_max_it': 100,
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'gmres',
     # 'ksp_type': 'preonly',
     # 'ksp_atol': 1e-8,
     # 'ksp_rtol': 1e-8,
@@ -160,54 +136,46 @@ sparameters_diag = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
-PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
-PETSc.Sys.Print('')
-
 for i in range(sum(M)):
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
-# non-petsc information for block solve
-block_ctx = {}
+PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
+PETSc.Sys.Print('')
 
-# mesh transfer operators
-transfer_managers = []
-for _ in range(sum(M)):
-    tm = mg.manifold_transfer_manager(W)
-    transfer_managers.append(tm)
-
-block_ctx['diag_transfer_managers'] = transfer_managers
-
-PD = asQ.paradiag(ensemble=ensemble,
-                  form_function=form_function,
-                  form_mass=form_mass, W=W, w0=w0,
-                  dt=dt, theta=0.5,
-                  alpha=args.alpha,
-                  M=M, solver_parameters=sparameters_diag,
-                  circ=None, tol=1.0e-6, maxits=None,
-                  ctx={}, block_ctx=block_ctx, block_mat_type="aij")
+miniapp = swe.ShallowWaterMiniApp(create_mesh=create_mesh,
+                                  gravity=earth.Gravity,
+                                  topography_expression=b_exp,
+                                  coriolis_expression=f_exp,
+                                  velocity_expression=u_exp,
+                                  depth_expression=h_exp,
+                                  dt=args.dt,
+                                  alpha=args.alpha,
+                                  slice_partition=M,
+                                  paradiag_sparameters=sparameters_diag,
+                                  block_sparameters=sparameters)
 
 
 # only last slice does diagnostics/output
-if PD.rT == len(M)-1:
+if miniapp.paradiag.rT == len(M)-1:
     cfl_series = []
     linear_its = 0
     nonlinear_its = 0
 
     ofile = fd.File('output/'+args.filename+'.pvd',
-                    comm=ensemble.comm)
+                    comm=miniapp.ensemble.comm)
 
-    uout = fd.Function(V1, name='velocity')
-    hout = fd.Function(V2, name='depth')
+    uout = fd.Function(miniapp.V1, name='velocity')
+    hout = fd.Function(miniapp.V2, name='depth')
 
-    cfl_calc = diagnostics.convective_cfl_calculator(mesh)
+    cfl_calc = diagnostics.convective_cfl_calculator(miniapp.mesh)
 
     pvcalc = diagnostics.potential_vorticity_calculator(
-        V1, name='vorticity')
+        miniapp.V1, name='vorticity')
 
     def assign_out_functions():
-        uout.assign(PD.w_all.split()[-2])
-        hout.assign(PD.w_all.split()[-1])
-        hout.assign(hout + b - H)
+        uout.assign(miniapp.paradiag.w_all.split()[-2])
+        hout.assign(miniapp.paradiag.w_all.split()[-1])
+        hout.assign(hout + miniapp.b - case5.H0)
 
     def time_at_last_step(w):
         return dt*(w + 1)*window_length
@@ -233,7 +201,7 @@ def window_postproc(pdg, wndw):
     global cfl_series
 
     # postprocess this timeslice
-    if PD.rT == len(M)-1:
+    if pdg.rT == len(M)-1:
         linear_its += pdg.snes.getLinearSolveIterations()
         nonlinear_its += pdg.snes.getIterationNumber()
 
@@ -249,33 +217,33 @@ def window_postproc(pdg, wndw):
 
         cfl = max_cfl()
         cfl_series += [cfl]
-        PETSc.Sys.Print('', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm)
-        PETSc.Sys.Print('', comm=ensemble.comm)
+        PETSc.Sys.Print('', comm=pdg.ensemble.comm)
+        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=pdg.ensemble.comm)
+        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=pdg.ensemble.comm)
+        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=pdg.ensemble.comm)
+        PETSc.Sys.Print('', comm=pdg.ensemble.comm)
 
     PETSc.Sys.Print('')
 
 
 # solve for each window
-PD.solve(nwindows=args.nwindows,
-         preproc=window_preproc,
-         postproc=window_postproc)
+miniapp.paradiag.solve(nwindows=args.nwindows,
+                       preproc=window_preproc,
+                       postproc=window_postproc)
 
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
-if PD.rT == len(M)-1:
-    PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+if miniapp.paradiag.rT == len(M)-1:
+    PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=miniapp.ensemble.comm)
+    PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=miniapp.ensemble.comm)
+    PETSc.Sys.Print('', comm=miniapp.ensemble.comm)
 
-    PETSc.Sys.Print(f'windows: {(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'timesteps: {(args.nwindows)*window_length}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+    PETSc.Sys.Print(f'windows: {(args.nwindows)}', comm=miniapp.ensemble.comm)
+    PETSc.Sys.Print(f'timesteps: {(args.nwindows)*window_length}', comm=miniapp.ensemble.comm)
+    PETSc.Sys.Print('', comm=miniapp.ensemble.comm)
 
-    PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+    PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows)}', comm=miniapp.ensemble.comm)
+    PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows)}', comm=miniapp.ensemble.comm)
+    PETSc.Sys.Print('', comm=miniapp.ensemble.comm)
