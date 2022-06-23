@@ -365,6 +365,9 @@ def test_williamson5_timeseries():
                                alpha=alpha,
                                verbose=False)
 
+    # # only one window
+    wparallel = wparallel[0]
+
     # compare the solutions
 
     W = wserial[0].function_space()

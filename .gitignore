@@ -6,3 +6,5 @@
 *.pvtu
 *.pvd
 *.h5
+*.dat
+*.out

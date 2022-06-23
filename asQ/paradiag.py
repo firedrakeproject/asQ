@@ -394,11 +394,13 @@ class paradiag(object):
             callback(window_index, slice_index, w)
 
     def update(self, X):
-        # Update self.w_alls and self.w_recv
-        # from X.
-        # The local parts of X are copied into self.w_alls
-        # and the last step from the previous slice (periodic)
-        # is copied into self.u_prev
+        '''
+        Update self.w_alls and self.w_recv
+        from X.
+        The local parts of X are copied into self.w_alls
+        and the last step from the previous slice (periodic)
+        is copied into self.u_prev
+        '''
 
         n = self.ensemble.ensemble_comm.size
 
@@ -440,8 +442,18 @@ class paradiag(object):
 
             # there should really be a bcast method on the ensemble
             # if this gets added in firedrake then this will need updating
-            for dat in self.w0.dat:
-                self.ensemble.ensemble_comm.Bcast(dat.data, root=ncomm-1)
+            #   Both of these approaches pass the test. Which is best?
+
+            # Ensemble.(i)send/(i)recv uses dat.data, which doesn't need a context manager
+            #   this is because dat.data is the actual data so can't go out of scope if non-blocking
+            #   the context manager for a vector may go out of scope before isend/recv completes
+            # for dat in self.w0.dat:
+            #     self.ensemble.ensemble_comm.Bcast(dat.data, root=ncomm-1)
+
+            # Ensemble.allreduce uses vec.array, which requires only one communication
+            #   this is because bcast is blocking so context manager can't go out of scope before completion
+            with self.w0.dat.vec as vec:
+                self.ensemble.ensemble_comm.Bcast(vec.array, root=ncomm-1)
 
         # persistence forecast
         for i in range(self.M[rank]):
@@ -537,6 +549,10 @@ class paradiag(object):
             self.update(self.X)
 
             postproc(self, wndw)
+
+            if not (1 < self.snes.getConvergedReason() < 5):
+                PETSc.Sys.Print(f'SNES diverged with error code {self.snes.getConvergedReason()}. Cancelling paradiag time integration.')
+                return
 
             if wndw != nwindows-1:
                 self.next_window()
