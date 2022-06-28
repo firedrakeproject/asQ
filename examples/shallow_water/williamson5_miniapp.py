@@ -120,9 +120,7 @@ def h_exp(x, y, z):
     eta_exp = case5.elevation_expression
     return case5.H0 + eta_exp(x, y, z) - b_exp(x, y, z)
 
-
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
-PETSc.Sys.Print('')
 
 miniapp = swe.ShallowWaterMiniApp(create_mesh=create_mesh,
                                   gravity=earth.Gravity,

@@ -15,11 +15,13 @@ class ShallowWaterMiniApp(object):
                  dt, theta, alpha,
                  slice_partition,
                  paradiag_sparameters,
-                 block_ctx={}):
+                 block_ctx={},
+                 velocity_function_space=swe.default_velocity_function_space,
+                 depth_function_space=swe.default_depth_function_space):
         '''
         A miniapp to integrate the rotating shallow water equations on the sphere using the paradiag method.
 
-        :arg create_mesh: function to generate the mesh given an MPI communicator
+        :arg create_mesh: function to generate the mesh, given an MPI communicator
         :arg gravity: the gravitational constant.
         :arg topography_expression: firedrake expression for the topography field.
         :arg coriolis_expression: firedrake expression for the coriolis parameter.
@@ -31,6 +33,8 @@ class ShallowWaterMiniApp(object):
         :arg slice_partition: a list with how many timesteps are on each of the ensemble time-ranks.
         :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
         :block_ctx: a dictionary of extra values required for the block system solvers.
+        :velocity_function_space: function to return a firedrake FunctionSpace for the velocity field, given a mesh
+        :depth_function_space: function to return a firedrake FunctionSpace for the depth field, given a mesh
         '''
 
         # calculate nspatial_domains and set up ensemble
@@ -47,8 +51,8 @@ class ShallowWaterMiniApp(object):
         x = fd.SpatialCoordinate(self.mesh)
 
         # Mixed function space for velocity and depth
-        self.V1 = swe.default_velocity_function_space(self.mesh)
-        self.V2 = swe.default_depth_function_space(self.mesh)
+        self.V1 = velocity_function_space(self.mesh)
+        self.V2 = depth_function_space(self.mesh)
         self.W = fd.MixedFunctionSpace((self.V1, self.V2))
 
         # nonlinear swe forms

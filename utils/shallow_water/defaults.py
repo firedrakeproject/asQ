@@ -29,7 +29,7 @@ def default_depth_function_space(mesh, degree=default_degree()):
     return fd.FunctionSpace(mesh, "DG", degree)
 
 
-def default_funcion_space(mesh, degree=default_degree()):
+def default_function_space(mesh, degree=default_degree()):
     '''
     Default finite element function space for the depth field: BDM*DG
 
