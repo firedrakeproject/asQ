@@ -77,10 +77,12 @@ H = case5.H0
 un.project(case5.velocity_expression(*x))
 etan = case5.elevation_expression(*x)
 
+
 def h_exp():
     b_exp = case5.topography_expression
     eta_exp = case5.elevation_expression
     return case5.H0 + eta_exp(*x) - b_exp(*x)
+
 
 hn.project(h_exp())
 
@@ -136,7 +138,6 @@ sparameters_diag = {
     'snes_max_it': 100,
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    'ksp_type': 'gmres',
     'ksp_monitor': None,
     'ksp_converged_reason': None,
     'pc_type': 'python',

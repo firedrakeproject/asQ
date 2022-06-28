@@ -1,7 +1,6 @@
 
 import firedrake as fd
 from petsc4py import PETSc
-import asQ
 
 from utils import mg
 from utils import units
@@ -46,64 +45,10 @@ nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
 
-# multigrid mesh set up
-
-ensemble = fd.Ensemble(fd.COMM_WORLD, args.nspatial_domains)
-
-# mesh set up
-distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
-
-mesh = mg.icosahedral_mesh(R0=earth.radius,
-                           base_level=args.base_level,
-                           degree=args.coords_degree,
-                           distribution_parameters=distribution_parameters,
-                           nrefs=args.ref_level-args.base_level,
-                           comm=ensemble.comm)
-x = fd.SpatialCoordinate(mesh)
-
-# Mixed function space for velocity and depth
-V1 = swe.default_velocity_function_space(mesh, degree=args.degree)
-V2 = swe.default_depth_function_space(mesh, degree=args.degree)
-W = fd.MixedFunctionSpace((V1, V2))
-
-# initial conditions
-w0 = fd.Function(W)
-un, hn = w0.split()
-
-f = case5.coriolis_expression(*x)
-b = case5.topography_function(*x, V2, name="Topography")
-H = case5.H0
-
-un.project(case5.velocity_expression(*x))
-etan = case5.elevation_expression(*x)
-
-def h_exp():
-    b_exp = case5.topography_expression
-    eta_exp = case5.elevation_expression
-    return case5.H0 + eta_exp(*x) - b_exp(*x)
-
-hn.project(h_exp())
-
-
-# nonlinear swe forms
-
-def form_function(u, h, v, q):
-    return swe.nonlinear.form_function(mesh, earth.Gravity, b, f, u, h, v, q)
-
-
-def form_mass(u, h, v, q):
-    return swe.nonlinear.form_mass(mesh, u, h, v, q)
-
-
 # parameters for the implicit diagonal solve in step-(b)
 sparameters = {
-    # 'snes_monitor': None,
     'mat_type': 'matfree',
-    # 'ksp_type': 'preonly',
     'ksp_type': 'fgmres',
-    # 'ksp_monitor': None,
-    # 'ksp_monitor_true_residual': None,
-    # 'ksp_converged_reason': None,
     'ksp_atol': 1e-8,
     'ksp_rtol': 1e-8,
     'ksp_max_it': 400,
@@ -112,7 +57,6 @@ sparameters = {
     'pc_mg_type': 'multiplicative',
     'mg_levels_ksp_type': 'gmres',
     'mg_levels_ksp_max_it': 5,
-    # 'mg_levels_ksp_convergence_test': 'skip',
     'mg_levels_pc_type': 'python',
     'mg_levels_pc_python_type': 'firedrake.PatchPC',
     'mg_levels_patch_pc_patch_save_operators': True,
@@ -134,61 +78,68 @@ sparameters = {
 
 sparameters_diag = {
     'snes_linesearch_type': 'basic',
-    # 'snes_linesearch_damping': 1.0,
     'snes_monitor': None,
     'snes_converged_reason': None,
     'snes_atol': 1e-0,
     'snes_rtol': 1e-12,
     'snes_stol': 1e-12,
-    # 'snes_divergence_tolerance': 1e6,
     'snes_max_it': 100,
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    # 'ksp_type': 'preonly',
-    # 'ksp_atol': 1e-8,
-    # 'ksp_rtol': 1e-8,
-    # 'ksp_stol': 1e-8,
-    # 'ksp_max_it': 2000,
-    # 'ksp_gmres_restart': 100,
-    # 'ksp_gmres_modifiedgramschmidt': None,
-    # 'ksp_max_it': 300,
-    # 'ksp_convergence_test': 'skip',
-    # 'snes_max_linear_solver_fails': 5,
     'ksp_monitor': None,
-    # 'ksp_monitor_true_residual': None,
     'ksp_converged_reason': None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
-PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
-PETSc.Sys.Print('')
-
 for i in range(sum(M)):
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
-# non-petsc information for block solve
-block_ctx = {}
 
-# mesh transfer operators
-transfer_managers = []
-for _ in range(sum(M)):
-    tm = mg.manifold_transfer_manager(W)
-    transfer_managers.append(tm)
+# multigrid mesh set up
+def create_mesh(comm):
+    distribution_parameters = {
+        "partition": True,
+        "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)
+    }
+    return mg.icosahedral_mesh(R0=earth.radius,
+                               base_level=args.base_level,
+                               degree=args.coords_degree,
+                               distribution_parameters=distribution_parameters,
+                               nrefs=args.ref_level-args.base_level,
+                               comm=comm)
 
-block_ctx['diag_transfer_managers'] = transfer_managers
 
-miniapp = swe.ShallowWaterMiniApp(ensemble=ensemble,
-                                  form_function=form_function,
-                                  form_mass=form_mass, W=W, w0=w0,
+# initial conditions
+f_exp = case5.coriolis_expression
+b_exp = case5.topography_expression
+u_exp = case5.velocity_expression
+
+
+def h_exp(x, y, z):
+    b_exp = case5.topography_expression
+    eta_exp = case5.elevation_expression
+    return case5.H0 + eta_exp(x, y, z) - b_exp(x, y, z)
+
+
+PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
+PETSc.Sys.Print('')
+
+miniapp = swe.ShallowWaterMiniApp(create_mesh=create_mesh,
+                                  gravity=earth.Gravity,
+                                  topography_expression=b_exp,
+                                  coriolis_expression=f_exp,
+                                  velocity_expression=u_exp,
+                                  depth_expression=h_exp,
                                   dt=dt, theta=0.5,
-                                  alpha=args.alpha,
-                                  M=M, solver_parameters=sparameters_diag,
-                                  block_ctx=block_ctx)
+                                  alpha=args.alpha, slice_partition=M,
+                                  paradiag_sparameters=sparameters_diag)
 
-PD = miniapp.paradiag
+pdg = miniapp.paradiag
+x = fd.SpatialCoordinate(miniapp.mesh)
+ensemble = miniapp.ensemble
 
 # only last slice does diagnostics/output
-if PD.rT == len(M)-1:
+if pdg.rT == len(M)-1:
     cfl_series = []
     linear_its = 0
     nonlinear_its = 0
@@ -196,18 +147,21 @@ if PD.rT == len(M)-1:
     ofile = fd.File('output/'+args.filename+'.pvd',
                     comm=ensemble.comm)
 
-    uout = fd.Function(V1, name='velocity')
-    hout = fd.Function(V2, name='depth')
+    wout = fd.Function(miniapp.W, name='output_function')
+    uout = fd.Function(miniapp.V1, name='velocity')
+    hout = fd.Function(miniapp.V2, name='depth')
 
-    cfl_calc = diagnostics.convective_cfl_calculator(mesh)
+    cfl_calc = diagnostics.convective_cfl_calculator(miniapp.mesh)
 
     pvcalc = diagnostics.potential_vorticity_calculator(
-        V1, name='vorticity')
+        miniapp.V1, name='vorticity')
+
+    b = fd.Function(miniapp.V2, name='topography').interpolate(miniapp.topography)
 
     def assign_out_functions():
-        uout.assign(PD.w_all.split()[-2])
-        hout.assign(PD.w_all.split()[-1])
-        hout.assign(hout + b - H)
+        pdg.get_timestep(-1, wout=wout)
+        uout.assign(wout.split()[0])
+        hout.assign(wout.split()[1] + b - case5.H0)
 
     def time_at_last_step(w):
         return dt*(w + 1)*window_length
@@ -233,7 +187,7 @@ def window_postproc(pdg, wndw):
     global cfl_series
 
     # postprocess this timeslice
-    if PD.rT == len(M)-1:
+    if pdg.rT == len(M)-1:
         linear_its += pdg.snes.getLinearSolveIterations()
         nonlinear_its += pdg.snes.getIterationNumber()
 
@@ -259,15 +213,15 @@ def window_postproc(pdg, wndw):
 
 
 # solve for each window
-PD.solve(nwindows=args.nwindows,
-         preproc=window_preproc,
-         postproc=window_postproc)
+pdg.solve(nwindows=args.nwindows,
+          preproc=window_preproc,
+          postproc=window_postproc)
 
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
-if PD.rT == len(M)-1:
+if pdg.rT == len(M)-1:
     PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print('', comm=ensemble.comm)

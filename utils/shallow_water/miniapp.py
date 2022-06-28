@@ -6,38 +6,15 @@ from utils import mg
 
 class ShallowWaterMiniApp(object):
     def __init__(self,
-                 ensemble,
-                 form_function,
-                 form_mass,
-                 W, w0,
-                 dt, theta, alpha, M,
-                 solver_parameters,
-                 block_ctx):
-
-        self.paradiag = asQ.paradiag(
-            ensemble=ensemble,
-            form_function=form_function,
-            form_mass=form_mass, W=W, w0=w0,
-            dt=dt, theta=0.5,
-            alpha=alpha,
-            M=M, solver_parameters=solver_parameters,
-            circ=None, tol=1.0e-6, maxits=None,
-            ctx={}, block_ctx=block_ctx, block_mat_type="aij")
-
-
-class ShallowWaterMiniApp_donotuse(object):
-    def __init__(self,
                  create_mesh,
                  gravity,
                  topography_expression,
                  coriolis_expression,
                  velocity_expression,
                  depth_expression,
-                 dt,
-                 alpha,
+                 dt, theta, alpha,
                  slice_partition,
                  paradiag_sparameters,
-                 block_sparameters,
                  block_ctx={}):
         '''
         A miniapp to integrate the rotating shallow water equations on the sphere using the paradiag method.
@@ -49,10 +26,10 @@ class ShallowWaterMiniApp_donotuse(object):
         :arg velocity_expression: firedrake expression for initialising the velocity field.
         :arg depth_expression: firedrake expression for initialising the depth field.
         :arg dt: timestep size.
+        :arg theta: parameter for the implicit theta-method integrator
         :arg alpha: value used for the alpha-circulant approximation in the paradiag method.
         :arg slice_partition: a list with how many timesteps are on each of the ensemble time-ranks.
         :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
-        :block_sparamaters: a dictionary of PETSc solver parameters for the solution of the block systems in the paradiag matrix
         :block_ctx: a dictionary of extra values required for the block system solvers.
         '''
 
@@ -66,14 +43,41 @@ class ShallowWaterMiniApp_donotuse(object):
 
         self.ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 
-        # set up mesh
         self.mesh = create_mesh(self.ensemble.comm)
         x = fd.SpatialCoordinate(self.mesh)
 
-        # function spaces
+        # Mixed function space for velocity and depth
         self.V1 = swe.default_velocity_function_space(self.mesh)
         self.V2 = swe.default_depth_function_space(self.mesh)
         self.W = fd.MixedFunctionSpace((self.V1, self.V2))
+
+        # nonlinear swe forms
+
+        self.gravity = gravity
+        self.topography = topography_expression(*x)
+        self.coriolis = coriolis_expression(*x)
+
+        def form_function(u, h, v, q):
+            g = self.gravity
+            b = self.topography
+            f = self.coriolis
+            return swe.nonlinear.form_function(self.mesh, g, b, f, u, h, v, q)
+
+        def form_mass(u, h, v, q):
+            return swe.nonlinear.form_mass(self.mesh, u, h, v, q)
+
+        self.form_function = form_function
+        self.form_mass = form_mass
+
+        # initial conditions
+
+        w0 = fd.Function(self.W)
+        u0, h0 = w0.split()
+
+        u0.project(velocity_expression(*x))
+        h0.project(depth_expression(*x))
+
+        # non-petsc information for block solve
 
         # mesh transfer operators
         # probably shouldn't be here, but has to be at the moment because we can't get at the mesh to make W before initialising.
@@ -82,40 +86,15 @@ class ShallowWaterMiniApp_donotuse(object):
         for _ in range(sum(slice_partition)):
             tm = mg.manifold_transfer_manager(self.W)
             transfer_managers.append(tm)
+
         block_ctx['diag_transfer_managers'] = transfer_managers
 
-        # initial conditions
-        self.gravity = gravity
-        self.b = fd.Function(self.V2, name='Elevation')
-        self.b.interpolate(topography_expression(*x))
-
-        self.f = coriolis_expression(*x)
-
-        w0 = fd.Function(self.W)
-        u0, h0 = w0.split()
-
-        u0.project(velocity_expression(*x))
-        h0.project(depth_expression(*x))
-
-        # nonlinear swe forms
-
-        def form_function(u, h, v, q):
-            return swe.nonlinear.form_function(self.mesh, self.gravity, self.b, self.f, u, h, v, q)
-
-        def form_mass(u, h, v, q):
-            return swe.nonlinear.form_mass(self.mesh, u, h, v, q)
-
-        self.form_function = form_function
-        self.form_mass = form_mass
-
-        # set up paradiag
         self.paradiag = asQ.paradiag(
             ensemble=self.ensemble,
             form_function=form_function,
-            form_mass=form_mass, W=self.W, w0=w0,
-            dt=dt, theta=0.5,
-            alpha=alpha,
-            M=slice_partition,
+            form_mass=form_mass,
+            W=self.W, w0=w0,
+            dt=dt, theta=theta,
+            alpha=alpha, M=slice_partition,
             solver_parameters=paradiag_sparameters,
-            circ=None,
-            block_ctx=block_ctx)
+            circ=None, ctx={}, block_ctx=block_ctx)
