@@ -1,4 +1,3 @@
-import numpy as np
 import firedrake as fd
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
@@ -205,7 +204,7 @@ class paradiag(object):
 
         # set up the Vecs X (for coeffs and F for residuals)
         nlocal = M[rT]*W.node_set.size  # local times x local space
-        nglobal = np.prod(M)*W.dim()  # global times x global space
+        nglobal = sum(M)*W.dim()  # global times x global space
         self.X = PETSc.Vec().create(comm=fd.COMM_WORLD)
         self.X.setSizes((nlocal, nglobal))
         self.X.setFromOptions()
