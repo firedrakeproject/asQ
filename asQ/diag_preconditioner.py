@@ -277,7 +277,7 @@ class DiagFFTPC(object):
             # multigrid transfer manager
             if 'diag_transfer_managers' in paradiag.block_ctx:
                 # Jsolver.set_transfer_manager(paradiag.block_ctx['diag_transfer_managers'][ii])
-                tm = paradiag.block_ctx['diag_transfer_managers'][ii]
+                tm = paradiag.block_ctx['diag_transfer_managers'][i]
                 Jsolver.set_transfer_manager(tm)
                 tm_set = (Jsolver._ctx.transfer_manager is tm)
 
