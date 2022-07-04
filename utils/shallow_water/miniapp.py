@@ -109,6 +109,11 @@ class ShallowWaterMiniApp(object):
         # cfl
         self.cfl = diagnostics.convective_cfl_calculator(self.mesh)
 
+        # potential vorticity
+        self.potential_vorticity = diagnostics.potential_vorticity_calculator(
+            self.V1, name='vorticity')
+
+
     def max_cfl(self, v, dt):
         '''
         Return the maximum convective CFL number for the field u with timestep dt

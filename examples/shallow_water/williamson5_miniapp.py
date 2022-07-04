@@ -149,9 +149,6 @@ if pdg.rT == len(M)-1:
     uout = fd.Function(miniapp.V1, name='velocity')
     hout = fd.Function(miniapp.V2, name='depth')
 
-    pvcalc = diagnostics.potential_vorticity_calculator(
-        miniapp.V1, name='vorticity')
-
     b = fd.Function(miniapp.V2, name='topography').interpolate(miniapp.topography)
 
     def assign_out_functions():
@@ -163,7 +160,7 @@ if pdg.rT == len(M)-1:
         return dt*(w + 1)*window_length
 
     def write_to_file(t):
-        ofile.write(uout, hout, pvcalc(uout), time=t/earth.day)
+        ofile.write(uout, hout, miniapp.potential_vorticity(uout), time=t/earth.day)
 
 
 def window_preproc(swe_app, dg, wndw):
