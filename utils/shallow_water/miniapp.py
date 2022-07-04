@@ -52,9 +52,11 @@ class ShallowWaterMiniApp(object):
         x = fd.SpatialCoordinate(self.mesh)
 
         # Mixed function space for velocity and depth
-        self.V1 = velocity_function_space(self.mesh)
-        self.V2 = depth_function_space(self.mesh)
-        self.W = fd.MixedFunctionSpace((self.V1, self.V2))
+        self.velocity_function_space = velocity_function_space(self.mesh)
+        self.depth_function_space = depth_function_space(self.mesh)
+
+        self.function_space = fd.MixedFunctionSpace((self.velocity_function_space,
+                                                     self.depth_function_space))
 
         # nonlinear swe forms
 
@@ -76,7 +78,7 @@ class ShallowWaterMiniApp(object):
 
         # initial conditions
 
-        w0 = fd.Function(self.W)
+        w0 = fd.Function(self.function_space)
         u0, h0 = w0.split()
 
         u0.project(velocity_expression(*x))
@@ -89,7 +91,7 @@ class ShallowWaterMiniApp(object):
         # should look at removing this once the manifold transfer manager has found a proper home
         transfer_managers = []
         for _ in range(slice_partition[self.ensemble.ensemble_comm.rank]):
-            tm = mg.manifold_transfer_manager(self.W)
+            tm = mg.manifold_transfer_manager(self.function_space)
             transfer_managers.append(tm)
 
         block_ctx['diag_transfer_managers'] = transfer_managers
@@ -98,7 +100,7 @@ class ShallowWaterMiniApp(object):
             ensemble=self.ensemble,
             form_function=form_function,
             form_mass=form_mass,
-            W=self.W, w0=w0,
+            W=self.function_space, w0=w0,
             dt=dt, theta=theta,
             alpha=alpha, M=slice_partition,
             solver_parameters=paradiag_sparameters,
@@ -111,7 +113,7 @@ class ShallowWaterMiniApp(object):
 
         # potential vorticity
         self.potential_vorticity = diagnostics.potential_vorticity_calculator(
-            self.V1, name='vorticity')
+            self.velocity_function_space, name='vorticity')
 
     def max_cfl(self, v, dt):
         '''
@@ -119,9 +121,9 @@ class ShallowWaterMiniApp(object):
         :arg v: velocity Function from FunctionSpace V1 or a full MixedFunction from W
         :arg dt: the timestep
         '''
-        if v.function_space() == self.V1:
+        if v.function_space() == self.velocity_function_space:
             u = v
-        elif v.function_space() == self.W:
+        elif v.function_space() == self.function_space:
             u = v.split()[0]
         else:
             raise ValueError("function v must be in FunctionSpace V1 or MixedFunctionSpace W")
