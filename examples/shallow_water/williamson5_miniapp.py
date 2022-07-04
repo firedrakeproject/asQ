@@ -172,13 +172,13 @@ if pdg.rT == len(M)-1:
             return v.max()[1]
 
 
-def window_preproc(pdg, wndw):
+def window_preproc(pmnapp, dg, wndw):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
 
 
-def window_postproc(pdg, wndw):
+def window_postproc(mnapp, pdg, wndw):
     # make sure variables are properly captured
     global linear_its
     global nonlinear_its
@@ -211,9 +211,9 @@ def window_postproc(pdg, wndw):
 
 
 # solve for each window
-pdg.solve(nwindows=args.nwindows,
-          preproc=window_preproc,
-          postproc=window_postproc)
+miniapp.solve(nwindows=args.nwindows,
+              preproc=window_preproc,
+              postproc=window_postproc)
 
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')

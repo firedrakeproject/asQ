@@ -102,3 +102,30 @@ class ShallowWaterMiniApp(object):
             alpha=alpha, M=slice_partition,
             solver_parameters=paradiag_sparameters,
             circ=None, ctx={}, block_ctx=block_ctx)
+
+    def solve(self,
+              nwindows=1,
+              preproc=lambda miniapp, pdg, w: None,
+              postproc=lambda miniapp, pdg, w: None,
+              verbose=False):
+        """
+        Solve the paradiag system
+
+        preproc and postproc must have call signature (miniapp, paradiag, int)
+        :arg nwindows: number of windows to solve for
+        :arg preproc: callback called before each window solve
+        :arg postproc: callback called after each window solve
+        """
+
+        # wrap the pre/post processing functions
+
+        def preprocess(pdg, w):
+            preproc(self, pdg, w)
+
+        def postprocess(pdg, w):
+            postproc(self, pdg, w)
+
+        self.paradiag.solve(nwindows,
+                            preproc=preprocess,
+                            postproc=postprocess,
+                            verbose=verbose)
