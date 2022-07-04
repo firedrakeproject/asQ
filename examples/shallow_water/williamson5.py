@@ -154,7 +154,7 @@ block_ctx = {}
 
 # mesh transfer operators
 transfer_managers = []
-for _ in range(sum(M)):
+for _ in range(M[ensemble.ensemble_comm.rank]):
     tm = mg.manifold_transfer_manager(W)
     transfer_managers.append(tm)
 

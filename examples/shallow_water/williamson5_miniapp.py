@@ -4,7 +4,6 @@ from petsc4py import PETSc
 
 from utils import mg
 from utils import units
-from utils import diagnostics
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water.williamson1992 import case5
@@ -120,6 +119,7 @@ def h_exp(x, y, z):
     eta_exp = case5.elevation_expression
     return case5.H0 + eta_exp(x, y, z) - b_exp(x, y, z)
 
+
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
 miniapp = swe.ShallowWaterMiniApp(create_mesh=create_mesh,
@@ -159,8 +159,14 @@ if pdg.rT == len(M)-1:
     def time_at_last_step(w):
         return dt*(w + 1)*window_length
 
+    def write_to_file(time):
+        ofile.write(uout,
+                    hout,
+                    miniapp.potential_vorticity(uout),
+                    time=time/earth.day)
 
-def window_preproc(swe_app, dg, wndw):
+
+def window_preproc(swe_app, pdg, wndw):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
@@ -181,14 +187,7 @@ def window_postproc(swe_app, pdg, wndw):
 
         time = time_at_last_step(wndw)
 
-        # write to file at the end of each day
-        for day in range(51):
-            midnight = day*earth.day
-            if midnight-0.5*dt < time < midnight+0.5*dt:
-                ofile.write(uout,
-                            hout,
-                            miniapp.potential_vorticity(uout),
-                            time=t/earth.day)
+        write_to_file(time)
 
         cfl = swe_app.max_cfl(uout, dt)
         cfl_series += [cfl]

@@ -88,7 +88,7 @@ class ShallowWaterMiniApp(object):
         # probably shouldn't be here, but has to be at the moment because we can't get at the mesh to make W before initialising.
         # should look at removing this once the manifold transfer manager has found a proper home
         transfer_managers = []
-        for _ in range(sum(slice_partition)):
+        for _ in range(slice_partition[self.ensemble.ensemble_comm.rank]):
             tm = mg.manifold_transfer_manager(self.W)
             transfer_managers.append(tm)
 
@@ -113,7 +113,6 @@ class ShallowWaterMiniApp(object):
         self.potential_vorticity = diagnostics.potential_vorticity_calculator(
             self.V1, name='vorticity')
 
-
     def max_cfl(self, v, dt):
         '''
         Return the maximum convective CFL number for the field u with timestep dt
@@ -125,7 +124,7 @@ class ShallowWaterMiniApp(object):
         elif v.function_space() == self.W:
             u = v.split()[0]
         else:
-            raise ValueError( "function v must be in FunctionSpace V1 or MixedunionSpace W")
+            raise ValueError("function v must be in FunctionSpace V1 or MixedFunctionSpace W")
 
         with self.cfl(u, dt).dat.vec_ro as cfl_vec:
             return cfl_vec.max()[1]
