@@ -157,3 +157,43 @@ class ShallowWaterMiniApp(object):
                             preproc=preprocess,
                             postproc=postprocess,
                             verbose=verbose)
+
+    def get_velocity(self, step, index_range='slice', uout=None, name='velocity'):
+        '''
+        Return the velocity function at index step
+
+        :arg step: the index, either in window or slice
+        :arg index_range: whether step is a slice or window index
+        :arg uout: if None, velocity function is returned, else the velocity function is assigned to uout
+        :arg name: if uout is None, the returned velocity function will have this name
+        '''
+        w = self.paradiag.get_timestep(step,
+                                       index_range=index_range,
+                                       name=name)
+        if uout is None:
+            return fd.Function(self.velocity_function_space, name=name).assign(w.split()[0])
+        elif uout.function_space() == self.velocity_function_space:
+            uout.assign(w.split()[0])
+            return
+        else:
+            raise ValueError("uout must be None or a Function from velocity_function_space")
+
+    def get_depth(self, step, index_range='slice', hout=None, name='depth'):
+        '''
+        Return the depth function at index step
+
+        :arg step: the index, either in window or slice
+        :arg index_range: whether step is a slice or window index
+        :arg hout: if None, depth function is returned, else the depth function is assigned to hout
+        :arg name: if hout is None, the returned depth function will have this name
+        '''
+        w = self.paradiag.get_timestep(step,
+                                       index_range=index_range,
+                                       name=name)
+        if hout is None:
+            return fd.Function(self.depth_function_space, name=name).assign(w.split()[1])
+        elif hout.function_space() == self.depth_function_space:
+            hout.assign(w.split()[1])
+            return
+        else:
+            raise ValueError("hout must be None or a Function from depth_function_space")

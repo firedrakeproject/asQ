@@ -147,7 +147,6 @@ if time_rank == len(M)-1:
     ofile = fd.File('output/'+args.filename+'.pvd',
                     comm=ensemble.comm)
 
-    wout = fd.Function(miniapp.function_space, name='output_function')
     uout = fd.Function(miniapp.velocity_function_space, name='velocity')
     hout = fd.Function(miniapp.depth_function_space, name='depth')
 
@@ -155,9 +154,9 @@ if time_rank == len(M)-1:
                     name='topography').interpolate(miniapp.topography)
 
     def assign_out_functions():
-        pdg.get_timestep(-1, wout=wout)
-        uout.assign(wout.split()[0])
-        hout.assign(wout.split()[1] + b - case5.H0)
+        miniapp.get_velocity(-1, uout=uout)
+        miniapp.get_depth(-1, hout=hout)
+        hout.assign(hout + b - case5.H0)
 
     def time_at_last_step(w):
         return dt*(w + 1)*window_length
