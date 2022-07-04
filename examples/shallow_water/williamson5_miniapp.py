@@ -149,8 +149,6 @@ if pdg.rT == len(M)-1:
     uout = fd.Function(miniapp.V1, name='velocity')
     hout = fd.Function(miniapp.V2, name='depth')
 
-    cfl_calc = diagnostics.convective_cfl_calculator(miniapp.mesh)
-
     pvcalc = diagnostics.potential_vorticity_calculator(
         miniapp.V1, name='vorticity')
 
@@ -167,18 +165,14 @@ if pdg.rT == len(M)-1:
     def write_to_file(t):
         ofile.write(uout, hout, pvcalc(uout), time=t/earth.day)
 
-    def max_cfl():
-        with cfl_calc(uout, dt).dat.vec_ro as v:
-            return v.max()[1]
 
-
-def window_preproc(pmnapp, dg, wndw):
+def window_preproc(swe_app, dg, wndw):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
 
 
-def window_postproc(mnapp, pdg, wndw):
+def window_postproc(swe_app, pdg, wndw):
     # make sure variables are properly captured
     global linear_its
     global nonlinear_its
@@ -199,7 +193,7 @@ def window_postproc(mnapp, pdg, wndw):
             if midnight-0.5*dt < time < midnight+0.5*dt:
                 write_to_file(time)
 
-        cfl = max_cfl()
+        cfl = swe_app.max_cfl(uout, dt)
         cfl_series += [cfl]
         PETSc.Sys.Print('', comm=ensemble.comm)
         PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)

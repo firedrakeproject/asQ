@@ -1,5 +1,6 @@
 import firedrake as fd
 import asQ
+from utils import diagnostics
 import utils.shallow_water as swe
 from utils import mg
 
@@ -102,6 +103,27 @@ class ShallowWaterMiniApp(object):
             alpha=alpha, M=slice_partition,
             solver_parameters=paradiag_sparameters,
             circ=None, ctx={}, block_ctx=block_ctx)
+
+        # set up swe diagnostics
+
+        # cfl
+        self.cfl = diagnostics.convective_cfl_calculator(self.mesh)
+
+    def max_cfl(self, v, dt):
+        '''
+        Return the maximum convective CFL number for the field u with timestep dt
+        :arg v: velocity Function from FunctionSpace V1 or a full MixedFunction from W
+        :arg dt: the timestep
+        '''
+        if v.function_space() == self.V1:
+            u = v
+        elif v.function_space() == self.W:
+            u = v.split()[0]
+        else:
+            raise ValueError( "function v must be in FunctionSpace V1 or MixedunionSpace W")
+
+        with self.cfl(u, dt).dat.vec_ro as cfl_vec:
+            return cfl_vec.max()[1]
 
     def solve(self,
               nwindows=1,
