@@ -159,9 +159,6 @@ if pdg.rT == len(M)-1:
     def time_at_last_step(w):
         return dt*(w + 1)*window_length
 
-    def write_to_file(t):
-        ofile.write(uout, hout, miniapp.potential_vorticity(uout), time=t/earth.day)
-
 
 def window_preproc(swe_app, dg, wndw):
     PETSc.Sys.Print('')
@@ -188,10 +185,14 @@ def window_postproc(swe_app, pdg, wndw):
         for day in range(51):
             midnight = day*earth.day
             if midnight-0.5*dt < time < midnight+0.5*dt:
-                write_to_file(time)
+                ofile.write(uout,
+                            hout,
+                            miniapp.potential_vorticity(uout),
+                            time=t/earth.day)
 
         cfl = swe_app.max_cfl(uout, dt)
         cfl_series += [cfl]
+
         PETSc.Sys.Print('', comm=ensemble.comm)
         PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
         PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=ensemble.comm)
