@@ -184,7 +184,8 @@ def window_postproc(swe_app, pdg, wndw):
         PETSc.Sys.Print('', comm=ensemble.comm)
         PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
         PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm) PETSc.Sys.Print('', comm=ensemble.comm) 
+        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm)
+        PETSc.Sys.Print('', comm=ensemble.comm)
     PETSc.Sys.Print('')
 
 
