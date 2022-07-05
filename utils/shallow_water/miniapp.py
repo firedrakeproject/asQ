@@ -17,6 +17,7 @@ class ShallowWaterMiniApp(object):
                  slice_partition,
                  paradiag_sparameters,
                  block_ctx={},
+                 reference_depth=0,
                  velocity_function_space=swe.default_velocity_function_space,
                  depth_function_space=swe.default_depth_function_space):
         '''
@@ -52,17 +53,22 @@ class ShallowWaterMiniApp(object):
         x = fd.SpatialCoordinate(self.mesh)
 
         # Mixed function space for velocity and depth
-        self.velocity_function_space = velocity_function_space(self.mesh)
-        self.depth_function_space = depth_function_space(self.mesh)
-
-        self.function_space = fd.MixedFunctionSpace((self.velocity_function_space,
-                                                     self.depth_function_space))
+        V1 = velocity_function_space(self.mesh)
+        V2 = depth_function_space(self.mesh)
+        self.W = fd.MixedFunctionSpace((V1, V2))
+        self.velocity_index = 0
+        self.depth_index = 1
 
         # nonlinear swe forms
 
         self.gravity = gravity
         self.topography = topography_expression(*x)
         self.coriolis = coriolis_expression(*x)
+        self.reference_depth = reference_depth
+
+        self.topography_function = fd.Function(self.depth_function_space(),
+                                               name='topography')
+        self.topography_function.interpolate(self.topography)
 
         def form_function(u, h, v, q):
             g = self.gravity
@@ -78,7 +84,7 @@ class ShallowWaterMiniApp(object):
 
         # initial conditions
 
-        w0 = fd.Function(self.function_space)
+        w0 = fd.Function(self.function_space())
         u0, h0 = w0.split()
 
         u0.project(velocity_expression(*x))
@@ -91,7 +97,7 @@ class ShallowWaterMiniApp(object):
         # should look at removing this once the manifold transfer manager has found a proper home
         transfer_managers = []
         for _ in range(slice_partition[self.ensemble.ensemble_comm.rank]):
-            tm = mg.manifold_transfer_manager(self.function_space)
+            tm = mg.manifold_transfer_manager(self.function_space())
             transfer_managers.append(tm)
 
         block_ctx['diag_transfer_managers'] = transfer_managers
@@ -100,7 +106,7 @@ class ShallowWaterMiniApp(object):
             ensemble=self.ensemble,
             form_function=form_function,
             form_mass=form_mass,
-            W=self.function_space, w0=w0,
+            W=self.function_space(), w0=w0,
             dt=dt, theta=theta,
             alpha=alpha, M=slice_partition,
             solver_parameters=paradiag_sparameters,
@@ -113,7 +119,16 @@ class ShallowWaterMiniApp(object):
 
         # potential vorticity
         self.potential_vorticity = diagnostics.potential_vorticity_calculator(
-            self.velocity_function_space, name='vorticity')
+            self.velocity_function_space(), name='vorticity')
+
+    def function_space(self):
+        return self.W
+
+    def velocity_function_space(self):
+        return self.W.sub(self.velocity_index)
+
+    def depth_function_space(self):
+        return self.W.sub(self.depth_index)
 
     def max_cfl(self, v, dt):
         '''
@@ -121,10 +136,10 @@ class ShallowWaterMiniApp(object):
         :arg v: velocity Function from FunctionSpace V1 or a full MixedFunction from W
         :arg dt: the timestep
         '''
-        if v.function_space() == self.velocity_function_space:
+        if v.function_space() == self.velocity_function_space():
             u = v
-        elif v.function_space() == self.function_space:
-            u = v.split()[0]
+        elif v.function_space() == self.function_space():
+            u = v.split()[self.velocity_index]
         else:
             raise ValueError("function v must be in FunctionSpace V1 or MixedFunctionSpace W")
 
@@ -168,12 +183,13 @@ class ShallowWaterMiniApp(object):
         :arg name: if uout is None, the returned velocity function will have this name
         '''
         w = self.paradiag.get_timestep(step,
-                                       index_range=index_range,
-                                       name=name)
+                                       index_range=index_range)
         if uout is None:
-            return fd.Function(self.velocity_function_space, name=name).assign(w.split()[0])
-        elif uout.function_space() == self.velocity_function_space:
-            uout.assign(w.split()[0])
+            u = fd.Function(self.velocity_function_space(), name=name)
+            u.assign(w.split()[self.velocity_index])
+            return u
+        elif uout.function_space() == self.velocity_function_space():
+            uout.assign(w.split()[self.velocity_index])
             return
         else:
             raise ValueError("uout must be None or a Function from velocity_function_space")
@@ -188,12 +204,33 @@ class ShallowWaterMiniApp(object):
         :arg name: if hout is None, the returned depth function will have this name
         '''
         w = self.paradiag.get_timestep(step,
-                                       index_range=index_range,
-                                       name=name)
+                                       index_range=index_range)
         if hout is None:
-            return fd.Function(self.depth_function_space, name=name).assign(w.split()[1])
-        elif hout.function_space() == self.depth_function_space:
-            hout.assign(w.split()[1])
+            h = fd.Function(self.depth_function_space(), name=name)
+            h.assign(w.split()[self.depth_index])
+            return h
+        elif hout.function_space() == self.depth_function_space():
+            hout.assign(w.split()[self.depth_index])
+            return
+        else:
+            raise ValueError("hout must be None or a Function from depth_function_space")
+
+    def get_elevation(self, step, index_range='slice', hout=None, name='depth'):
+        '''
+        Return the elevation around the reference depth at index step
+
+        :arg step: the index, either in window or slice
+        :arg index_range: whether step is a slice or window index
+        :arg hout: if None, depth function is returned, else the depth function is assigned to hout
+        :arg name: if hout is None, the returned depth function will have this name
+        '''
+        if hout is None:
+            h = self.get_depth(step, index_range=index_range, name=name)
+            h.assign(h + self.topography - self.reference_depth)
+            return h
+        elif hout.function_space() == self.depth_function_space():
+            self.get_depth(step, index_range=index_range, hout=hout)
+            hout.assign(hout + self.topography_function - self.reference_depth)
             return
         else:
             raise ValueError("hout must be None or a Function from depth_function_space")

@@ -128,6 +128,7 @@ miniapp = swe.ShallowWaterMiniApp(create_mesh=create_mesh,
                                   coriolis_expression=f_exp,
                                   velocity_expression=u_exp,
                                   depth_expression=h_exp,
+                                  reference_depth=case5.H0,
                                   dt=dt, theta=0.5,
                                   alpha=args.alpha, slice_partition=M,
                                   paradiag_sparameters=sparameters_diag)
@@ -147,23 +148,21 @@ if time_rank == len(M)-1:
     ofile = fd.File('output/'+args.filename+'.pvd',
                     comm=ensemble.comm)
 
-    uout = fd.Function(miniapp.velocity_function_space, name='velocity')
-    hout = fd.Function(miniapp.depth_function_space, name='depth')
+    uout = fd.Function(miniapp.velocity_function_space(), name='velocity')
+    hout = fd.Function(miniapp.depth_function_space(), name='depth')
 
-    b = fd.Function(miniapp.depth_function_space,
+    b = fd.Function(miniapp.depth_function_space(),
                     name='topography').interpolate(miniapp.topography)
 
     def assign_out_functions():
         miniapp.get_velocity(-1, uout=uout)
-        miniapp.get_depth(-1, hout=hout)
-        hout.assign(hout + b - case5.H0)
+        miniapp.get_elevation(-1, hout=hout)
 
     def time_at_last_step(w):
         return dt*(w + 1)*window_length
 
     def write_to_file(time):
-        ofile.write(uout,
-                    hout,
+        ofile.write(uout, hout,
                     miniapp.potential_vorticity(uout),
                     time=time/earth.day)
 
