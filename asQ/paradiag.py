@@ -15,6 +15,25 @@ def context_callback(pc, context):
 get_context = partial(context_callback, context=appctx)
 
 
+def create_ensemble(slice_partition, comm=fd.COMM_WORLD):
+    '''
+    Create an Ensemble for the given slice partition
+    Checks that the number of slices and the size of the communicator are compatible
+
+    :arg slice_partition: a list of integers, the number of timesteps on each time-rank
+    :arg comm: the global communicator for the ensemble
+    '''
+    nslices = len(slice_partition)
+    nranks = comm.size
+
+    if nranks % nslices != 0:
+        raise ValueError("Number of time slices must be exact factor of number of MPI ranks")
+
+    nspatial_domains = nranks/nslices
+
+    return fd.Ensemble(comm, nspatial_domains)
+
+
 class JacobianMatrix(object):
     def __init__(self, paradiag):
         r"""

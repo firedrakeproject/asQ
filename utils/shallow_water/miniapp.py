@@ -39,15 +39,7 @@ class ShallowWaterMiniApp(object):
         :depth_function_space: function to return a firedrake FunctionSpace for the depth field, given a mesh
         '''
 
-        # calculate nspatial_domains and set up ensemble
-        nslices = len(slice_partition)
-        nranks = fd.COMM_WORLD.size
-        if nranks % nslices != 0:
-            raise ValueError("Number of time slices must be exact factor of number of MPI ranks")
-
-        nspatial_domains = nranks/nslices
-
-        self.ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+        self.ensemble = asQ.create_ensemble(slice_partition)
 
         self.mesh = create_mesh(self.ensemble.comm)
         x = fd.SpatialCoordinate(self.mesh)
