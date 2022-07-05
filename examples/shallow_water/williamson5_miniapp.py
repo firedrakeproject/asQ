@@ -133,11 +133,8 @@ miniapp = swe.ShallowWaterMiniApp(create_mesh=create_mesh,
                                   alpha=args.alpha, slice_partition=M,
                                   paradiag_sparameters=sparameters_diag)
 
-pdg = miniapp.paradiag
-x = fd.SpatialCoordinate(miniapp.mesh)
 ensemble = miniapp.ensemble
-
-time_rank = pdg.rT
+time_rank = miniapp.paradiag.rT
 
 # only last slice does diagnostics/output
 if time_rank == len(M)-1:
@@ -151,20 +148,8 @@ if time_rank == len(M)-1:
     uout = fd.Function(miniapp.velocity_function_space(), name='velocity')
     hout = fd.Function(miniapp.depth_function_space(), name='depth')
 
-    b = fd.Function(miniapp.depth_function_space(),
-                    name='topography').interpolate(miniapp.topography)
-
-    def assign_out_functions():
-        miniapp.get_velocity(-1, uout=uout)
-        miniapp.get_elevation(-1, hout=hout)
-
     def time_at_last_step(w):
         return dt*(w + 1)*window_length
-
-    def write_to_file(time):
-        ofile.write(uout, hout,
-                    miniapp.potential_vorticity(uout),
-                    time=time/earth.day)
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -184,14 +169,17 @@ def window_postproc(swe_app, pdg, wndw):
         linear_its += pdg.snes.getLinearSolveIterations()
         nonlinear_its += pdg.snes.getIterationNumber()
 
-        assign_out_functions()
+        miniapp.get_velocity(-1, uout=uout)
+        miniapp.get_elevation(-1, hout=hout)
 
         time = time_at_last_step(wndw)
 
-        write_to_file(time)
+        ofile.write(uout, hout,
+                    miniapp.potential_vorticity(uout),
+                    time=time/earth.day)
 
         cfl = swe_app.max_cfl(uout, dt)
-        cfl_series += [cfl]
+        cfl_series.append(cfl)
 
         PETSc.Sys.Print('', comm=ensemble.comm)
         PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
