@@ -169,24 +169,22 @@ def window_postproc(swe_app, pdg, wndw):
         linear_its += pdg.snes.getLinearSolveIterations()
         nonlinear_its += pdg.snes.getIterationNumber()
 
-        miniapp.get_velocity(-1, uout=uout)
-        miniapp.get_elevation(-1, hout=hout)
+        swe_app.get_velocity(-1, uout=uout)
+        swe_app.get_elevation(-1, hout=hout)
 
         time = time_at_last_step(wndw)
 
         ofile.write(uout, hout,
-                    miniapp.potential_vorticity(uout),
+                    swe_app.potential_vorticity(uout),
                     time=time/earth.day)
 
-        cfl = swe_app.max_cfl(uout, dt)
+        cfl = swe_app.max_cfl(dt, -1)
         cfl_series.append(cfl)
 
         PETSc.Sys.Print('', comm=ensemble.comm)
         PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
         PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm)
-        PETSc.Sys.Print('', comm=ensemble.comm)
-
+        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm) PETSc.Sys.Print('', comm=ensemble.comm) 
     PETSc.Sys.Print('')
 
 

@@ -122,18 +122,25 @@ class ShallowWaterMiniApp(object):
     def depth_function_space(self):
         return self.W.sub(self.depth_index)
 
-    def max_cfl(self, v, dt):
+    def max_cfl(self, dt, step=None, index_range='slice', v=None):
         '''
         Return the maximum convective CFL number for the field u with timestep dt
-        :arg v: velocity Function from FunctionSpace V1 or a full MixedFunction from W
         :arg dt: the timestep
+        :arg step: timestep to calculate CFL number for. If None, cfl calculated for function v.
+        :arg index_range: type of index of step: slice or window
+        :arg v: velocity Function from FunctionSpace V1 or a full MixedFunction from W if None, calculate cfl of timestep step. Ignored if step is not None.
         '''
-        if v.function_space() == self.velocity_function_space():
-            u = v
-        elif v.function_space() == self.function_space():
-            u = v.split()[self.velocity_index]
+        if step is not None:
+            u = self.get_velocity(step, index_range=index_range)
+        elif v is not None:
+            if v.function_space() == self.velocity_function_space():
+                u = v
+            elif v.function_space() == self.function_space():
+                u = v.split()[self.velocity_index]
+            else:
+                raise ValueError("function v must be in FunctionSpace V1 or MixedFunctionSpace W")
         else:
-            raise ValueError("function v must be in FunctionSpace V1 or MixedFunctionSpace W")
+            raise ValueError("v or step must be not None")
 
         with self.cfl(u, dt).dat.vec_ro as cfl_vec:
             return cfl_vec.max()[1]
