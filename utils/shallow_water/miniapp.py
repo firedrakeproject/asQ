@@ -7,15 +7,15 @@ from utils import mg
 
 class ShallowWaterMiniApp(object):
     def __init__(self,
-                 create_mesh,
                  gravity,
                  topography_expression,
-                 coriolis_expression,
                  velocity_expression,
                  depth_expression,
                  dt, theta, alpha,
                  slice_partition,
                  paradiag_sparameters,
+                 create_mesh=swe.create_mg_globe_mesh,
+                 coriolis_expression=swe.earth_coriolis_expression,
                  block_ctx={},
                  reference_depth=0,
                  velocity_function_space=swe.default_velocity_function_space,
@@ -41,7 +41,7 @@ class ShallowWaterMiniApp(object):
 
         self.ensemble = asQ.create_ensemble(slice_partition)
 
-        self.mesh = create_mesh(self.ensemble.comm)
+        self.mesh = create_mesh(comm=self.ensemble.comm)
         x = fd.SpatialCoordinate(self.mesh)
 
         # Mixed function space for velocity and depth

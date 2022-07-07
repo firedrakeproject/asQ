@@ -2,11 +2,12 @@
 import firedrake as fd
 from petsc4py import PETSc
 
-from utils import mg
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water.williamson1992 import case5
+
+from functools import partial
 
 PETSc.Sys.popErrorHandler()
 
@@ -93,20 +94,9 @@ sparameters_diag = {
 for i in range(sum(M)):
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
-
-# multigrid mesh set up
-def create_mesh(comm):
-    distribution_parameters = {
-        "partition": True,
-        "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)
-    }
-    return mg.icosahedral_mesh(R0=earth.radius,
-                               base_level=args.base_level,
-                               degree=args.coords_degree,
-                               distribution_parameters=distribution_parameters,
-                               nrefs=args.ref_level-args.base_level,
-                               comm=comm)
-
+create_mesh = partial(
+    swe.create_mg_globe_mesh,
+    ref_level=args.ref_level)
 
 # initial conditions
 f_exp = case5.coriolis_expression
@@ -122,13 +112,13 @@ def h_exp(x, y, z):
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
-miniapp = swe.ShallowWaterMiniApp(create_mesh=create_mesh,
-                                  gravity=earth.Gravity,
+miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   topography_expression=b_exp,
                                   coriolis_expression=f_exp,
                                   velocity_expression=u_exp,
                                   depth_expression=h_exp,
                                   reference_depth=case5.H0,
+                                  create_mesh=create_mesh,
                                   dt=dt, theta=0.5,
                                   alpha=args.alpha, slice_partition=M,
                                   paradiag_sparameters=sparameters_diag)
