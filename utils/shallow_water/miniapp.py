@@ -225,7 +225,7 @@ class ShallowWaterMiniApp(object):
         '''
         if hout is None:
             h = self.get_depth(step, index_range=index_range, name=name)
-            h.assign(h + self.topography - self.reference_depth)
+            h.assign(h + self.topography_function - self.reference_depth)
             return h
         elif hout.function_space() == self.depth_function_space():
             self.get_depth(step, index_range=index_range, hout=hout)
