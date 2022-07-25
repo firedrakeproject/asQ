@@ -4,6 +4,7 @@ from math import pi
 import firedrake as fd
 from utils.planets import earth
 from utils import units
+from utils.shallow_water import earth_coriolis_expression
 
 # # # === --- constants --- === # # #
 
@@ -28,7 +29,7 @@ U0 = fd.Constant(u0)
 
 # coriolis parameter f
 def coriolis_expression(x, y, z):
-    return 2*earth.Omega*z/earth.Radius
+    return earth_coriolis_expression(x, y, z)
 
 
 def coriolis_function(x, y, z, Vf, name="coriolis"):
