@@ -42,5 +42,3 @@ def sphere_to_cart_vector(x, y, z, uzonal, umerid):
     cart_v_expr = uzonal*fd.cos(lamda) - umerid*fd.sin(theta)*fd.sin(lamda)
     cart_w_expr = umerid*fd.cos(theta)
     return fd.as_vector((cart_u_expr, cart_v_expr, cart_w_expr))
-
-
