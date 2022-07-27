@@ -112,26 +112,6 @@ create_mesh = partial(
 # initial conditions
 
 
-def latlon_coords(x, y, z):
-    '''
-    return latitude and longitude coordinates
-    '''
-    r = fd.sqrt(x*x + y*y + z*z)
-    zr = z/r
-    zr_corr = fd.Min(fd.Max(zr, -1), 1)  # avoid roundoff errors at poles
-    theta = fd.asin(zr_corr)
-    lamda = fd.atan_2(y, x)
-    return theta, lamda
-
-
-def spherical_to_cartesian(x, y, z, uzonal, umerid):
-    theta, lamda = latlon_coords(x, y, z)
-    cart_u_expr = -uzonal*fd.sin(lamda) - umerid*fd.sin(theta)*fd.cos(lamda)
-    cart_v_expr = uzonal*fd.cos(lamda) - umerid*fd.sin(theta)*fd.sin(lamda)
-    cart_w_expr = umerid*fd.cos(theta)
-    return fd.as_vector((cart_u_expr, cart_v_expr, cart_w_expr))
-
-
 def b_exp(x, y, z):
     return fd.Constant(0)
 
@@ -144,13 +124,13 @@ en = np.exp(-4./((theta1-theta0)**2))
 
 
 def u_exp(x, y, z):
-    theta, lamda = latlon_coords(x, y, z)
+    theta, lamda = earth.cart_to_sphere_coords(x, y, z)
     uzonal_expr = (umax/en)*fd.exp(1./((theta - theta0)*(theta - theta1)))
     uzonal = fd.conditional(fd.ge(theta, theta0),
                             fd.conditional(fd.le(theta, theta1),
                                            uzonal_expr, 0.), 0.)
     umerid = 0.
-    return spherical_to_cartesian(x, y, z, uzonal, umerid)
+    return earth.sphere_to_cart_vector(x, y, z, uzonal, umerid)
 
 
 def h_integrand(theta):
@@ -216,7 +196,7 @@ def h_exp(x, y, z):
     cells = fd.Function(V).assign(fd.Constant(1))
     area = fd.assemble(cells*fd.dx)
     hmean = fd.assemble(h*fd.dx)/area
-    hpert = h_perturbation(*latlon_coords(x, y, z), V)
+    hpert = h_perturbation(*earth.cart_to_sphere_coords(x, y, z), V)
     h += H - hmean + hpert
     return h
 
