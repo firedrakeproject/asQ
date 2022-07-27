@@ -5,11 +5,10 @@ from petsc4py import PETSc
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
-from utils.shallow_water.williamson1992 import case5
 
 from functools import partial
 from math import pi
-from numpy import exp
+import numpy as np
 
 PETSc.Sys.popErrorHandler()
 
@@ -94,7 +93,7 @@ sparameters_diag = {
         'stol': 1e-12,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'preonly',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
@@ -112,22 +111,24 @@ create_mesh = partial(
 
 # initial conditions
 
+
 def latlon_coords(x, y, z):
     '''
     return latitude and longitude coordinates
     '''
     r = fd.sqrt(x*x + y*y + z*z)
     zr = z/r
-    zr_corr = fd.Min(fd.Max(zr, -1), 1) # avoid roundoff errors at poles
+    zr_corr = fd.Min(fd.Max(zr, -1), 1)  # avoid roundoff errors at poles
     theta = fd.asin(zr_corr)
     lamda = fd.atan_2(y, x)
     return theta, lamda
 
+
 def spherical_to_cartesian(x, y, z, uzonal, umerid):
     theta, lamda = latlon_coords(x, y, z)
     cart_u_expr = -uzonal*fd.sin(lamda) - umerid*fd.sin(theta)*fd.cos(lamda)
-    cart_v_expr =  uzonal*fd.cos(lamda) - umerid*fd.sin(theta)*fd.sin(lamda)
-    cart_w_expr =  umerid*fd.cos(theta)
+    cart_v_expr = uzonal*fd.cos(lamda) - umerid*fd.sin(theta)*fd.sin(lamda)
+    cart_w_expr = umerid*fd.cos(theta)
     return fd.as_vector((cart_u_expr, cart_v_expr, cart_w_expr))
 
 
@@ -135,23 +136,89 @@ def b_exp(x, y, z):
     return fd.Constant(0)
 
 
-def u_exp(x, y, z):
-    umax = 80.
-    theta0 = pi/7.
-    theta1 = pi/2. - theta0
-    en = exp(-4./((theta1-theta0)**2))
+umax = 80.
+H = 10e3
+theta0 = pi/7.
+theta1 = pi/2. - theta0
+en = np.exp(-4./((theta1-theta0)**2))
 
+
+def u_exp(x, y, z):
     theta, lamda = latlon_coords(x, y, z)
     uzonal_expr = (umax/en)*fd.exp(1./((theta - theta0)*(theta - theta1)))
     uzonal = fd.conditional(fd.ge(theta, theta0),
-             fd.conditional(fd.le(theta, theta1),
-                            uzonal_expr, 0.), 0.)
+                            fd.conditional(fd.le(theta, theta1),
+                                           uzonal_expr, 0.), 0.)
     umerid = 0.
     return spherical_to_cartesian(x, y, z, uzonal, umerid)
 
 
+def h_integrand(theta):
+    # Initial D field is calculated by integrating D_integrand w.r.t. theta
+    # Assumes the input is between theta0 and theta1.
+    # Note that this function operates on vectorized input.
+    f = 2.0*earth.omega*np.sin(theta)
+    uzonal = (umax/en)*np.exp(1.0/((theta - theta0)*(theta - theta1)))
+    return uzonal*(f + np.tan(theta)*uzonal/earth.radius)
+
+
+def h_calculation(x):
+    # Function to return value of D at X
+    from scipy import integrate
+
+    # Preallocate output array
+    xdat = x.dat.data_ro
+
+    val = np.zeros(len(xdat))
+
+    angles = np.zeros(len(xdat))
+
+    # Minimize work by only calculating integrals for points with
+    # theta between theta_0 and theta_1.
+    # For theta <= theta_0, the integral is 0
+    # For theta >= theta_1, the integral is constant.
+
+    # Precalculate this constant:
+    poledepth, _ = integrate.fixed_quad(h_integrand, theta0, theta1, n=64)
+    poledepth *= -earth.radius/earth.gravity
+
+    angles[:] = np.arcsin(xdat[:, 2]/earth.radius)
+
+    for ii in range(len(xdat)):
+        if angles[ii] <= theta0:
+            val[ii] = 0.0
+        elif angles[ii] >= theta1:
+            val[ii] = poledepth
+        else:
+            # Fixed quadrature with 64 points gives absolute errors below 1e-13
+            # for a quantity of order 1e-3.
+            v, _ = integrate.fixed_quad(h_integrand, theta0, angles[ii], n=64)
+            val[ii] = -(earth.radius/earth.gravity)*v
+    return val
+
+
+def h_perturbation(theta, lamda, V):
+    alpha = fd.Constant(1/3.)
+    beta = fd.Constant(1/15.)
+    hhat = fd.Constant(120)
+    theta2 = fd.Constant(pi/4.)
+    return fd.Function(V).interpolate(hhat*fd.cos(theta)*fd.exp(-(lamda/alpha)**2)*fd.exp(-((theta2 - theta)/beta)**2))
+
+
 def h_exp(x, y, z):
-    return fd.Constant(0)
+    mesh = x.ufl_domain()
+
+    V = swe.default_depth_function_space(mesh)
+    W = fd.VectorFunctionSpace(mesh, V.ufl_element())
+    coords = fd.interpolate(mesh.coordinates, W)
+    h = fd.Function(V)
+    h.dat.data[:] = h_calculation(coords)
+    cells = fd.Function(V).assign(fd.Constant(1))
+    area = fd.assemble(cells*fd.dx)
+    hmean = fd.assemble(h*fd.dx)/area
+    hpert = h_perturbation(*latlon_coords(x, y, z), V)
+    h += H - hmean + hpert
+    return h
 
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
@@ -160,7 +227,7 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   topography_expression=b_exp,
                                   velocity_expression=u_exp,
                                   depth_expression=h_exp,
-                                  reference_depth=case5.H0,
+                                  reference_depth=H,
                                   create_mesh=create_mesh,
                                   dt=dt, theta=0.5,
                                   alpha=args.alpha, slice_partition=M,
@@ -182,7 +249,7 @@ if time_rank == len(M)-1:
     hout = fd.Function(miniapp.depth_function_space(), name='depth')
 
     miniapp.get_velocity(-1, uout=uout)
-    miniapp.get_depth(-1, hout=hout)
+    miniapp.get_elevation(-1, hout=hout)
 
     ofile.write(uout, hout,
                 miniapp.potential_vorticity(uout),
@@ -230,7 +297,8 @@ def window_postproc(swe_app, pdg, wndw):
 
 
 # solve for each window
-if args.nwindows == 0: quit()
+if args.nwindows == 0:
+    quit()
 
 miniapp.solve(nwindows=args.nwindows,
               preproc=window_preproc,
