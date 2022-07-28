@@ -5,7 +5,7 @@ from petsc4py import PETSc
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
-from utils.shallow_water.williamson1992 import case5
+from utils.shallow_water import galewsky
 
 from functools import partial
 
@@ -14,7 +14,7 @@ PETSc.Sys.popErrorHandler()
 # get command arguments
 import argparse
 parser = argparse.ArgumentParser(
-    description='Williamson 5 testcase for ParaDiag solver using fully implicit SWE solver.',
+    description='Galewsky testcase for ParaDiag solver using fully implicit SWE solver.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 
@@ -24,7 +24,7 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
-parser.add_argument('--filename', type=str, default='w5diag', help='Name of output vtk files')
+parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -49,47 +49,61 @@ dt = args.dt*units.hour
 sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    'ksp_atol': 1e-8,
-    'ksp_rtol': 1e-8,
-    'ksp_max_it': 400,
+    'ksp': {
+        'atol': 1e-8,
+        'rtol': 1e-8,
+        'max_it': 400,
+    },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
-    'mg_levels_ksp_type': 'gmres',
-    'mg_levels_ksp_max_it': 5,
-    'mg_levels_pc_type': 'python',
-    'mg_levels_pc_python_type': 'firedrake.PatchPC',
-    'mg_levels_patch_pc_patch_save_operators': True,
-    'mg_levels_patch_pc_patch_partition_of_unity': True,
-    'mg_levels_patch_pc_patch_sub_mat_type': 'seqdense',
-    'mg_levels_patch_pc_patch_construct_codim': 0,
-    'mg_levels_patch_pc_patch_construct_type': 'vanka',
-    'mg_levels_patch_pc_patch_local_type': 'additive',
-    'mg_levels_patch_pc_patch_precompute_element_tensors': True,
-    'mg_levels_patch_pc_patch_symmetrise_sweep': False,
-    'mg_levels_patch_sub_ksp_type': 'preonly',
-    'mg_levels_patch_sub_pc_type': 'lu',
-    'mg_levels_patch_sub_pc_factor_shift_type': 'nonzero',
-    'mg_coarse_pc_type': 'python',
-    'mg_coarse_pc_python_type': 'firedrake.AssembledPC',
-    'mg_coarse_assembled_pc_type': 'lu',
-    'mg_coarse_assembled_pc_factor_mat_solver_type': 'mumps',
+    'mg': {
+        'levels': {
+            'ksp_type': 'gmres',
+            'ksp_max_it': 5,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.PatchPC',
+            'patch': {
+                'pc_patch_save_operators': True,
+                'pc_patch_partition_of_unity': True,
+                'pc_patch_sub_mat_type': 'seqdense',
+                'pc_patch_construct_codim': 0,
+                'pc_patch_construct_type': 'vanka',
+                'pc_patch_local_type': 'additive',
+                'pc_patch_precompute_element_tensors': True,
+                'pc_patch_symmetrise_sweep': False,
+                'sub_ksp_type': 'preonly',
+                'sub_pc_type': 'lu',
+                'sub_pc_factor_shift_type': 'nonzero',
+            },
+        },
+        'coarse': {
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled_pc_type': 'lu',
+            'assembled_pc_factor_mat_solver_type': 'mumps',
+        },
+    }
 }
 
 sparameters_diag = {
-    'snes_linesearch_type': 'basic',
-    'snes_monitor': None,
-    'snes_converged_reason': None,
-    'snes_atol': 1e-0,
-    'snes_rtol': 1e-12,
-    'snes_stol': 1e-12,
-    'snes_max_it': 100,
+    'snes': {
+        'linesearch_type': 'basic',
+        'monitor': None,
+        'converged_reason': None,
+        'atol': 1e-0,
+        'rtol': 1e-12,
+        'stol': 1e-12,
+    },
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    'ksp_monitor': None,
-    'ksp_converged_reason': None,
+    'ksp_type': 'preonly',
+    'ksp': {
+        'monitor': None,
+        'converged_reason': None,
+    },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'}
+    'pc_python_type': 'asQ.DiagFFTPC'
+}
 
 for i in range(sum(M)):
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
@@ -98,24 +112,13 @@ create_mesh = partial(
     swe.create_mg_globe_mesh,
     ref_level=args.ref_level)
 
-# initial conditions
-b_exp = case5.topography_expression
-u_exp = case5.velocity_expression
-
-
-def h_exp(x, y, z):
-    b_exp = case5.topography_expression
-    eta_exp = case5.elevation_expression
-    return case5.H0 + eta_exp(x, y, z) - b_exp(x, y, z)
-
-
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
 miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
-                                  topography_expression=b_exp,
-                                  velocity_expression=u_exp,
-                                  depth_expression=h_exp,
-                                  reference_depth=case5.H0,
+                                  topography_expression=galewsky.topography_expression,
+                                  velocity_expression=galewsky.velocity_expression,
+                                  depth_expression=galewsky.depth_expression,
+                                  reference_depth=galewsky.H0,
                                   create_mesh=create_mesh,
                                   dt=dt, theta=0.5,
                                   alpha=args.alpha, slice_partition=M,
@@ -135,6 +138,13 @@ if time_rank == len(M)-1:
 
     uout = fd.Function(miniapp.velocity_function_space(), name='velocity')
     hout = fd.Function(miniapp.depth_function_space(), name='depth')
+
+    miniapp.get_velocity(-1, uout=uout)
+    miniapp.get_elevation(-1, hout=hout)
+
+    ofile.write(uout, hout,
+                miniapp.potential_vorticity(uout),
+                time=0)
 
     def time_at_last_step(w):
         return dt*(w + 1)*window_length
@@ -178,6 +188,9 @@ def window_postproc(swe_app, pdg, wndw):
 
 
 # solve for each window
+if args.nwindows == 0:
+    quit()
+
 miniapp.solve(nwindows=args.nwindows,
               preproc=window_preproc,
               postproc=window_postproc)
