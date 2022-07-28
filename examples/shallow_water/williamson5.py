@@ -13,14 +13,18 @@ PETSc.Sys.popErrorHandler()
 
 # get command arguments
 import argparse
-parser = argparse.ArgumentParser(description='Williamson 5 testcase for ParaDiag solver using fully implicit SWE solver.')
-parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid. Default 2.')
-parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows. Default 1.')
-parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window. Default 2.')
-parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice. Default 2.')
-parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient. Default 0.0001.')
-parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours. Default 0.5.')
-parser.add_argument('--filename', type=str, default='w5diag')
+parser = argparse.ArgumentParser(
+    description='Williamson 5 testcase for ParaDiag solver using fully implicit SWE solver.',
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter
+)
+
+parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid.')
+parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
+parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
+parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
+parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
+parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
+parser.add_argument('--filename', type=str, default='w5diag', help='Name of output vtk files')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
