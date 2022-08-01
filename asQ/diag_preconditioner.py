@@ -107,9 +107,9 @@ class DiagFFTPC(object):
         for V_cpt in V_cpts:
             rank = V_cpt.rank
             V_cpt_ele = V_cpt.ufl_element()
-            if rank == 1:  # scalar basis coefficients
+            if rank == 0:  # scalar basis coefficients
                 ComplexCpts.append(fd.VectorElement(V_cpt_ele, dim=2))
-            elif rank == 2:  # vector basis coefficients
+            elif rank == 1:  # vector basis coefficients
                 dim = V_cpt_ele.num_sub_elements()
                 shape = (2, dim)
                 scalar_element = V_cpt_ele.sub_elements()[0]
@@ -122,9 +122,8 @@ class DiagFFTPC(object):
         if self.ncpts == 1:
             self.CblockV = fd.FunctionSpace(mesh, ComplexCpts[0])
         else:
-            self.CblockV = reduce(mul, [fd.FunctionSpace(mesh,
-                                                         ComplexCpts[i])
-                                        for i in range(dim)])
+            self.CblockV = reduce(mul, [fd.FunctionSpace(mesh, ComplexCpt)
+                                        for ComplexCpt in ComplexCpts])
 
         # get the boundary conditions
         self.set_CblockV_bcs()
