@@ -97,6 +97,7 @@ class DiagFFTPC(object):
         # First need to build the vector function space version of
         # blockV
         mesh = self.blockV.mesh()
+        Ve = self.blockV.ufl_element()
         self.ncpts = len(self.blockV)
         if self.ncpts == 1:
             V_cpts = (self.blockV,)
@@ -111,12 +112,12 @@ class DiagFFTPC(object):
             elif rank == 2:  # vector basis coefficients
                 dim = V_cpt_ele.num_sub_elements()
                 shape = (2, dim)
-                scalar_element = Ve_cpt_ele.sub_elements()[0]
+                scalar_element = V_cpt_ele.sub_elements()[0]
                 ComplexCpts.append(fd.TensorElement(scalar_element, shape))
             else:
                 assert(rank > 0)
-                shape = (2,) + Ve_cpt_ele._shape
-                scalar_element = Ve_cpt_ele.sub_elements()[0]
+                shape = (2,) + V_cpt_ele._shape
+                scalar_element = V_cpt_ele.sub_elements()[0]
                 ComplexCpts.append(fd.TensorElement(scalar_element, shape))
         if self.ncpts == 1:
             self.CblockV = fd.FunctionSpace(mesh, ComplexCpts[0])
