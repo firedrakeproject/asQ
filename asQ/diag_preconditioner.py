@@ -97,26 +97,26 @@ class DiagFFTPC(object):
         # First need to build the vector function space version of
         # blockV
         mesh = self.blockV.mesh()
-        Ve = self.blockV.ufl_element()
         self.ncpts = len(self.blockV)
         if self.ncpts == 1:
-            Ve_cpts = (Ve,)
+            V_cpts = (self.blockV,)
         else:
-            Ve_cpts = Ve.split()
+            V_cpts = self.blockV.split()
         ComplexCpts = []
-        for Ve_cpt in Ve_cpts:
-            rank = Ve_cpt.rank
+        for V_cpt in V_cpts:
+            rank = V_cpt.rank
+            V_cpt_ele = V_cpt.ufl_element()
             if rank == 1:  # scalar basis coefficients
-                ComplexCpts.append(fd.VectorElement(Ve_cpt, dim=2))
+                ComplexCpts.append(fd.VectorElement(V_cpt_ele, dim=2))
             elif rank == 2:  # vector basis coefficients
-                dim = Ve_cpt.num_sub_elements()
+                dim = V_cpt_ele.num_sub_elements()
                 shape = (2, dim)
-                scalar_element = Ve_cpt.sub_elements()[0]
+                scalar_element = Ve_cpt_ele.sub_elements()[0]
                 ComplexCpts.append(fd.TensorElement(scalar_element, shape))
             else:
                 assert(rank > 0)
-                shape = (2,) + Ve_cpt._shape
-                scalar_element = Ve_cpt.sub_elements()[0]
+                shape = (2,) + Ve_cpt_ele._shape
+                scalar_element = Ve_cpt_ele.sub_elements()[0]
                 ComplexCpts.append(fd.TensorElement(scalar_element, shape))
         if self.ncpts == 1:
             self.CblockV = fd.FunctionSpace(mesh, ComplexCpts[0])
