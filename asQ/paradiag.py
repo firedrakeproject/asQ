@@ -161,7 +161,11 @@ class paradiag(object):
         Default is aij.
         """
 
-        self.aaos = AllAtOnceSystem(ensemble, M, w0, bcs)
+        self.aaos = AllAtOnceSystem(ensemble, M,
+                                    dt, theta,
+                                    form_mass, form_function,
+                                    w0, bcs,
+                                    circ, alpha)
 
         self.form_function = form_function
         self.ensemble = ensemble
@@ -170,19 +174,19 @@ class paradiag(object):
         self.W_bcs = self.aaos.boundary_conditions
         self.ncpts = self.aaos.ncomponents
         self.w0 = self.aaos.initial_condition
-        self.dt = dt
+        self.dt = self.aaos.dt
         self.M = self.aaos.slice_partition
-        self.theta = theta
-        self.alpha = alpha
+        self.theta = self.aaos.theta
+        self.alpha = self.aaos.alpha
         self.tol = tol
         self.maxits = maxits
-        self.circ = circ
+        self.circ = self.aaos.circ
         self.ctx = ctx
         self.block_ctx = block_ctx
         self.rT = self.aaos.time_rank
 
         # A coefficient that switches the alpha-circulant term on
-        self.Circ = fd.Constant(1.0)
+        self.Circ = self.aaos.Circ
 
         # function space for the component of them
         # all-at-once system assigned to this process
@@ -197,22 +201,19 @@ class paradiag(object):
         # all-at-once solution assigned to this rank
         self.w_all = self.aaos.w_all
         self.w_alls = self.aaos.w_alls
-        # initialise it from the initial condition
-        for i in range(M[self.rT]):
-            self.set_timestep(i, w0, index_range='slice')
 
         # apply boundary conditions
         for bc in self.W_all_bcs:
             bc.apply(self.w_all)
 
         # function to assemble the nonlinear residual
-        self.F_all = fd.Function(self.W_all)
+        self.F_all = self.aaos.F_all
 
         # functions containing the last and next steps for parallel
         # communication timestep
         # from the previous iteration
-        self.w_recv = fd.Function(self.W)
-        self.w_send = fd.Function(self.W)
+        self.w_recv = self.aaos.w_recv
+        self.w_send = self.aaos.w_send
 
         # set up the Vecs X (for coeffs and F for residuals)
         nlocal = M[self.rT]*W.node_set.size  # local times x local space
@@ -313,14 +314,7 @@ class paradiag(object):
 
         :arg callback: the function to call for each timestep
         '''
-
-        w = fd.Function(self.W)
-        for slice_index in range(self.M[self.rT]):
-            window_index = self.shift_index(slice_index,
-                                            from_range='slice',
-                                            to_range='window')
-            self.get_timestep(slice_index, wout=w, index_range='slice')
-            callback(window_index, slice_index, w)
+        self.aaos.for_each_timestep(callback)
 
     def update(self, X):
         '''
@@ -330,27 +324,7 @@ class paradiag(object):
         and the last step from the previous slice (periodic)
         is copied into self.u_prev
         '''
-
-        n = self.ensemble.ensemble_comm.size
-
-        with self.w_all.dat.vec_wo as v:
-            v.array[:] = X.array_r
-
-        mpi_requests = []
-        # Communication stage
-        # send
-        r = self.rT  # the time rank
-        self.get_timestep(-1, wout=self.w_send, index_range='slice')
-
-        request_send = self.ensemble.isend(self.w_send, dest=((r+1) % n), tag=r)
-        mpi_requests.extend(request_send)
-
-        request_recv = self.ensemble.irecv(self.w_recv, source=((r-1) % n), tag=r-1)
-        mpi_requests.extend(request_recv)
-
-        # wait for the data [we should really do this after internal
-        # assembly but have avoided that for now]
-        MPI.Request.Waitall(mpi_requests)
+        self.aaos.update(X)
 
     def next_window(self, w1=None):
         """
@@ -359,101 +333,22 @@ class paradiag(object):
         :arg w1: initial solution for next time-window.If None,
                  will use the final timestep from previous window
         """
-        rank = self.rT
-        ncomm = self.ensemble.ensemble_comm.size
-
-        if w1 is not None:  # use given function
-            self.w0.assign(w1)
-        else:  # last rank broadcasts final timestep
-            if rank == ncomm-1:
-                # index of start of final timestep
-                self.get_timestep(-1, wout=self.w0, index_range='slice')
-
-            # there should really be a bcast method on the ensemble
-            # if this gets added in firedrake then this will need updating
-            #   Both of these approaches pass the test. Which is best?
-
-            # Ensemble.(i)send/(i)recv uses dat.data, which doesn't need a context manager
-            #   this is because dat.data is the actual data so can't go out of scope if non-blocking
-            #   the context manager for a vector may go out of scope before isend/recv completes
-            # for dat in self.w0.dat:
-            #     self.ensemble.ensemble_comm.Bcast(dat.data, root=ncomm-1)
-
-            # Ensemble.allreduce uses vec.array, which requires only one communication
-            #   this is because bcast is blocking so context manager can't go out of scope before completion
-            with self.w0.dat.vec as vec:
-                self.ensemble.ensemble_comm.Bcast(vec.array, root=ncomm-1)
-
-        # persistence forecast
-        for i in range(self.M[rank]):
-            self.set_timestep(i, self.w0, index_range='slice')
-
-        return
+        self.aaos.next_window(w1)
 
     def _assemble_function(self, snes, X, Fvec):
         r"""
         This is the function we pass to the snes to assemble
         the nonlinear residual.
         """
-        self.update(X)
-
-        # Set the flag for the circulant option
-        if self.circ == "picard":
-            self.Circ.assign(1.0)
-        else:
-            self.Circ.assign(0.0)
-        # assembly stage
-        fd.assemble(self.para_form, tensor=self.F_all)
-
-        # apply boundary conditions
-        for bc in self.W_all_bcs:
-            bc.apply(self.F_all, u=self.w_all)
-
-        with self.F_all.dat.vec_ro as v:
-            v.copy(Fvec)
+        self.aaos._assemble_function(snes, X, Fvec)
 
     def _set_para_form(self):
         """
         Constructs the bilinear form for the all at once system.
         Specific to the theta-centred Crank-Nicholson method
         """
-
-        M = self.M[self.rT]
-        w_all_cpts = fd.split(self.w_all)
-
-        test_fns = fd.TestFunctions(self.W_all)
-
-        dt = fd.Constant(self.dt)
-        theta = fd.Constant(self.theta)
-        alpha = fd.Constant(self.alpha)
-
-        for n in range(M):
-            # previous time level
-            if n == 0:
-                # self.w_recv will contain the adjacent data
-                if self.rT == 0:
-                    # need the initial data
-                    w0list = fd.split(self.w0)
-                    wrecvlist = fd.split(self.w_recv)
-                    w0s = [w0list[i] + self.Circ*alpha*wrecvlist[i]
-                           for i in range(self.ncpts)]
-                else:
-                    w0s = fd.split(self.w_recv)
-            else:
-                w0s = w_all_cpts[self.ncpts*(n-1):self.ncpts*n]
-            # current time level
-            w1s = w_all_cpts[self.ncpts*n:self.ncpts*(n+1)]
-            dws = test_fns[self.ncpts*n:self.ncpts*(n+1)]
-            # time derivative
-            if n == 0:
-                p_form = (1.0/dt)*self.form_mass(*w1s, *dws)
-            else:
-                p_form += (1.0/dt)*self.form_mass(*w1s, *dws)
-            p_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
-            # vector field
-            p_form += theta*self.form_function(*w1s, *dws)
-            p_form += (1-theta)*self.form_function(*w0s, *dws)
-        self.para_form = p_form
+        self.aaos._set_para_form()
+        self.para_form = self.aaos.para_form
 
     def solve(self,
               nwindows=1,

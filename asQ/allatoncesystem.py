@@ -1,4 +1,5 @@
 import firedrake as fd
+from pyop2.mpi import MPI
 from functools import reduce
 from operator import mul
 
@@ -6,7 +7,10 @@ from operator import mul
 class AllAtOnceSystem(object):
     def __init__(self,
                  ensemble, slice_partition,
-                 w0, bcs=[]):
+                 dt, theta,
+                 form_mass, form_function,
+                 w0, bcs=[],
+                 circ="", alpha=1e-3):
         """
         The all-at-once system representing multiple timesteps of a time-dependent finite-element problem.
 
@@ -33,6 +37,20 @@ class AllAtOnceSystem(object):
         self.boundary_conditions = bcs
         self.ncomponents = len(self.function_space.split())
 
+        self.dt = dt
+        self.theta = theta
+
+        self.form_mass = form_mass
+        self.form_function = form_function
+
+        self.circ = circ
+        self.alpha = alpha
+
+        if self.circ == "picard":
+            self.Circ = fd.Constant(1.0)
+        else:
+            self.Circ = fd.Constant(0.0)
+
         # function pace for the slice of the all-at-once system on this process
         self.function_space_all = reduce(mul, (self.function_space
                                                for _ in range(self.slice_partition[self.time_rank])))
@@ -40,12 +58,21 @@ class AllAtOnceSystem(object):
         self.w_all = fd.Function(self.function_space_all)
         self.w_alls = self.w_all.split()
 
-        # for i in range(self.slice_partition[self.time_rank]):
-        #     self.set_timestep(i, self.initial_condition, index_range='slice')
+        for i in range(self.slice_partition[self.time_rank]):
+            self.set_timestep(i, self.initial_condition, index_range='slice')
 
         self.set_boundary_conditions()
         for bc in self.boundary_conditions_all:
             bc.apply(self.w_all)
+
+        # function to assemble the nonlinear residual
+        self.F_all = fd.Function(self.function_space_all)
+
+        # functions containing the last and next steps for parallel
+        # communication timestep
+        # from the previous iteration
+        self.w_recv = fd.Function(self.function_space)
+        self.w_send = fd.Function(self.function_space)
 
     def set_boundary_conditions(self):
         """
@@ -175,3 +202,139 @@ class AllAtOnceSystem(object):
 
         if wout is None:
             return wreturn
+
+    def for_each_timestep(self, callback):
+        '''
+        call callback for each timestep in each slice in the current window
+        callback arguments are: timestep index in window, timestep index in slice, Function at timestep
+
+        :arg callback: the function to call for each timestep
+        '''
+
+        w = fd.Function(self.function_space)
+        for slice_index in range(self.slice_partition[self.time_rank]):
+            window_index = self.shift_index(slice_index,
+                                            from_range='slice',
+                                            to_range='window')
+            self.get_timestep(slice_index, wout=w, index_range='slice')
+            callback(window_index, slice_index, w)
+
+    def next_window(self, w1=None):
+        """
+        Reset all-at-once-system ready for next time-window
+
+        :arg w1: initial solution for next time-window.If None,
+                 will use the final timestep from previous window
+        """
+        rank = self.time_rank
+        ncomm = self.ensemble.ensemble_comm.size
+
+        if w1 is not None:  # use given function
+            self.initial_condition.assign(w1)
+        else:  # last rank broadcasts final timestep
+            if rank == ncomm-1:
+                # index of start of final timestep
+                self.get_timestep(-1, wout=self.initial_condition, index_range='slice')
+
+            with self.initial_condition.dat.vec as vec:
+                self.ensemble.ensemble_comm.Bcast(vec.array, root=ncomm-1)
+
+        # persistence forecast
+        for i in range(self.slice_partition[rank]):
+            self.set_timestep(i, self.initial_condition, index_range='slice')
+
+        return
+
+    def update(self, X):
+        '''
+        Update self.w_alls and self.w_recv from PETSc Vec X.
+        The local parts of X are copied into self.w_alls
+        and the last step from the previous slice (periodic)
+        is copied into self.u_prev
+        '''
+
+        with self.w_all.dat.vec_wo as v:
+            v.array[:] = X.array_r
+
+        n = self.ensemble.ensemble_comm.size
+        r = self.time_rank
+
+        mpi_requests = []
+        # Communication stage
+        # send
+        self.get_timestep(-1, wout=self.w_send, index_range='slice')
+
+        request_send = self.ensemble.isend(self.w_send, dest=((r+1) % n), tag=r)
+        mpi_requests.extend(request_send)
+
+        request_recv = self.ensemble.irecv(self.w_recv, source=((r-1) % n), tag=r-1)
+        mpi_requests.extend(request_recv)
+
+        # wait for the data [we should really do this after internal
+        # assembly but have avoided that for now]
+        MPI.Request.Waitall(mpi_requests)
+
+    def _assemble_function(self, snes, X, Fvec):
+        r"""
+        This is the function we pass to the snes to assemble
+        the nonlinear residual.
+        """
+        self.update(X)
+
+        # Set the flag for the circulant option
+        if self.circ == "picard":
+            self.Circ.assign(1.0)
+        else:
+            self.Circ.assign(0.0)
+        # assembly stage
+        fd.assemble(self.para_form, tensor=self.F_all)
+
+        # apply boundary conditions
+        for bc in self.boundary_conditions_all:
+            bc.apply(self.F_all, u=self.w_all)
+
+        with self.F_all.dat.vec_ro as v:
+            v.copy(Fvec)
+
+    def _set_para_form(self):
+        """
+        Constructs the bilinear form for the all at once system.
+        Specific to the theta-centred Crank-Nicholson method
+        """
+
+        w_all_cpts = fd.split(self.w_all)
+
+        test_fns = fd.TestFunctions(self.function_space_all)
+
+        dt = fd.Constant(self.dt)
+        theta = fd.Constant(self.theta)
+        alpha = fd.Constant(self.alpha)
+        ncpts = self.ncomponents
+
+        for n in range(self.slice_partition[self.time_rank]):
+            # previous time level
+            if n == 0:
+                # self.w_recv will contain the adjacent data
+                if self.time_rank == 0:
+                    # need the initial data
+                    w0list = fd.split(self.initial_condition)
+                    wrecvlist = fd.split(self.w_recv)
+                    w0s = [w0list[i] + self.Circ*alpha*wrecvlist[i]
+                           for i in range(ncpts)]
+                else:
+                    w0s = fd.split(self.w_recv)
+            else:
+                w0s = w_all_cpts[ncpts*(n-1):ncpts*n]
+            # current time level
+            w1s = w_all_cpts[ncpts*n:ncpts*(n+1)]
+            dws = test_fns[ncpts*n:ncpts*(n+1)]
+            # time derivative
+            if n == 0:
+                p_form = (1.0/dt)*self.form_mass(*w1s, *dws)
+            else:
+                p_form += (1.0/dt)*self.form_mass(*w1s, *dws)
+            p_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
+            # vector field
+            p_form += theta*self.form_function(*w1s, *dws)
+            p_form += (1-theta)*self.form_function(*w0s, *dws)
+        self.para_form = p_form
