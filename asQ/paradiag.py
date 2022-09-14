@@ -36,23 +36,24 @@ def create_ensemble(slice_partition, comm=fd.COMM_WORLD):
 
 
 class JacobianMatrix(object):
-    def __init__(self, paradiag):
+    def __init__(self, aaos):
         r"""
-        Python matrix for the Jacobian
-        :param paradiag: The paradiag object
+        Python matrix for the Jacobian of the all at once system
+        :param aaos: The AllAtOnceSystem object
         """
-        self.paradiag = paradiag
-        self.u = fd.Function(paradiag.W_all)  # for the input function
-        self.F = fd.Function(paradiag.W_all)  # for the output residual
-        self.F_prev = fd.Function(paradiag.W_all)  # Where we compute the
+        self.aaos = aaos
+        self.u = fd.Function(self.aaos.function_space_all)  # for the input function
+        self.F = fd.Function(self.aaos.function_space_all)  # for the output residual
+        self.F_prev = fd.Function(self.aaos.function_space_all)  # Where we compute the
         # part of the output residual from neighbouring contributions
-        self.u0 = fd.Function(paradiag.W_all)  # Where we keep the state
-        self.Fsingle = fd.Function(paradiag.W)
-        self.urecv = fd.Function(paradiag.W)  # will contain the previous time value i.e. 3*r-1
-        self.usend = fd.Function(paradiag.W)  # will contain the next time value i.e. 3*(r+1)
+        self.u0 = fd.Function(self.aaos.function_space_all)  # Where we keep the state
+
+        self.Fsingle = fd.Function(self.aaos.function_space)
+        self.urecv = fd.Function(self.aaos.function_space)  # will contain the previous time value i.e. 3*r-1
+        self.usend = fd.Function(self.aaos.function_space)  # will contain the next time value i.e. 3*(r+1)
         self.ulist = self.u.split()
-        self.r = paradiag.ensemble.ensemble_comm.rank
-        self.n = paradiag.ensemble.ensemble_comm.size
+        self.r = self.aaos.ensemble.ensemble_comm.rank
+        self.n = self.aaos.ensemble.ensemble_comm.size
         # Jform missing contributions from the previous step
         # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
         # definition:
@@ -62,10 +63,10 @@ class JacobianMatrix(object):
         # Newton, solves for delta_u such that
         # dF_{u1}[u1, u2, u3; delta_u, v] = -F[u1,u2,u3; v], for all v
         # then updates u1 += delta_u
-        self.Jform = fd.derivative(paradiag.para_form, paradiag.w_all)
+        self.Jform = fd.derivative(self.aaos.para_form, self.aaos.w_all)
         # Jform contributions from the previous step
-        self.Jform_prev = fd.derivative(paradiag.para_form,
-                                        paradiag.w_recv)
+        self.Jform_prev = fd.derivative(self.aaos.para_form,
+                                        self.aaos.w_recv)
 
     def mult(self, mat, X, Y):
         n = self.n
@@ -78,14 +79,14 @@ class JacobianMatrix(object):
         # Communication stage
 
         # send
-        r = self.paradiag.ensemble.ensemble_comm.rank  # the time rank
-        self.paradiag.get_timestep(-1, index_range='slice', wout=self.usend, f_alls=self.ulist)
+        r = self.aaos.time_rank  # the time rank
+        self.aaos.get_timestep(-1, index_range='slice', wout=self.usend, f_alls=self.ulist)
 
-        request_send = self.paradiag.ensemble.isend(self.usend, dest=((r+1) % n), tag=r)
+        request_send = self.aaos.ensemble.isend(self.usend, dest=((r+1) % n), tag=r)
         mpi_requests.extend(request_send)
 
         # receive
-        request_recv = self.paradiag.ensemble.irecv(self.urecv, source=((r-1) % n), tag=r-1)
+        request_recv = self.aaos.ensemble.irecv(self.urecv, source=((r-1) % n), tag=r-1)
         mpi_requests.extend(request_recv)
 
         # wait for the data [we should really do this after internal
@@ -93,10 +94,10 @@ class JacobianMatrix(object):
         MPI.Request.Waitall(mpi_requests)
 
         # Set the flag for the circulant option
-        if self.paradiag.circ in ["quasi", "picard"]:
-            self.paradiag.Circ.assign(1.0)
+        if self.aaos.circ in ["quasi", "picard"]:
+            self.aaos.Circ.assign(1.0)
         else:
-            self.paradiag.Circ.assign(0.0)
+            self.aaos.Circ.assign(0.0)
 
         # assembly stage
         fd.assemble(fd.action(self.Jform, self.u), tensor=self.F)
@@ -105,15 +106,15 @@ class JacobianMatrix(object):
         self.F += self.F_prev
 
         # unset flag if alpha-circulant approximation only in Jacobian
-        if self.paradiag.circ not in ["picard"]:
-            self.paradiag.Circ.assign(0.0)
+        if self.aaos.circ not in ["picard"]:
+            self.aaos.Circ.assign(0.0)
 
         # Apply boundary conditions
-        # assumes paradiag.w_all contains the current state we are
+        # assumes aaos.w_all contains the current state we are
         # interested in
         # For Jacobian action we should just return the values in X
         # at boundary nodes
-        for bc in self.paradiag.W_all_bcs:
+        for bc in self.aaos.boundary_conditions_all:
             bc.homogenize()
             bc.apply(self.F, u=self.u)
             bc.restore()
@@ -203,7 +204,7 @@ class paradiag(object):
         self.w_alls = self.aaos.w_alls
 
         # apply boundary conditions
-        for bc in self.W_all_bcs:
+        for bc in self.aaos.boundary_conditions_all:
             bc.apply(self.w_all)
 
         # function to assemble the nonlinear residual
@@ -222,7 +223,7 @@ class paradiag(object):
         self.X.setSizes((nlocal, nglobal))
         self.X.setFromOptions()
         # copy initial data into the PETSc vec
-        with self.w_all.dat.vec_ro as v:
+        with self.aaos.w_all.dat.vec_ro as v:
             v.copy(self.X)
         self.F = self.X.copy()
 
@@ -243,7 +244,7 @@ class paradiag(object):
         self.snes.setFunction(self._assemble_function, self.F)
 
         # set up the Jacobian
-        mctx = JacobianMatrix(self)
+        mctx = JacobianMatrix(self.aaos)
         self.JacobianMatrix = mctx
         Jacmat = PETSc.Mat().create(comm=fd.COMM_WORLD)
         Jacmat.setType("python")
@@ -254,7 +255,7 @@ class paradiag(object):
         def form_jacobian(snes, X, J, P):
             # copy the snes state vector into self.X
             X.copy(self.X)
-            self.update(X)
+            self.aaos.update(X)
             J.assemble()
             P.assemble()
 
@@ -370,7 +371,7 @@ class paradiag(object):
 
             with self.opts.inserted_options():
                 self.snes.solve(None, self.X)
-            self.update(self.X)
+            self.aaos.update(self.X)
 
             postproc(self, wndw)
 
