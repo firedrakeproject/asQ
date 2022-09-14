@@ -2,8 +2,9 @@ import firedrake as fd
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from pyop2.mpi import MPI
-from functools import reduce, partial
-from operator import mul
+from functools import partial
+
+from asQ.allatoncesystem import AllAtOnceSystem
 
 appctx = {}
 
@@ -160,17 +161,17 @@ class paradiag(object):
         Default is aij.
         """
 
+        self.aaos = AllAtOnceSystem(ensemble, M, w0, bcs)
+
         self.form_function = form_function
         self.ensemble = ensemble
         self.form_mass = form_mass
-        self.W = W
-        self.W_bcs = bcs
-        self.ncpts = len(W.split())
-        self.w0 = w0
+        self.W = self.aaos.function_space
+        self.W_bcs = self.aaos.boundary_conditions
+        self.ncpts = self.aaos.ncomponents
+        self.w0 = self.aaos.initial_condition
         self.dt = dt
-        if isinstance(M, int):
-            M = [M]
-        self.M = M
+        self.M = self.aaos.slice_partition
         self.theta = theta
         self.alpha = alpha
         self.tol = tol
@@ -178,34 +179,26 @@ class paradiag(object):
         self.circ = circ
         self.ctx = ctx
         self.block_ctx = block_ctx
-
-        if w0.function_space() != W:
-            raise ValueError("Function w0 must be in FunctionSpace W")
+        self.rT = self.aaos.time_rank
 
         # A coefficient that switches the alpha-circulant term on
         self.Circ = fd.Constant(1.0)
 
-        # checks that the ensemble communicator is set up correctly
-        nM = len(M)  # the expected number of time ranks
-        # print(nM, ensemble.ensemble_comm.size)
-        assert(nM == ensemble.ensemble_comm.size)
-        rT = ensemble.ensemble_comm.rank  # the time rank
-        self.rT = rT
         # function space for the component of them
         # all-at-once system assigned to this process
         # implemented as a massive mixed function space
 
-        self.W_all = reduce(mul, (self.W for _ in range(M[rT])))
+        self.W_all = self.aaos.function_space_all
 
         # convert the W bcs into W_all bcs
         self.set_W_all_bcs()
 
         # function containing the part of the
         # all-at-once solution assigned to this rank
-        self.w_all = fd.Function(self.W_all)
-        self.w_alls = self.w_all.split()
+        self.w_all = self.aaos.w_all
+        self.w_alls = self.aaos.w_alls
         # initialise it from the initial condition
-        for i in range(M[rT]):
+        for i in range(M[self.rT]):
             self.set_timestep(i, w0, index_range='slice')
 
         # apply boundary conditions
@@ -222,7 +215,7 @@ class paradiag(object):
         self.w_send = fd.Function(self.W)
 
         # set up the Vecs X (for coeffs and F for residuals)
-        nlocal = M[rT]*W.node_set.size  # local times x local space
+        nlocal = M[self.rT]*W.node_set.size  # local times x local space
         nglobal = sum(M)*W.dim()  # global times x global space
         self.X = PETSc.Vec().create(comm=fd.COMM_WORLD)
         self.X.setSizes((nlocal, nglobal))
@@ -270,40 +263,16 @@ class paradiag(object):
         self.opts.set_from_options(self.snes)
 
     def set_W_all_bcs(self):
-        is_mixed_element = isinstance(self.W.ufl_element(), fd.MixedElement)
-
-        self.W_all_bcs = []
-        for bc in self.W_bcs:
-            for r in range(self.M[self.rT]):
-                if is_mixed_element:
-                    i = bc.function_space().index
-                    index = r*self.ncpts+i
-                else:
-                    index = r
-                all_bc = fd.DirichletBC(self.W_all.sub(index),
-                                        bc.function_arg,
-                                        bc.sub_domain)
-                self.W_all_bcs.append(all_bc)
+        self.aaos.set_boundary_conditions()
+        self.W_all_bcs = self.aaos.boundary_conditions_all
 
     def check_index(self, i, index_range='slice'):
         '''
         Check that timestep index is in range
-        :arg i: timestep index to chec:
+        :arg i: timestep index to check
         :arg index_range: range that index is in. Either slice or window
         '''
-        # set valid range
-        if index_range == 'slice':
-            maxidx = self.M[self.rT]
-        elif index_range == 'window':
-            maxidx = sum(self.M)
-        else:
-            raise ValueError("index_range must be one of 'window' or 'slice'")
-
-        # allow for pythonic negative indices
-        minidx = -maxidx
-
-        if not (minidx <= i < maxidx):
-            raise ValueError(f"index {i} outside {index_range} range {maxidx}")
+        return self.aaos.check_index(i, index_range)
 
     def shift_index(self, i, from_range='slice', to_range='slice'):
         '''
@@ -312,32 +281,7 @@ class paradiag(object):
         :arg from_range: range of i. Either slice or window
         :arg to_range: range to shift i to. Either slice or window
         '''
-        self.check_index(i, index_range=from_range)
-
-        # deal with -ve indices
-        if from_range == 'slice':
-            maxidx = self.M[self.rT]
-        elif from_range == 'window':
-            maxidx = sum(self.M)
-
-        i = i % maxidx
-
-        # no shift needed
-        if to_range == from_range:
-            return i
-
-        # index of first timestep in slice
-        index0 = sum(self.M[:self.rT])
-
-        if to_range == 'slice':  # 'from_range' == 'window'
-            i -= index0
-
-        if to_range == 'window':  # 'from_range' == 'slice'
-            i += index0
-
-        self.check_index(i, index_range=to_range)
-
-        return i
+        return self.aaos.shift_index(i, from_range, to_range)
 
     def set_timestep(self, step, wnew, index_range='slice', f_alls=None):
         '''
@@ -348,17 +292,7 @@ class paradiag(object):
         :arg index_range: is index in window or slice?
         :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
         '''
-
-        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
-
-        if f_alls is None:
-            f_alls = self.w_alls
-
-        # index of first component of this step
-        index0 = self.ncpts*step_local
-
-        for k in range(self.ncpts):
-            f_alls[index0+k].assign(wnew.sub(k))
+        return self.aaos.set_timestep(step, wnew, index_range, f_alls)
 
     def get_timestep(self, step, index_range='slice', wout=None, name=None, f_alls=None):
         '''
@@ -370,30 +304,7 @@ class paradiag(object):
         :arg name: name of returned function
         :arg f_alls: an all-at-once function to get timestep from. If None, self.w_alls is used
         '''
-
-        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
-
-        if f_alls is None:
-            f_alls = self.w_alls
-
-        # where to put timestep?
-        if wout is None:
-            if name is None:
-                wreturn = fd.Function(self.W)
-            else:
-                wreturn = fd.Function(self.W, name=name)
-            wget = wreturn
-        else:
-            wget = wout
-
-        # index of first component of this step
-        index0 = self.ncpts*step_local
-
-        for k in range(self.ncpts):
-            wget.sub(k).assign(f_alls[index0+k])
-
-        if wout is None:
-            return wreturn
+        return self.aaos.get_timestep(step, index_range, wout, name, f_alls)
 
     def for_each_timestep(self, callback):
         '''
