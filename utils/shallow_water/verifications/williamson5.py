@@ -272,7 +272,7 @@ def parallel_solve(base_level=1,
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0,
+                      form_mass=form_mass, w0=w0,
                       dt=dT, theta=theta,
                       alpha=alpha,
                       slice_partition=M, solver_parameters=sparameters_diag,

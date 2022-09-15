@@ -36,7 +36,7 @@ def create_ensemble(slice_partition, comm=fd.COMM_WORLD):
 
 class paradiag(object):
     def __init__(self, ensemble,
-                 form_function, form_mass, W, w0, dt, theta,
+                 form_function, form_mass, w0, dt, theta,
                  alpha, slice_partition, bcs=[],
                  solver_parameters={},
                  circ="picard",
@@ -46,10 +46,9 @@ class paradiag(object):
 
         :arg ensemble: the ensemble communicator
         :arg form_function: a function that returns a linear form
-        on W providing f(w) for the ODE w_t + f(w) = 0.
+        on w0.function_space() providing f(w) for the ODE w_t + f(w) = 0.
         :arg form_mass: a function that returns a linear form
         on W providing the mass operator for the time derivative.
-        :arg W: the FunctionSpace on which f is defined.
         :arg w0: a Function from W containing the initial data
         :arg dt: float, the timestep size.
         :arg theta: float, implicit timestepping parameter

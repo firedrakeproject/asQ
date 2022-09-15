@@ -221,7 +221,7 @@ def test_steady_swe():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0,
+                      form_mass=form_mass, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
                       slice_partition=M, solver_parameters=solver_parameters_diag,
@@ -323,7 +323,7 @@ def test_linear_swe_FFT():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0,
+                      form_mass=form_mass, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
                       slice_partition=M, solver_parameters=solver_parameters_diag,
@@ -372,7 +372,7 @@ def test_jacobian_heat_equation():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, W=V, w0=u0,
+                      form_mass=form_mass, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
                       slice_partition=M, solver_parameters=solver_parameters,
@@ -414,7 +414,7 @@ def test_set_para_form():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, W=V, w0=u0,
+                      form_mass=form_mass, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
                       slice_partition=M, solver_parameters=solver_parameters,
@@ -503,7 +503,7 @@ def test_set_para_form_mixed_parallel():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0,
+                      form_mass=form_mass, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
                       slice_partition=M, solver_parameters=solver_parameters,
@@ -605,7 +605,7 @@ def test_jacobian_mixed_parallel():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0,
+                      form_mass=form_mass, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
                       slice_partition=M, solver_parameters=solver_parameters,
@@ -773,7 +773,7 @@ def test_solve_para_form(bc_opt):
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, W=V, w0=u0,
+                      form_mass=form_mass, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
                       slice_partition=M, bcs=bcs,
@@ -874,7 +874,7 @@ def test_solve_para_form_mixed():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0, dt=dt,
+                      form_mass=form_mass, w0=w0, dt=dt,
                       theta=theta, alpha=alpha, slice_partition=M,
                       solver_parameters=solver_parameters_diag,
                       circ="quasi",

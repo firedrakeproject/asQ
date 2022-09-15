@@ -98,8 +98,7 @@ class ShallowWaterMiniApp(object):
             ensemble=self.ensemble,
             form_function=form_function,
             form_mass=form_mass,
-            W=self.function_space(), w0=w0,
-            dt=dt, theta=theta,
+            w0=w0, dt=dt, theta=theta,
             alpha=alpha, slice_partition=slice_partition,
             solver_parameters=paradiag_sparameters,
             circ=None, ctx={}, block_ctx=block_ctx)

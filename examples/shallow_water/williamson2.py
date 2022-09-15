@@ -157,7 +157,7 @@ block_ctx['diag_transfer_managers'] = transfer_managers
 
 PD = asQ.paradiag(ensemble=ensemble,
                   form_function=form_function,
-                  form_mass=form_mass, W=W, w0=w0,
+                  form_mass=form_mass, w0=w0,
                   dt=dt, theta=0.5,
                   alpha=args.alpha,
                   slice_partition=slice_partition, solver_parameters=sparameters_diag,
