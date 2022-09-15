@@ -100,9 +100,11 @@ class ShallowWaterMiniApp(object):
             form_mass=form_mass,
             W=self.function_space(), w0=w0,
             dt=dt, theta=theta,
-            alpha=alpha, M=slice_partition,
+            alpha=alpha, slice_partition=slice_partition,
             solver_parameters=paradiag_sparameters,
             circ=None, ctx={}, block_ctx=block_ctx)
+
+        self.aaos = self.paradiag.aaos
 
         # set up swe diagnostics
 
@@ -181,8 +183,8 @@ class ShallowWaterMiniApp(object):
         :arg uout: if None, velocity function is returned, else the velocity function is assigned to uout
         :arg name: if uout is None, the returned velocity function will have this name
         '''
-        w = self.paradiag.get_timestep(step,
-                                       index_range=index_range)
+        w = self.aaos.get_timestep(step,
+                                   index_range=index_range)
         if uout is None:
             u = fd.Function(self.velocity_function_space(), name=name)
             u.assign(w.split()[self.velocity_index])
@@ -202,8 +204,8 @@ class ShallowWaterMiniApp(object):
         :arg hout: if None, depth function is returned, else the depth function is assigned to hout
         :arg name: if hout is None, the returned depth function will have this name
         '''
-        w = self.paradiag.get_timestep(step,
-                                       index_range=index_range)
+        w = self.aaos.get_timestep(step,
+                                   index_range=index_range)
         if hout is None:
             h = fd.Function(self.depth_function_space(), name=name)
             h.assign(w.split()[self.depth_index])
