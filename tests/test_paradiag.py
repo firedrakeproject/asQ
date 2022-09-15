@@ -652,7 +652,7 @@ def test_jacobian_mixed_parallel():
     PD.aaos.update(PD.X)
 
     # use PD to calculate the Jacobian
-    Jac1 = PD.JacobianMatrix
+    Jac1 = PD.aaos.jacobian
 
     # construct Petsc vector X1, Y1:
     nlocal = M[rT]*W.node_set.size  # local times x local space

@@ -4,6 +4,94 @@ from functools import reduce
 from operator import mul
 
 
+class JacobianMatrix(object):
+    def __init__(self, aaos):
+        r"""
+        Python matrix for the Jacobian of the all at once system
+        :param aaos: The AllAtOnceSystem object
+        """
+        self.aaos = aaos
+        self.u = fd.Function(self.aaos.function_space_all)  # for the input function
+        self.F = fd.Function(self.aaos.function_space_all)  # for the output residual
+        self.F_prev = fd.Function(self.aaos.function_space_all)  # Where we compute the
+        # part of the output residual from neighbouring contributions
+        self.u0 = fd.Function(self.aaos.function_space_all)  # Where we keep the state
+
+        self.Fsingle = fd.Function(self.aaos.function_space)
+        self.urecv = fd.Function(self.aaos.function_space)  # will contain the previous time value i.e. 3*r-1
+        self.usend = fd.Function(self.aaos.function_space)  # will contain the next time value i.e. 3*(r+1)
+        self.ulist = self.u.split()
+        self.r = self.aaos.ensemble.ensemble_comm.rank
+        self.n = self.aaos.ensemble.ensemble_comm.size
+        # Jform missing contributions from the previous step
+        # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
+        # definition:
+        # dF_{u1}[u1, u2, u3; delta_u, v] =
+        #  lim_{eps -> 0} (F[u1+eps*delta_u,u2,u3;v]
+        #                  - F[u1,u2,u3;v])/eps
+        # Newton, solves for delta_u such that
+        # dF_{u1}[u1, u2, u3; delta_u, v] = -F[u1,u2,u3; v], for all v
+        # then updates u1 += delta_u
+        self.Jform = fd.derivative(self.aaos.para_form, self.aaos.w_all)
+        # Jform contributions from the previous step
+        self.Jform_prev = fd.derivative(self.aaos.para_form,
+                                        self.aaos.w_recv)
+
+    def mult(self, mat, X, Y):
+        n = self.n
+
+        # copy the local data from X into self.u
+        with self.u.dat.vec_wo as v:
+            v.array[:] = X.array_r
+
+        mpi_requests = []
+        # Communication stage
+
+        # send
+        r = self.aaos.time_rank  # the time rank
+        self.aaos.get_timestep(-1, index_range='slice', wout=self.usend, f_alls=self.ulist)
+
+        request_send = self.aaos.ensemble.isend(self.usend, dest=((r+1) % n), tag=r)
+        mpi_requests.extend(request_send)
+
+        # receive
+        request_recv = self.aaos.ensemble.irecv(self.urecv, source=((r-1) % n), tag=r-1)
+        mpi_requests.extend(request_recv)
+
+        # wait for the data [we should really do this after internal
+        # assembly but have avoided that for now]
+        MPI.Request.Waitall(mpi_requests)
+
+        # Set the flag for the circulant option
+        if self.aaos.circ in ["quasi", "picard"]:
+            self.aaos.Circ.assign(1.0)
+        else:
+            self.aaos.Circ.assign(0.0)
+
+        # assembly stage
+        fd.assemble(fd.action(self.Jform, self.u), tensor=self.F)
+        fd.assemble(fd.action(self.Jform_prev, self.urecv),
+                    tensor=self.F_prev)
+        self.F += self.F_prev
+
+        # unset flag if alpha-circulant approximation only in Jacobian
+        if self.aaos.circ not in ["picard"]:
+            self.aaos.Circ.assign(0.0)
+
+        # Apply boundary conditions
+        # assumes aaos.w_all contains the current state we are
+        # interested in
+        # For Jacobian action we should just return the values in X
+        # at boundary nodes
+        for bc in self.aaos.boundary_conditions_all:
+            bc.homogenize()
+            bc.apply(self.F, u=self.u)
+            bc.restore()
+
+        with self.F.dat.vec_ro as v:
+            v.copy(Y)
+
+
 class AllAtOnceSystem(object):
     def __init__(self,
                  ensemble, slice_partition,
@@ -53,7 +141,7 @@ class AllAtOnceSystem(object):
 
         # function pace for the slice of the all-at-once system on this process
         self.function_space_all = reduce(mul, (self.function_space
-                                               for _ in range(self.slice_partition[self.time_rank])))
+                                               for _ in range(slice_partition[self.time_rank])))
 
         self.w_all = fd.Function(self.function_space_all)
         self.w_alls = self.w_all.split()
@@ -75,6 +163,7 @@ class AllAtOnceSystem(object):
         self.w_send = fd.Function(self.function_space)
 
         self._set_para_form()
+        self.jacobian = JacobianMatrix(self)
 
     def set_boundary_conditions(self):
         """
