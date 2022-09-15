@@ -224,19 +224,19 @@ def test_steady_swe():
                       form_mass=form_mass, W=W, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      M=M, solver_parameters=solver_parameters_diag,
+                      slice_partition=M, solver_parameters=solver_parameters_diag,
                       circ=None, tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
     PD.solve()
 
     # check against initial conditions
-    walls = PD.w_all.split()
+    walls = PD.aaos.w_all.split()
     hn.assign(hn-H+b)
 
     hmag = fd.norm(hn)
     umag = fd.norm(un)
 
-    for step in range(M[PD.rT]):
+    for step in range(M[PD.time_rank]):
 
         up = walls[2*step]
         hp = walls[2*step+1]
@@ -252,6 +252,7 @@ def test_steady_swe():
         assert(abs(uerr) < utol)
 
 
+@pytest.mark.skip
 @pytest.mark.parallel(nprocs=6)
 def test_linear_swe_FFT():
     # minimal test for FFT PC
@@ -325,7 +326,7 @@ def test_linear_swe_FFT():
                       form_mass=form_mass, W=W, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      M=M, solver_parameters=solver_parameters_diag,
+                      slice_partition=M, solver_parameters=solver_parameters_diag,
                       circ="quasi",
                       tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
@@ -374,7 +375,7 @@ def test_jacobian_heat_equation():
                       form_mass=form_mass, W=V, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      M=M, solver_parameters=solver_parameters,
+                      slice_partition=M, solver_parameters=solver_parameters,
                       circ="none",
                       tol=1.0e-6, maxits=None)
 
@@ -416,7 +417,7 @@ def test_set_para_form():
                       form_mass=form_mass, W=V, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      M=M, solver_parameters=solver_parameters,
+                      slice_partition=M, solver_parameters=solver_parameters,
                       circ="none",
                       tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
@@ -431,11 +432,11 @@ def test_set_para_form():
 
     rT = ensemble.ensemble_comm.rank
     # copy the data from the full list into the time slice for this rank in PD.w_all
-    w_alls = PD.w_all.split()
+    w_alls = PD.aaos.w_all.split()
     w_alls[0].assign(ufull_list[rT*2])
     w_alls[1].assign(ufull_list[rT*2+1])
     # copy from w_all into the PETSc vec PD.X
-    with PD.w_all.dat.vec_ro as v:
+    with PD.aaos.w_all.dat.vec_ro as v:
         v.copy(PD.X)
 
     # make a form for all of the time slices
@@ -457,8 +458,8 @@ def test_set_para_form():
 
     Ffull = fd.assemble(fullform)
 
-    PD._assemble_function(PD.snes, PD.X, PD.F)
-    PD_Ff = fd.Function(PD.W_all)
+    PD.aaos._assemble_function(PD.snes, PD.X, PD.F)
+    PD_Ff = fd.Function(PD.aaos.function_space_all)
 
     with PD_Ff.dat.vec_wo as v:
         v.array[:] = PD.F.array_r
@@ -505,7 +506,7 @@ def test_set_para_form_mixed_parallel():
                       form_mass=form_mass, W=W, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      M=M, solver_parameters=solver_parameters,
+                      slice_partition=M, solver_parameters=solver_parameters,
                       circ="none",
                       tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
@@ -520,14 +521,14 @@ def test_set_para_form_mixed_parallel():
 
     rT = ensemble.ensemble_comm.rank
     # copy the data from the full list into the time slice for this rank in PD.w_all
-    w_alls = PD.w_all.split()
+    w_alls = PD.aaos.w_all.split()
     w_alls[0].assign(ufull_list[4 * rT])   # 1st time slice V
     w_alls[1].assign(ufull_list[4 * rT + 1])  # 1st time slice Q
     w_alls[2].assign(ufull_list[4 * rT + 2])  # 2nd time slice V
     w_alls[3].assign(ufull_list[4 * rT + 3])  # 2nd time slice Q
 
     # copy from w_all into the PETSc vec PD.X
-    with PD.w_all.dat.vec_ro as v:
+    with PD.aaos.w_all.dat.vec_ro as v:
         v.copy(PD.X)
 
     # make a form for all of the time slices
@@ -556,8 +557,8 @@ def test_set_para_form_mixed_parallel():
 
     Ffull = fd.assemble(fullform)
 
-    PD._assemble_function(PD.snes, PD.X, PD.F)
-    PD_F = fd.Function(PD.W_all)
+    PD.aaos._assemble_function(PD.snes, PD.X, PD.F)
+    PD_F = fd.Function(PD.aaos.function_space_all)
 
     with PD_F.dat.vec_wo as v:
         v.array[:] = PD.F.array_r
@@ -607,7 +608,7 @@ def test_jacobian_mixed_parallel():
                       form_mass=form_mass, W=W, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      M=M, solver_parameters=solver_parameters,
+                      slice_partition=M, solver_parameters=solver_parameters,
                       circ="none",
                       tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
@@ -629,8 +630,8 @@ def test_jacobian_mixed_parallel():
     rT = ensemble.ensemble_comm.rank
 
     # copy the data from the full list into the time slice for this rank in PD.w_all
-    w_alls = PD.w_all.split()
-    v_all = fd.Function(PD.W_all)
+    w_alls = PD.aaos.w_all.split()
+    v_all = fd.Function(PD.aaos.function_space_all)
     v_alls = v_all.split()
 
     nM = M[rT]
@@ -646,9 +647,9 @@ def test_jacobian_mixed_parallel():
 
     # Parallel PARADIAG: calculate Jac1 with PD
     # copy from w_all into the PETSc vec PD.X
-    with PD.w_all.dat.vec_ro as v:
+    with PD.aaos.w_all.dat.vec_ro as v:
         v.copy(PD.X)
-    PD.update(PD.X)
+    PD.aaos.update(PD.X)
 
     # use PD to calculate the Jacobian
     Jac1 = PD.JacobianMatrix
@@ -698,7 +699,7 @@ def test_jacobian_mixed_parallel():
     jacout = fd.assemble(fd.action(Jac2, vfull))
 
     # generalization of the error evaluation to nM time slices
-    PD_J = fd.Function(PD.W_all)
+    PD_J = fd.Function(PD.aaos.function_space_all)
     with PD_J.dat.vec_wo as v:
         v.array[:] = Y1.array_r
 
@@ -775,7 +776,7 @@ def test_solve_para_form(bc_opt):
                       form_mass=form_mass, W=V, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      M=M, bcs=bcs,
+                      slice_partition=M, bcs=bcs,
                       solver_parameters=solver_parameters_diag,
                       circ="quasi", tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
@@ -813,7 +814,7 @@ def test_solve_para_form(bc_opt):
         # sum over the entries of M until rT determines left position left
         left = np.sum(M[:rT], dtype=int)
         ind1 = left + i
-        assert(fd.errornorm(vfull.sub(ind1), PD.w_all.sub(i)) < 1.0e-9)
+        assert(fd.errornorm(vfull.sub(ind1), PD.aaos.w_all.sub(i)) < 1.0e-9)
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -874,7 +875,7 @@ def test_solve_para_form_mixed():
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
                       form_mass=form_mass, W=W, w0=w0, dt=dt,
-                      theta=theta, alpha=alpha, M=M,
+                      theta=theta, alpha=alpha, slice_partition=M,
                       solver_parameters=solver_parameters_diag,
                       circ="quasi",
                       tol=1.0e-6, maxits=None,
@@ -922,5 +923,5 @@ def test_solve_para_form_mixed():
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        assert(fd.errornorm(vfull_list[ind1], PD.w_all.sub(2*i)) < 1.0e-9)
-        assert(fd.errornorm(vfull_list[ind2], PD.w_all.sub(2*i+1)) < 1.0e-9)
+        assert(fd.errornorm(vfull_list[ind1], PD.aaos.w_all.sub(2*i)) < 1.0e-9)
+        assert(fd.errornorm(vfull_list[ind2], PD.aaos.w_all.sub(2*i+1)) < 1.0e-9)

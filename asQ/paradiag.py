@@ -126,7 +126,7 @@ class JacobianMatrix(object):
 class paradiag(object):
     def __init__(self, ensemble,
                  form_function, form_mass, W, w0, dt, theta,
-                 alpha, M, bcs=[],
+                 alpha, slice_partition, bcs=[],
                  solver_parameters={},
                  circ="picard",
                  tol=1.0e-6, maxits=10,
@@ -143,7 +143,7 @@ class paradiag(object):
         :arg dt: float, the timestep size.
         :arg theta: float, implicit timestepping parameter
         :arg alpha: float, circulant matrix parameter
-        :arg M: a list of integers, the number of timesteps
+        :arg slice_partition: a list of integers, the number of timesteps
         assigned to each rank
         :arg bcs: a list of DirichletBC boundary conditions on W
         :arg solver_parameters: options dictionary for nonlinear solver
@@ -162,63 +162,28 @@ class paradiag(object):
         Default is aij.
         """
 
-        self.aaos = AllAtOnceSystem(ensemble, M,
+        self.aaos = AllAtOnceSystem(ensemble, slice_partition,
                                     dt, theta,
                                     form_mass, form_function,
                                     w0, bcs,
                                     circ, alpha)
 
-        self.form_function = form_function
         self.ensemble = ensemble
-        self.form_mass = form_mass
-        self.W = self.aaos.function_space
-        self.W_bcs = self.aaos.boundary_conditions
-        self.ncpts = self.aaos.ncomponents
-        self.w0 = self.aaos.initial_condition
-        self.dt = self.aaos.dt
-        self.M = self.aaos.slice_partition
-        self.theta = self.aaos.theta
+        self.slice_partition = self.aaos.slice_partition
+        self.time_rank = self.aaos.time_rank
         self.alpha = self.aaos.alpha
         self.tol = tol
         self.maxits = maxits
         self.circ = self.aaos.circ
         self.ctx = ctx
         self.block_ctx = block_ctx
-        self.rT = self.aaos.time_rank
 
-        # A coefficient that switches the alpha-circulant term on
-        self.Circ = self.aaos.Circ
+        # set up the PETSc Vecs (X for coeffs and F for residuals)
+        W = self.aaos.function_space
 
-        # function space for the component of them
-        # all-at-once system assigned to this process
-        # implemented as a massive mixed function space
+        nlocal = slice_partition[self.time_rank]*W.node_set.size  # local times x local space
+        nglobal = sum(slice_partition)*W.dim()  # global times x global space
 
-        self.W_all = self.aaos.function_space_all
-
-        # convert the W bcs into W_all bcs
-        self.set_W_all_bcs()
-
-        # function containing the part of the
-        # all-at-once solution assigned to this rank
-        self.w_all = self.aaos.w_all
-        self.w_alls = self.aaos.w_alls
-
-        # apply boundary conditions
-        for bc in self.aaos.boundary_conditions_all:
-            bc.apply(self.w_all)
-
-        # function to assemble the nonlinear residual
-        self.F_all = self.aaos.F_all
-
-        # functions containing the last and next steps for parallel
-        # communication timestep
-        # from the previous iteration
-        self.w_recv = self.aaos.w_recv
-        self.w_send = self.aaos.w_send
-
-        # set up the Vecs X (for coeffs and F for residuals)
-        nlocal = M[self.rT]*W.node_set.size  # local times x local space
-        nglobal = sum(M)*W.dim()  # global times x global space
         self.X = PETSc.Vec().create(comm=fd.COMM_WORLD)
         self.X.setSizes((nlocal, nglobal))
         self.X.setFromOptions()
@@ -226,9 +191,6 @@ class paradiag(object):
         with self.aaos.w_all.dat.vec_ro as v:
             v.copy(self.X)
         self.F = self.X.copy()
-
-        # construct the nonlinear form
-        self._set_para_form()
 
         # sort out the appctx
         if "pc_python_type" in solver_parameters:
@@ -241,7 +203,7 @@ class paradiag(object):
         self.snes = PETSc.SNES().create(comm=fd.COMM_WORLD)
         self.opts = OptionsManager(solver_parameters, '')
         self.snes.setOptionsPrefix('')
-        self.snes.setFunction(self._assemble_function, self.F)
+        self.snes.setFunction(self.aaos._assemble_function, self.F)
 
         # set up the Jacobian
         mctx = JacobianMatrix(self.aaos)
@@ -263,93 +225,6 @@ class paradiag(object):
 
         # complete the snes setup
         self.opts.set_from_options(self.snes)
-
-    def set_W_all_bcs(self):
-        self.aaos.set_boundary_conditions()
-        self.W_all_bcs = self.aaos.boundary_conditions_all
-
-    def check_index(self, i, index_range='slice'):
-        '''
-        Check that timestep index is in range
-        :arg i: timestep index to check
-        :arg index_range: range that index is in. Either slice or window
-        '''
-        return self.aaos.check_index(i, index_range)
-
-    def shift_index(self, i, from_range='slice', to_range='slice'):
-        '''
-        Shift timestep index from one range to another, and accounts for -ve indices
-        :arg i: timestep index to shift
-        :arg from_range: range of i. Either slice or window
-        :arg to_range: range to shift i to. Either slice or window
-        '''
-        return self.aaos.shift_index(i, from_range, to_range)
-
-    def set_timestep(self, step, wnew, index_range='slice', f_alls=None):
-        '''
-        Set solution at a timestep to new value
-
-        :arg step: index of timestep to set.
-        :arg wnew: new solution for timestep
-        :arg index_range: is index in window or slice?
-        :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
-        '''
-        return self.aaos.set_timestep(step, wnew, index_range, f_alls)
-
-    def get_timestep(self, step, index_range='slice', wout=None, name=None, f_alls=None):
-        '''
-        Get solution at a timestep to new value
-
-        :arg step: index of timestep to set.
-        :arg index_range: is index in window or slice?
-        :arg wout: function to set to timestep (timestep returned if None)
-        :arg name: name of returned function
-        :arg f_alls: an all-at-once function to get timestep from. If None, self.w_alls is used
-        '''
-        return self.aaos.get_timestep(step, index_range, wout, name, f_alls)
-
-    def for_each_timestep(self, callback):
-        '''
-        call callback for each timestep in each slice in the current window
-        callback arguments are: timestep index in window, timestep index in slice, Function at timestep
-
-        :arg callback: the function to call for each timestep
-        '''
-        self.aaos.for_each_timestep(callback)
-
-    def update(self, X):
-        '''
-        Update self.w_alls and self.w_recv
-        from X.
-        The local parts of X are copied into self.w_alls
-        and the last step from the previous slice (periodic)
-        is copied into self.u_prev
-        '''
-        self.aaos.update(X)
-
-    def next_window(self, w1=None):
-        """
-        Reset paradiag ready for next time-window
-
-        :arg w1: initial solution for next time-window.If None,
-                 will use the final timestep from previous window
-        """
-        self.aaos.next_window(w1)
-
-    def _assemble_function(self, snes, X, Fvec):
-        r"""
-        This is the function we pass to the snes to assemble
-        the nonlinear residual.
-        """
-        self.aaos._assemble_function(snes, X, Fvec)
-
-    def _set_para_form(self):
-        """
-        Constructs the bilinear form for the all at once system.
-        Specific to the theta-centred Crank-Nicholson method
-        """
-        self.aaos._set_para_form()
-        self.para_form = self.aaos.para_form
 
     def solve(self,
               nwindows=1,
@@ -380,4 +255,4 @@ class paradiag(object):
                 return
 
             if wndw != nwindows-1:
-                self.next_window()
+                self.aaos.next_window()

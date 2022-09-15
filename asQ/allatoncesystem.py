@@ -74,6 +74,8 @@ class AllAtOnceSystem(object):
         self.w_recv = fd.Function(self.function_space)
         self.w_send = fd.Function(self.function_space)
 
+        self._set_para_form()
+
     def set_boundary_conditions(self):
         """
         Set the boundary conditions onto each solution in the all-at-once system
