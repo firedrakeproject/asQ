@@ -47,7 +47,7 @@ def W(request, V):
 def form_function(W):
     # product of first test and first trial functions
     def form(*args):
-        return (args[0]*args[len(fd.split(W))])*fd.dx
+        return (args[0]*args[len(args)//2])*fd.dx
     return form
 
 
@@ -208,7 +208,7 @@ def test_set_timestep(ensemble, mesh, W,
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_next_window(ensemble, mesh,
+def test_next_window(ensemble, mesh, W,
                      form_function, form_mass):
     # test resetting paradiag to start to next time-window
 
@@ -217,14 +217,14 @@ def test_next_window(ensemble, mesh,
     dt = 1
     theta = 0.5
 
-    V = fd.FunctionSpace(mesh, "DG", 1)
-    v0 = fd.Function(V, name="v0")
-    v1 = fd.Function(V, name="v1")
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
 
     # two random solutions
     np.random.seed(572046)
-    v0.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
-    v1.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
+    for dat0, dat1 in zip(v0.dat, v1.dat):
+        dat0.data[:] = np.random.rand(*(dat0.data.shape))
+        dat1.data[:] = np.random.rand(*(dat1.data.shape))
 
     aaos = asQ.AllAtOnceSystem(ensemble, M,
                                dt, theta,
