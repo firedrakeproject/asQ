@@ -82,7 +82,7 @@ def test_for_each_timestep(ensemble, W,
                                w0=v0)
 
     def check_timestep(expression, w):
-        assert(fd.errornorm(expression, w) < 1e-12)
+        assert (fd.errornorm(expression, w) < 1e-12)
 
     # set each timestep as slice timestep index
     for step in range(aaos.slice_partition[aaos.time_rank]):
@@ -139,7 +139,7 @@ def test_get_timestep(ensemble, mesh, W,
                                         to_range='window')
         aaos.set_timestep(window_index, v1, index_range='window')
         err = fd.errornorm(v1, aaos.get_timestep(window_index, index_range='window'))
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
     # set each step using slice index
     vcheck = fd.Function(W)
@@ -148,7 +148,7 @@ def test_get_timestep(ensemble, mesh, W,
 
         aaos.get_timestep(step, index_range='slice', wout=vcheck)
         err = fd.errornorm(v0, vcheck)
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -194,7 +194,7 @@ def test_set_timestep(ensemble, mesh, W,
         for i in range(ncpt):
             vchecks[i].assign(aaos.w_alls[ncpt*slice_index+i])
         err = fd.errornorm(v1, vcheck)
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
     # set each step using slice index
     for step in range(aaos.slice_partition[rank]):
@@ -204,7 +204,7 @@ def test_set_timestep(ensemble, mesh, W,
             vchecks[i].assign(aaos.w_alls[ncpt*step+i])
 
         err = fd.errornorm(v0, vcheck)
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -239,7 +239,7 @@ def test_next_window(ensemble, mesh,
 
     for step in range(aaos.slice_partition[rank]):
         err = fd.errornorm(v1, aaos.get_timestep(step))
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
     # force last timestep = v0
     ncomm = ensemble.ensemble_comm.size
@@ -252,4 +252,4 @@ def test_next_window(ensemble, mesh,
     # check all timesteps == v0
     for step in range(aaos.slice_partition[rank]):
         err = fd.errornorm(v0, aaos.get_timestep(step))
-        assert(err < 1e-12)
+        assert (err < 1e-12)

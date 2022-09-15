@@ -75,7 +75,7 @@ class DiagFFTPC(object):
 
         W_all = aaos.function_space_all
         # sanity check
-        assert(self.blockV.dim()*partition[time_rank] == W_all.dim())
+        assert (self.blockV.dim()*partition[time_rank] == W_all.dim())
 
         # Input/Output wrapper Functions
         self.xf = fd.Function(W_all)  # input
