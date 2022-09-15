@@ -6,32 +6,75 @@ from functools import reduce
 from operator import mul
 
 
+max_ncpts = 2
+ncpts = [i for i in range(1, max_ncpts + 1)]
+
+
+@pytest.fixture
+def ensemble():
+    if fd.COMM_WORLD.size == 1:
+        return
+
+    return fd.Ensemble(fd.COMM_WORLD, 2)
+
+
+@pytest.fixture
+def mesh(ensemble):
+    if fd.COMM_WORLD.size == 1:
+        return
+
+    return fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+
+@pytest.fixture
+def V(mesh):
+    if fd.COMM_WORLD.size == 1:
+        return
+
+    return fd.FunctionSpace(mesh, "CG", 1)
+
+
+# mixed space
+@pytest.fixture(params=ncpts)
+def W(request, V):
+    if fd.COMM_WORLD.size == 1:
+        return
+
+    return reduce(mul, [V for _ in range(request.param)])
+
+
+@pytest.fixture
+def form_function(W):
+    # product of first test and first trial functions
+    def form(*args):
+        return (args[0]*args[len(fd.split(W))])*fd.dx
+    return form
+
+
+@pytest.fixture
+def form_mass(W):
+    # product of first test and first trial functions
+    def form(*args):
+        return (args[0]*args[len(W.split())])*fd.dx
+    return form
+
+
 @pytest.mark.parallel(nprocs=4)
-def test_for_each_timestep():
+def test_for_each_timestep(ensemble, W,
+                           form_function, form_mass):
     '''
     test aaos.for_each_timestep
     '''
+    if len(W.split()) != 1:
+        return
+
     # prep paradiag setup
-    nspatial_domains = 2
     M = [2, 2]
     dt = 1
     theta = 0.5
 
-    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
-
-    ncpt = 1
-    W = fd.FunctionSpace(mesh, "DG", 1)
     v0 = fd.Function(W, name="v0")
     v0.assign(0)
-
-    # dummy forms
-    def form_function(*args):
-        return (args[0]*args[ncpt])*fd.dx
-
-    def form_mass(*args):
-        return (args[0]*args[ncpt])*fd.dx
 
     aaos = asQ.AllAtOnceSystem(ensemble, M,
                                dt, theta,
@@ -58,39 +101,21 @@ def test_for_each_timestep():
         lambda wi, si, w: check_timestep(fd.Constant(wi), w))
 
 
-ncpts = [1, 2]
-
-
 @pytest.mark.parallel(nprocs=4)
-@pytest.mark.parametrize("ncpt", ncpts)
-def test_get_timestep(ncpt):
+def test_get_timestep(ensemble, mesh, W,
+                      form_function, form_mass):
     '''
     test getting a specific timestep
     only valid if test_set_timestep passes
     '''
 
     # prep paradiag setup
-    nspatial_domains = 2
     M = [2, 2]
     dt = 1
     theta = 0.5
 
-    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
-
-    V = fd.FunctionSpace(mesh, "DG", 1)
-    W = reduce(mul, [V for _ in range(ncpt)])
-
     v0 = fd.Function(W, name="v0")
     v1 = fd.Function(W, name="v1")
-
-    # dummy forms
-    def form_function(*args):
-        return (args[0]*args[ncpt])*fd.dx
-
-    def form_mass(*args):
-        return (args[0]*args[ncpt])*fd.dx
 
     # two random solutions
     np.random.seed(572046)
@@ -126,36 +151,20 @@ def test_get_timestep(ncpt):
         assert(err < 1e-12)
 
 
-@pytest.mark.parametrize("ncpt", ncpts)
 @pytest.mark.parallel(nprocs=4)
-def test_set_timestep(ncpt):
+def test_set_timestep(ensemble, mesh, W,
+                      form_function, form_mass):
     '''
     test setting a specific timestep
     '''
 
     # prep paradiag setup
-    nspatial_domains = 2
     M = [2, 2]
     dt = 1
     theta = 0.5
 
-    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
-
-    V = fd.FunctionSpace(mesh, "DG", 1)
-    W = V
-    for _ in range(1, ncpt):
-        W *= V
     v0 = fd.Function(W, name="v0")
     v1 = fd.Function(W, name="v1")
-
-    # dummy forms
-    def form_function(*args):
-        return (args[0]*args[ncpt])*fd.dx
-
-    def form_mass(*args):
-        return (args[0]*args[ncpt])*fd.dx
 
     # two random solutions
     np.random.seed(572046)
@@ -175,6 +184,7 @@ def test_set_timestep(ncpt):
 
     # set each step using window index
     rank = aaos.time_rank
+    ncpt = aaos.ncomponents
 
     for slice_index in range(aaos.slice_partition[rank]):
         window_index = aaos.shift_index(slice_index,
@@ -198,28 +208,18 @@ def test_set_timestep(ncpt):
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_next_window():
+def test_next_window(ensemble, mesh,
+                     form_function, form_mass):
     # test resetting paradiag to start to next time-window
 
     # prep paradiag setup
-    nspatial_domains = 2
     M = [2, 2]
     dt = 1
     theta = 0.5
 
-    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-
-    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
-
     V = fd.FunctionSpace(mesh, "DG", 1)
     v0 = fd.Function(V, name="v0")
     v1 = fd.Function(V, name="v1")
-
-    def form_function(v, u):
-        return v*u*fd.dx
-
-    def form_mass(v, u):
-        return v*u*fd.dx
 
     # two random solutions
     np.random.seed(572046)
