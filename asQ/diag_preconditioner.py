@@ -61,8 +61,8 @@ class DiagFFTPC(object):
         # this time slice part of the all at once solution
         self.w_all = aaos.w_all
 
-        partition = np.array(paradiag.slice_partition)
-        self.slice_partition = partition
+        partition = np.array(paradiag.time_partition)
+        self.time_partition = partition
 
         ensemble = paradiag.ensemble
         self.ensemble = ensemble
@@ -318,7 +318,7 @@ class DiagFFTPC(object):
         # an operator that is block diagonal in the 2x2 system coupling
         # real and imaginary parts.
         self.u0.assign(0)
-        for i in range(self.slice_partition[self.time_rank]):
+        for i in range(self.time_partition[self.time_rank]):
             # copy the data into solver input
             if self.ncpts > 1:
                 u0s = self.u0.split()
@@ -333,13 +333,13 @@ class DiagFFTPC(object):
 
         # average only over current time-slice
         if self.jac_average == 'slice':
-            self.u0 /= self.slice_partition[self.time_rank]
+            self.u0 /= self.time_partition[self.time_rank]
 
         else:  # implies self.jac_average == 'window':
             # this reduces the complex function - we can halve the comm by reducing a real function
             self.ensemble.allreduce(self.u0, self.ureduce)
             self.u0.assign(self.ureduce)
-            self.u0 /= sum(self.slice_partition)
+            self.u0 /= sum(self.time_partition)
 
     def apply(self, pc, x, y):
 
@@ -352,7 +352,7 @@ class DiagFFTPC(object):
 
         # get array of basis coefficients
         with self.xf.dat.vec_ro as v:
-            parray = v.array_r.reshape((self.slice_partition[time_rank],
+            parray = v.array_r.reshape((self.time_partition[time_rank],
                                         self.blockV.node_set.size))
         # This produces an array whose rows are time slices
         # and columns are finite element basis coefficients
@@ -380,7 +380,7 @@ class DiagFFTPC(object):
 
         # Do the block solves
 
-        for i in range(self.slice_partition[time_rank]):
+        for i in range(self.time_partition[time_rank]):
             # copy the data into solver input
             self.xtemp.assign(0.)
             if self.ncpts > 1:
@@ -418,10 +418,10 @@ class DiagFFTPC(object):
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
         # get array of basis coefficients
         with self.xfi.dat.vec_ro as v:
-            parray = 1j*v.array_r.reshape((self.slice_partition[time_rank],
+            parray = 1j*v.array_r.reshape((self.time_partition[time_rank],
                                            self.blockV.node_set.size))
         with self.xfr.dat.vec_ro as v:
-            parray += v.array_r.reshape((self.slice_partition[time_rank],
+            parray += v.array_r.reshape((self.time_partition[time_rank],
                                          self.blockV.node_set.size))
         # transfer forward
         self.a0[:] = parray[:]

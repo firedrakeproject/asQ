@@ -43,15 +43,15 @@ PETSc.Sys.Print('')
 
 # time steps
 
-slice_partition = [args.slice_length for _ in range(args.nslices)]
-window_length = sum(slice_partition)
+time_partition = [args.slice_length for _ in range(args.nslices)]
+window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
 
 # multigrid mesh set up
 
-ensemble = asQ.create_ensemble(slice_partition)
+ensemble = asQ.create_ensemble(time_partition)
 
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
@@ -141,7 +141,7 @@ sparameters_diag = {
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 PETSc.Sys.Print('')
 
-for i in range(sum(slice_partition)):
+for i in range(sum(time_partition)):
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
 # non-petsc information for block solve
@@ -149,7 +149,7 @@ block_ctx = {}
 
 # mesh transfer operators
 transfer_managers = []
-for _ in range(slice_partition[ensemble.ensemble_comm.rank]):
+for _ in range(time_partition[ensemble.ensemble_comm.rank]):
     tm = mg.manifold_transfer_manager(W)
     transfer_managers.append(tm)
 
@@ -160,7 +160,7 @@ PD = asQ.paradiag(ensemble=ensemble,
                   form_mass=form_mass, w0=w0,
                   dt=dt, theta=0.5,
                   alpha=args.alpha,
-                  slice_partition=slice_partition, solver_parameters=sparameters_diag,
+                  time_partition=time_partition, solver_parameters=sparameters_diag,
                   circ=None, tol=1.0e-6, maxits=None,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 

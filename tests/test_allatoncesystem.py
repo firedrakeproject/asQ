@@ -242,7 +242,7 @@ def test_set_component(ensemble, mesh, W,
     rank = aaos.time_rank
     ncpts = aaos.ncomponents
 
-    for slice_index in range(aaos.slice_partition[rank]):
+    for slice_index in range(aaos.time_partition[rank]):
         window_index = aaos.shift_index(slice_index, from_range='slice', to_range='window')
 
         for cpt in range(ncpts):
@@ -293,7 +293,7 @@ def test_get_component(ensemble, mesh, W,
     vcheck = fd.Function(W)
 
     # get each component using slice index
-    for step in range(aaos.slice_partition[rank]):
+    for step in range(aaos.time_partition[rank]):
         for cpt in range(ncpts):
             aaos.get_component(step, cpt, index_range='slice', wout=vcheck.sub(cpt))
 
@@ -308,7 +308,7 @@ def test_get_component(ensemble, mesh, W,
             assert v2 is aaos.w_alls[step*ncpts + cpt]
 
     # get each component using window index
-    for slice_index in range(aaos.slice_partition[rank]):
+    for slice_index in range(aaos.time_partition[rank]):
         aaos.set_timestep(slice_index, v1, index_range='slice')
 
         window_index = aaos.shift_index(slice_index, from_range='slice', to_range='window')
@@ -361,7 +361,7 @@ def test_set_timestep(ensemble, mesh, W,
     rank = aaos.time_rank
     ncpt = aaos.ncomponents
 
-    for slice_index in range(aaos.slice_partition[rank]):
+    for slice_index in range(aaos.time_partition[rank]):
         window_index = aaos.shift_index(slice_index,
                                         from_range='slice',
                                         to_range='window')
@@ -372,7 +372,7 @@ def test_set_timestep(ensemble, mesh, W,
         assert (err < 1e-12)
 
     # set each step using slice index
-    for step in range(aaos.slice_partition[rank]):
+    for step in range(aaos.time_partition[rank]):
         aaos.set_timestep(step, v0, index_range='slice')
 
         for i in range(ncpt):
@@ -416,7 +416,7 @@ def test_get_timestep(ensemble, mesh, W,
 
     vcheck = fd.Function(W)
     # get each step using slice index
-    for step in range(aaos.slice_partition[rank]):
+    for step in range(aaos.time_partition[rank]):
         aaos.get_timestep(step, index_range='slice', wout=vcheck)
         err = fd.errornorm(v0, vcheck)
         assert (err < 1e-12)
@@ -426,7 +426,7 @@ def test_get_timestep(ensemble, mesh, W,
         assert (err < 1e-12)
 
     # get each step using window index
-    for slice_index in range(aaos.slice_partition[rank]):
+    for slice_index in range(aaos.time_partition[rank]):
         window_index = aaos.shift_index(slice_index,
                                         from_range='slice',
                                         to_range='window')
@@ -465,7 +465,7 @@ def test_for_each_timestep(ensemble, V,
         assert (fd.errornorm(expression, w) < 1e-12)
 
     # set each timestep as slice timestep index
-    for step in range(aaos.slice_partition[aaos.time_rank]):
+    for step in range(aaos.time_partition[aaos.time_rank]):
         v0.assign(step)
         aaos.set_timestep(step, v0, index_range='slice')
 
@@ -473,7 +473,7 @@ def test_for_each_timestep(ensemble, V,
         lambda wi, si, w: check_timestep(fd.Constant(si), w))
 
     # set each timestep as window timestep index
-    for step in range(aaos.slice_partition[aaos.time_rank]):
+    for step in range(aaos.time_partition[aaos.time_rank]):
         v0.assign(aaos.shift_index(step, from_range='slice', to_range='window'))
         aaos.set_timestep(step, v0, index_range='slice')
 
@@ -511,7 +511,7 @@ def test_next_window(ensemble, mesh, V,
     # check all timesteps == v1
     rank = aaos.time_rank
 
-    for step in range(aaos.slice_partition[rank]):
+    for step in range(aaos.time_partition[rank]):
         err = fd.errornorm(v1, aaos.get_timestep(step))
         assert (err < 1e-12)
 
@@ -524,6 +524,49 @@ def test_next_window(ensemble, mesh, V,
     aaos.next_window()
 
     # check all timesteps == v0
-    for step in range(aaos.slice_partition[rank]):
+    for step in range(aaos.time_partition[rank]):
         err = fd.errornorm(v0, aaos.get_timestep(step))
         assert (err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_update_time_halos(ensemble, mesh, V,
+                           form_function, form_mass):
+    # prep aaos setup
+    M = [2, 2]
+    dt = 1
+    theta = 0.5
+
+    rank = ensemble.ensemble_comm.rank
+    size = ensemble.ensemble_comm.size
+
+    v0 = fd.Function(V).assign(-1)
+    v1 = fd.Function(V).assign(rank)
+
+    aaos = asQ.AllAtOnceSystem(ensemble, M,
+                               dt, theta,
+                               form_function, form_mass,
+                               w0=v0)
+
+    # test updating own halos
+    for step in range(aaos.time_partition[rank]):
+        aaos.set_timestep(step, v1)
+
+    aaos.update_time_halos()
+
+    # solution on previous slice
+    v0.assign((rank - 1) % size)
+
+    assert (fd.errornorm(aaos.w_recv, v0) < 1e-12)
+
+    wsend = fd.Function(aaos.function_space).assign(-1)
+    wrecv = fd.Function(aaos.function_space).assign(-1)
+    wall = fd.Function(aaos.function_space_all)
+    walls = wall.split()
+
+    for step in range(aaos.time_partition[rank]):
+        walls[step].assign(v1)
+
+    aaos.update_time_halos(wsend=wsend, wrecv=wrecv, walls=walls)
+
+    assert (fd.errornorm(wrecv, v0) < 1e-12)

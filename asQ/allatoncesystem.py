@@ -19,8 +19,7 @@ class JacobianMatrix(object):
 
         self.Fsingle = fd.Function(self.aaos.function_space)
         self.urecv = fd.Function(self.aaos.function_space)  # will contain the previous time value i.e. 3*r-1
-        self.usend = fd.Function(self.aaos.function_space)  # will contain the next time value i.e. 3*(r+1)
-        self.ulist = self.u.split()
+        self.ualls = self.u.split()
         # Jform missing contributions from the previous step
         # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
         # definition:
@@ -36,29 +35,15 @@ class JacobianMatrix(object):
                                         self.aaos.w_recv)
 
     def mult(self, mat, X, Y):
-        r = self.aaos.ensemble.ensemble_comm.rank
-        n = self.aaos.ensemble.ensemble_comm.size
-
         # copy the local data from X into self.u
         with self.u.dat.vec_wo as v:
             v.array[:] = X.array_r
 
-        mpi_requests = []
-        # Communication stage
-
-        # send
-        self.aaos.get_timestep(-1, index_range='slice', wout=self.usend, f_alls=self.ulist)
-
-        request_send = self.aaos.ensemble.isend(self.usend, dest=((r+1) % n), tag=r)
-        mpi_requests.extend(request_send)
-
-        # receive
-        request_recv = self.aaos.ensemble.irecv(self.urecv, source=((r-1) % n), tag=r-1)
-        mpi_requests.extend(request_recv)
-
         # wait for the data [we should really do this after internal
         # assembly but have avoided that for now]
-        MPI.Request.Waitall(mpi_requests)
+        self.aaos.update_time_halos(wrecv=self.urecv,
+                                    walls=self.ualls,
+                                    blocking=True)
 
         # Set the flag for the circulant option
         if self.aaos.circ in ["quasi", "picard"]:
@@ -92,7 +77,7 @@ class JacobianMatrix(object):
 
 class AllAtOnceSystem(object):
     def __init__(self,
-                 ensemble, slice_partition,
+                 ensemble, time_partition,
                  dt, theta,
                  form_mass, form_function,
                  w0, bcs=[],
@@ -101,21 +86,21 @@ class AllAtOnceSystem(object):
         The all-at-once system representing multiple timesteps of a time-dependent finite-element problem.
 
         :arg ensemble: time-parallel ensemble communicator.
-        :arg slice_partition: a list of integers for the number of timesteps stored on each ensemble rank.
+        :arg time_partition: a list of integers for the number of timesteps stored on each ensemble rank.
         :arg w0: a Function containing the initial data.
         :arg bcs: a list of DirichletBC boundary conditions on w0.function_space.
         """
 
         # check that the ensemble communicator is set up correctly
-        if isinstance(slice_partition, int):
-            slice_partition = [slice_partition]
-        nsteps = len(slice_partition)
+        if isinstance(time_partition, int):
+            time_partition = [time_partition]
+        nsteps = len(time_partition)
         ensemble_size = ensemble.ensemble_comm.size
         if nsteps != ensemble_size:
             raise ValueError(f"Number of timesteps {nsteps} must equal size of ensemble communicator {ensemble_size}")
 
         self.ensemble = ensemble
-        self.slice_partition = slice_partition
+        self.time_partition = time_partition
         self.time_rank = ensemble.ensemble_comm.rank
 
         self.initial_condition = w0
@@ -139,18 +124,18 @@ class AllAtOnceSystem(object):
 
         self.max_indices = {
             'component': self.ncomponents,
-            'slice': self.slice_partition[self.time_rank],
-            'window': sum(self.slice_partition)
+            'slice': self.time_partition[self.time_rank],
+            'window': sum(self.time_partition)
         }
 
         # function pace for the slice of the all-at-once system on this process
         self.function_space_all = reduce(mul, (self.function_space
-                                               for _ in range(slice_partition[self.time_rank])))
+                                               for _ in range(time_partition[self.time_rank])))
 
         self.w_all = fd.Function(self.function_space_all)
         self.w_alls = self.w_all.split()
 
-        for i in range(self.slice_partition[self.time_rank]):
+        for i in range(self.time_partition[self.time_rank]):
             self.set_timestep(i, self.initial_condition, index_range='slice')
 
         self.set_boundary_conditions()
@@ -177,12 +162,12 @@ class AllAtOnceSystem(object):
 
         self.boundary_conditions_all = []
         for bc in self.boundary_conditions:
-            for rank in range(self.slice_partition[self.time_rank]):
+            for step in range(self.time_partition[self.time_rank]):
                 if is_mixed_element:
                     i = bc.function_space().index
-                    index = rank*self.ncomponents + i
+                    index = step*self.ncomponents + i
                 else:
-                    index = rank
+                    index = step
                 all_bc = fd.DirichletBC(self.function_space_all.sub(index),
                                         bc.function_arg,
                                         bc.sub_domain)
@@ -226,7 +211,7 @@ class AllAtOnceSystem(object):
             return i
 
         # index of first timestep in slice
-        index0 = sum(self.slice_partition[:self.time_rank])
+        index0 = sum(self.time_partition[:self.time_rank])
 
         if to_range == 'slice':  # 'from_range' == 'window'
             i -= index0
@@ -337,7 +322,7 @@ class AllAtOnceSystem(object):
         '''
 
         w = fd.Function(self.function_space)
-        for slice_index in range(self.slice_partition[self.time_rank]):
+        for slice_index in range(self.time_partition[self.time_rank]):
             window_index = self.shift_index(slice_index,
                                             from_range='slice',
                                             to_range='window')
@@ -365,10 +350,49 @@ class AllAtOnceSystem(object):
                 self.ensemble.ensemble_comm.Bcast(vec.array, root=ncomm-1)
 
         # persistence forecast
-        for i in range(self.slice_partition[rank]):
+        for i in range(self.time_partition[rank]):
             self.set_timestep(i, self.initial_condition, index_range='slice')
 
         return
+
+    def update_time_halos(self, wsend=None, wrecv=None, walls=None, blocking=True):
+        '''
+        Update wrecv with the last step from the previous slice (periodic) of walls
+
+        :arg wsend: Function to send last step of current slice to next slice. if None self.w_send is used
+        :arg wrecv: Function to receive last step of previous slice. if None self.w_recv is used
+        :arg walls: all at once function list to update wrecv from. if None self.w_alls is used
+        :arg blocking: Whether to blocking until MPI communications have finished. If false then a list of MPI requests is returned
+        '''
+        n = self.ensemble.ensemble_comm.size
+        r = self.time_rank
+
+        if wsend is None:
+            wsend = self.w_send
+        if wrecv is None:
+            wrecv = self.w_recv
+        if walls is None:
+            walls = self.w_alls
+
+        # Communication stage
+        mpi_requests = []
+
+        self.get_timestep(-1, wout=wsend, index_range='slice', f_alls=walls)
+
+        # these should be replaced with isendrecv once ensemble updates are pushed to Firedrake
+        request_send = self.ensemble.isend(wsend, dest=((r+1) % n), tag=r)
+        mpi_requests.extend(request_send)
+
+        request_recv = self.ensemble.irecv(wrecv, source=((r-1) % n), tag=r-1)
+        mpi_requests.extend(request_recv)
+
+        if blocking:
+            # wait for the data [we should really do this after internal
+            # assembly but have avoided that for now]
+            MPI.Request.Waitall(mpi_requests)
+            return
+        else:
+            return mpi_requests
 
     def update(self, X):
         '''
@@ -381,23 +405,7 @@ class AllAtOnceSystem(object):
         with self.w_all.dat.vec_wo as v:
             v.array[:] = X.array_r
 
-        n = self.ensemble.ensemble_comm.size
-        r = self.time_rank
-
-        mpi_requests = []
-        # Communication stage
-        # send
-        self.get_timestep(-1, wout=self.w_send, index_range='slice')
-
-        request_send = self.ensemble.isend(self.w_send, dest=((r+1) % n), tag=r)
-        mpi_requests.extend(request_send)
-
-        request_recv = self.ensemble.irecv(self.w_recv, source=((r-1) % n), tag=r-1)
-        mpi_requests.extend(request_recv)
-
-        # wait for the data [we should really do this after internal
-        # assembly but have avoided that for now]
-        MPI.Request.Waitall(mpi_requests)
+        self.update_time_halos(blocking=True)
 
     def _assemble_function(self, snes, X, Fvec):
         r"""
@@ -436,7 +444,7 @@ class AllAtOnceSystem(object):
         alpha = fd.Constant(self.alpha)
         ncpts = self.ncomponents
 
-        for n in range(self.slice_partition[self.time_rank]):
+        for n in range(self.time_partition[self.time_rank]):
             # previous time level
             if n == 0:
                 # self.w_recv will contain the adjacent data

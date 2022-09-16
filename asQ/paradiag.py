@@ -15,15 +15,15 @@ def context_callback(pc, context):
 get_context = partial(context_callback, context=appctx)
 
 
-def create_ensemble(slice_partition, comm=fd.COMM_WORLD):
+def create_ensemble(time_partition, comm=fd.COMM_WORLD):
     '''
     Create an Ensemble for the given slice partition
     Checks that the number of slices and the size of the communicator are compatible
 
-    :arg slice_partition: a list of integers, the number of timesteps on each time-rank
+    :arg time_partition: a list of integers, the number of timesteps on each time-rank
     :arg comm: the global communicator for the ensemble
     '''
-    nslices = len(slice_partition)
+    nslices = len(time_partition)
     nranks = comm.size
 
     if nranks % nslices != 0:
@@ -37,7 +37,7 @@ def create_ensemble(slice_partition, comm=fd.COMM_WORLD):
 class paradiag(object):
     def __init__(self, ensemble,
                  form_function, form_mass, w0, dt, theta,
-                 alpha, slice_partition, bcs=[],
+                 alpha, time_partition, bcs=[],
                  solver_parameters={},
                  circ="picard",
                  tol=1.0e-6, maxits=10,
@@ -53,7 +53,7 @@ class paradiag(object):
         :arg dt: float, the timestep size.
         :arg theta: float, implicit timestepping parameter
         :arg alpha: float, circulant matrix parameter
-        :arg slice_partition: a list of integers, the number of timesteps
+        :arg time_partition: a list of integers, the number of timesteps
         assigned to each rank
         :arg bcs: a list of DirichletBC boundary conditions on W
         :arg solver_parameters: options dictionary for nonlinear solver
@@ -72,14 +72,14 @@ class paradiag(object):
         Default is aij.
         """
 
-        self.aaos = AllAtOnceSystem(ensemble, slice_partition,
+        self.aaos = AllAtOnceSystem(ensemble, time_partition,
                                     dt, theta,
                                     form_mass, form_function,
                                     w0, bcs,
                                     circ, alpha)
 
         self.ensemble = ensemble
-        self.slice_partition = self.aaos.slice_partition
+        self.time_partition = self.aaos.time_partition
         self.time_rank = self.aaos.time_rank
         self.alpha = self.aaos.alpha
         self.tol = tol
@@ -91,8 +91,8 @@ class paradiag(object):
         # set up the PETSc Vecs (X for coeffs and F for residuals)
         W = self.aaos.function_space
 
-        nlocal = slice_partition[self.time_rank]*W.node_set.size  # local times x local space
-        nglobal = sum(slice_partition)*W.dim()  # global times x global space
+        nlocal = time_partition[self.time_rank]*W.node_set.size  # local times x local space
+        nglobal = sum(time_partition)*W.dim()  # global times x global space
 
         self.X = PETSc.Vec().create(comm=fd.COMM_WORLD)
         self.X.setSizes((nlocal, nglobal))

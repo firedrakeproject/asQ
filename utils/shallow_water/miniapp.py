@@ -12,7 +12,7 @@ class ShallowWaterMiniApp(object):
                  velocity_expression,
                  depth_expression,
                  dt, theta, alpha,
-                 slice_partition,
+                 time_partition,
                  paradiag_sparameters,
                  create_mesh=swe.create_mg_globe_mesh,
                  coriolis_expression=swe.earth_coriolis_expression,
@@ -32,14 +32,14 @@ class ShallowWaterMiniApp(object):
         :arg dt: timestep size.
         :arg theta: parameter for the implicit theta-method integrator
         :arg alpha: value used for the alpha-circulant approximation in the paradiag method.
-        :arg slice_partition: a list with how many timesteps are on each of the ensemble time-ranks.
+        :arg time_partition: a list with how many timesteps are on each of the ensemble time-ranks.
         :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
         :block_ctx: a dictionary of extra values required for the block system solvers.
         :velocity_function_space: function to return a firedrake FunctionSpace for the velocity field, given a mesh
         :depth_function_space: function to return a firedrake FunctionSpace for the depth field, given a mesh
         '''
 
-        self.ensemble = asQ.create_ensemble(slice_partition)
+        self.ensemble = asQ.create_ensemble(time_partition)
 
         self.mesh = create_mesh(comm=self.ensemble.comm)
         x = fd.SpatialCoordinate(self.mesh)
@@ -88,7 +88,7 @@ class ShallowWaterMiniApp(object):
         # probably shouldn't be here, but has to be at the moment because we can't get at the mesh to make W before initialising.
         # should look at removing this once the manifold transfer manager has found a proper home
         transfer_managers = []
-        for _ in range(slice_partition[self.ensemble.ensemble_comm.rank]):
+        for _ in range(time_partition[self.ensemble.ensemble_comm.rank]):
             tm = mg.manifold_transfer_manager(self.function_space())
             transfer_managers.append(tm)
 
@@ -99,7 +99,7 @@ class ShallowWaterMiniApp(object):
             form_function=form_function,
             form_mass=form_mass,
             w0=w0, dt=dt, theta=theta,
-            alpha=alpha, slice_partition=slice_partition,
+            alpha=alpha, time_partition=time_partition,
             solver_parameters=paradiag_sparameters,
             circ=None, ctx={}, block_ctx=block_ctx)
 

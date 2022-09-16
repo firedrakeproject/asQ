@@ -275,7 +275,7 @@ def parallel_solve(base_level=1,
                       form_mass=form_mass, w0=w0,
                       dt=dT, theta=theta,
                       alpha=alpha,
-                      slice_partition=M, solver_parameters=sparameters_diag,
+                      time_partition=M, solver_parameters=sparameters_diag,
                       circ=None, tol=1.0e-8, maxits=None,
                       ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
