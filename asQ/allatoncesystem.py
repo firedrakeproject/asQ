@@ -21,8 +21,6 @@ class JacobianMatrix(object):
         self.urecv = fd.Function(self.aaos.function_space)  # will contain the previous time value i.e. 3*r-1
         self.usend = fd.Function(self.aaos.function_space)  # will contain the next time value i.e. 3*(r+1)
         self.ulist = self.u.split()
-        self.r = self.aaos.ensemble.ensemble_comm.rank
-        self.n = self.aaos.ensemble.ensemble_comm.size
         # Jform missing contributions from the previous step
         # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
         # definition:
@@ -38,7 +36,8 @@ class JacobianMatrix(object):
                                         self.aaos.w_recv)
 
     def mult(self, mat, X, Y):
-        n = self.n
+        r = self.aaos.ensemble.ensemble_comm.rank
+        n = self.aaos.ensemble.ensemble_comm.size
 
         # copy the local data from X into self.u
         with self.u.dat.vec_wo as v:
@@ -48,7 +47,6 @@ class JacobianMatrix(object):
         # Communication stage
 
         # send
-        r = self.aaos.time_rank  # the time rank
         self.aaos.get_timestep(-1, index_range='slice', wout=self.usend, f_alls=self.ulist)
 
         request_send = self.aaos.ensemble.isend(self.usend, dest=((r+1) % n), tag=r)
@@ -139,6 +137,12 @@ class AllAtOnceSystem(object):
         else:
             self.Circ = fd.Constant(0.0)
 
+        self.max_indices = {
+            'component': self.ncomponents,
+            'slice': self.slice_partition[self.time_rank],
+            'window': sum(self.slice_partition)
+        }
+
         # function pace for the slice of the all-at-once system on this process
         self.function_space_all = reduce(mul, (self.function_space
                                                for _ in range(slice_partition[self.time_rank])))
@@ -188,15 +192,13 @@ class AllAtOnceSystem(object):
         '''
         Check that timestep index is in range
         :arg i: timestep index to check
-        :arg index_range: range that index is in. Either slice or window
+        :arg index_range: range that index is in. Either slice or window or component
         '''
         # set valid range
-        if index_range == 'slice':
-            maxidx = self.slice_partition[self.time_rank]
-        elif index_range == 'window':
-            maxidx = sum(self.slice_partition)
-        else:
-            raise ValueError("index_range must be one of 'window' or 'slice'")
+        if index_range not in self.max_indices.keys():
+            raise ValueError("index_range must be one of "+" or ".join(self.max_indices.keys()))
+
+        maxidx = self.max_indices[index_range]
 
         # allow for pythonic negative indices
         minidx = -maxidx
@@ -211,15 +213,13 @@ class AllAtOnceSystem(object):
         :arg from_range: range of i. Either slice or window
         :arg to_range: range to shift i to. Either slice or window
         '''
+        if from_range == 'component' or to_range == 'component':
+            raise ValueError('Component indices cannot be shifted')
+
         self.check_index(i, index_range=from_range)
 
         # deal with -ve indices
-        if from_range == 'slice':
-            maxidx = self.slice_partition[self.time_rank]
-        elif from_range == 'window':
-            maxidx = sum(self.slice_partition)
-
-        i = i % maxidx
+        i = i % self.max_indices[from_range]
 
         # no shift needed
         if to_range == from_range:
@@ -238,6 +238,62 @@ class AllAtOnceSystem(object):
 
         return i
 
+    def set_component(self, step, cpt, wnew, index_range='slice', f_alls=None):
+        '''
+        Set component of solution at a timestep to new value
+
+        :arg step: index of timestep
+        :arg cpt: index of component
+        :arg wout: new solution for timestep
+        :arg index_range: is index in window or slice?
+        :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
+        '''
+        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
+        self.check_index(cpt, index_range='component')
+
+        if f_alls is None:
+            f_alls = self.w_alls
+
+        # index of first component of this step
+        index0 = self.ncomponents*step_local
+
+        f_alls[index0 + cpt].assign(wnew)
+
+    def get_component(self, step, cpt, index_range='slice', wout=None, name=None, f_alls=None, deepcopy=False):
+        '''
+        Get component of solution at a timestep
+
+        :arg step: index of timestep to get
+        :arg cpt: index of component
+        :arg index_range: is index in window or slice?
+        :arg wout: function to set to component (component returned if None)
+        :arg name: name of returned function if deepcopy=True. Ignored if wout is not None
+        :arg f_alls: an all-at-once function to get timestep from. If None, self.w_alls is used
+        :arg deepcopy: if True, new function is returned. If false, handle to component of f_alls is returned. Ignored if wout is not None
+        '''
+        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
+        self.check_index(cpt, index_range='component')
+
+        if f_alls is None:
+            f_alls = self.w_alls
+
+        # index of first component of this step
+        index0 = self.ncomponents*step_local
+
+        # required component
+        wget = f_alls[index0 + cpt]
+
+        if wout is not None:
+            wout.assign(wget)
+            return wout
+
+        if deepcopy is False:
+            return wget
+        else:  # deepcopy is True
+            wreturn = fd.Function(self.function_space.sub(cpt), name=name)
+            wreturn.assign(wget)
+            return wreturn
+
     def set_timestep(self, step, wnew, index_range='slice', f_alls=None):
         '''
         Set solution at a timestep to new value
@@ -247,17 +303,9 @@ class AllAtOnceSystem(object):
         :arg index_range: is index in window or slice?
         :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
         '''
-
-        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
-
-        if f_alls is None:
-            f_alls = self.w_alls
-
-        # index of first component of this step
-        index0 = self.ncomponents*step_local
-
-        for k in range(self.ncomponents):
-            f_alls[index0+k].assign(wnew.sub(k))
+        for cpt in range(self.ncomponents):
+            self.set_component(step, cpt, wnew.sub(cpt),
+                               index_range=index_range, f_alls=f_alls)
 
     def get_timestep(self, step, index_range='slice', wout=None, name=None, f_alls=None):
         '''
@@ -266,33 +314,19 @@ class AllAtOnceSystem(object):
         :arg step: index of timestep to set.
         :arg index_range: is index in window or slice?
         :arg wout: function to set to timestep (timestep returned if None)
-        :arg name: name of returned function
+        :arg name: name of returned function. Ignored if wout is not None
         :arg f_alls: an all-at-once function to get timestep from. If None, self.w_alls is used
         '''
-
-        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
-
-        if f_alls is None:
-            f_alls = self.w_alls
-
-        # where to put timestep?
         if wout is None:
-            if name is None:
-                wreturn = fd.Function(self.function_space)
-            else:
-                wreturn = fd.Function(self.function_space, name=name)
-            wget = wreturn
+            wget = fd.Function(self.function_space, name=name)
         else:
             wget = wout
 
-        # index of first component of this step
-        index0 = self.ncomponents*step_local
+        for cpt in range(self.ncomponents):
+            wcpt = self.get_component(step, cpt, index_range=index_range, f_alls=f_alls)
+            wget.sub(cpt).assign(wcpt)
 
-        for k in range(self.ncomponents):
-            wget.sub(k).assign(f_alls[index0+k])
-
-        if wout is None:
-            return wreturn
+        return wget
 
     def for_each_timestep(self, callback):
         '''
