@@ -318,7 +318,7 @@ class DiagFFTPC(object):
         # an operator that is block diagonal in the 2x2 system coupling
         # real and imaginary parts.
         self.u0.assign(0)
-        for i in range(self.time_partition[self.time_rank]):
+        for i in range(self.aaos.nlocal_timesteps):
             # copy the data into solver input
             if self.ncpts > 1:
                 u0s = self.u0.split()
@@ -348,11 +348,9 @@ class DiagFFTPC(object):
         with self.xf.dat.vec_wo as v:
             x.copy(v)
 
-        time_rank = self.time_rank  # the time rank
-
         # get array of basis coefficients
         with self.xf.dat.vec_ro as v:
-            parray = v.array_r.reshape((self.time_partition[time_rank],
+            parray = v.array_r.reshape((self.aaos.nlocal_timesteps,
                                         self.blockV.node_set.size))
         # This produces an array whose rows are time slices
         # and columns are finite element basis coefficients
@@ -380,7 +378,7 @@ class DiagFFTPC(object):
 
         # Do the block solves
 
-        for i in range(self.time_partition[time_rank]):
+        for i in range(self.aaos.nlocal_timesteps):
             # copy the data into solver input
             self.xtemp.assign(0.)
             if self.ncpts > 1:
@@ -418,10 +416,10 @@ class DiagFFTPC(object):
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
         # get array of basis coefficients
         with self.xfi.dat.vec_ro as v:
-            parray = 1j*v.array_r.reshape((self.time_partition[time_rank],
+            parray = 1j*v.array_r.reshape((self.aaos.nlocal_timesteps,
                                            self.blockV.node_set.size))
         with self.xfr.dat.vec_ro as v:
-            parray += v.array_r.reshape((self.time_partition[time_rank],
+            parray += v.array_r.reshape((self.aaos.nlocal_timesteps,
                                          self.blockV.node_set.size))
         # transfer forward
         self.a0[:] = parray[:]

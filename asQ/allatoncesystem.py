@@ -35,15 +35,18 @@ class JacobianMatrix(object):
                                         self.aaos.w_recv)
 
     def mult(self, mat, X, Y):
-        # copy the local data from X into self.u
-        with self.u.dat.vec_wo as v:
-            v.array[:] = X.array_r
 
-        # wait for the data [we should really do this after internal
-        # assembly but have avoided that for now]
-        self.aaos.update_time_halos(wrecv=self.urecv,
-                                    walls=self.ualls,
-                                    blocking=True)
+        self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
+
+        # # copy the local data from X into self.u
+        # with self.u.dat.vec_wo as v:
+        #     v.array[:] = X.array_r
+
+        # # wait for the data [we should really do this after internal
+        # # assembly but have avoided that for now]
+        # self.aaos.update_time_halos(wrecv=self.urecv,
+        #                             walls=self.ualls,
+        #                             blocking=True)
 
         # Set the flag for the circulant option
         if self.aaos.circ in ["quasi", "picard"]:
@@ -102,6 +105,7 @@ class AllAtOnceSystem(object):
         self.ensemble = ensemble
         self.time_partition = time_partition
         self.time_rank = ensemble.ensemble_comm.rank
+        self.nlocal_timesteps = self.time_partition[self.time_rank]
 
         self.initial_condition = w0
         self.function_space = w0.function_space()
@@ -124,18 +128,18 @@ class AllAtOnceSystem(object):
 
         self.max_indices = {
             'component': self.ncomponents,
-            'slice': self.time_partition[self.time_rank],
+            'slice': self.nlocal_timesteps,
             'window': sum(self.time_partition)
         }
 
         # function pace for the slice of the all-at-once system on this process
         self.function_space_all = reduce(mul, (self.function_space
-                                               for _ in range(time_partition[self.time_rank])))
+                                               for _ in range(self.nlocal_timesteps)))
 
         self.w_all = fd.Function(self.function_space_all)
         self.w_alls = self.w_all.split()
 
-        for i in range(self.time_partition[self.time_rank]):
+        for i in range(self.nlocal_timesteps):
             self.set_timestep(i, self.initial_condition, index_range='slice')
 
         self.set_boundary_conditions()
@@ -162,7 +166,7 @@ class AllAtOnceSystem(object):
 
         self.boundary_conditions_all = []
         for bc in self.boundary_conditions:
-            for step in range(self.time_partition[self.time_rank]):
+            for step in range(self.nlocal_timesteps):
                 if is_mixed_element:
                     i = bc.function_space().index
                     index = step*self.ncomponents + i
@@ -322,7 +326,7 @@ class AllAtOnceSystem(object):
         '''
 
         w = fd.Function(self.function_space)
-        for slice_index in range(self.time_partition[self.time_rank]):
+        for slice_index in range(self.nlocal_timesteps):
             window_index = self.shift_index(slice_index,
                                             from_range='slice',
                                             to_range='window')
@@ -350,7 +354,7 @@ class AllAtOnceSystem(object):
                 self.ensemble.ensemble_comm.Bcast(vec.array, root=ncomm-1)
 
         # persistence forecast
-        for i in range(self.time_partition[rank]):
+        for i in range(self.nlocal_timesteps):
             self.set_timestep(i, self.initial_condition, index_range='slice')
 
         return
@@ -394,18 +398,24 @@ class AllAtOnceSystem(object):
         else:
             return mpi_requests
 
-    def update(self, X):
+    def update(self, X, wall=None, wsend=None, wrecv=None, blocking=True):
         '''
         Update self.w_alls and self.w_recv from PETSc Vec X.
         The local parts of X are copied into self.w_alls
         and the last step from the previous slice (periodic)
         is copied into self.u_prev
         '''
+        if wall is None:
+            wall = self.w_all
+        if wsend is None:
+            wsend = self.w_send
+        if wrecv is None:
+            wrecv = self.w_recv
 
-        with self.w_all.dat.vec_wo as v:
+        with wall.dat.vec_wo as v:
             v.array[:] = X.array_r
 
-        self.update_time_halos(blocking=True)
+        return self.update_time_halos(wsend=wsend, wrecv=wrecv, walls=wall.split(), blocking=True)
 
     def _assemble_function(self, snes, X, Fvec):
         r"""
@@ -444,7 +454,7 @@ class AllAtOnceSystem(object):
         alpha = fd.Constant(self.alpha)
         ncpts = self.ncomponents
 
-        for n in range(self.time_partition[self.time_rank]):
+        for n in range(self.nlocal_timesteps):
             # previous time level
             if n == 0:
                 # self.w_recv will contain the adjacent data
