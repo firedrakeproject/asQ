@@ -445,16 +445,25 @@ class AllAtOnceSystem(object):
         Specific to the theta-centred Crank-Nicholson method
         """
 
-        w_all_cpts = fd.split(self.w_all)
-
+        w_alls = fd.split(self.w_all)
         test_fns = fd.TestFunctions(self.function_space_all)
 
         dt = fd.Constant(self.dt)
         theta = fd.Constant(self.theta)
         alpha = fd.Constant(self.alpha)
-        ncpts = self.ncomponents
+
+        def get_cpts(i, buf):
+            return [self.get_component(i, cpt, f_alls=buf)
+                    for cpt in range(self.ncomponents)]
+
+        def get_step(i):
+            return get_cpts(i, w_alls)
+
+        def get_test(i):
+            return get_cpts(i, test_fns)
 
         for n in range(self.nlocal_timesteps):
+
             # previous time level
             if n == 0:
                 # self.w_recv will contain the adjacent data
@@ -463,21 +472,25 @@ class AllAtOnceSystem(object):
                     w0list = fd.split(self.initial_condition)
                     wrecvlist = fd.split(self.w_recv)
                     w0s = [w0list[i] + self.Circ*alpha*wrecvlist[i]
-                           for i in range(ncpts)]
+                           for i in range(self.ncomponents)]
                 else:
                     w0s = fd.split(self.w_recv)
             else:
-                w0s = w_all_cpts[ncpts*(n-1):ncpts*n]
+                w0s = get_step(n-1)
+
             # current time level
-            w1s = w_all_cpts[ncpts*n:ncpts*(n+1)]
-            dws = test_fns[ncpts*n:ncpts*(n+1)]
+            w1s = get_step(n)
+            dws = get_test(n)
+
             # time derivative
             if n == 0:
                 p_form = (1.0/dt)*self.form_mass(*w1s, *dws)
             else:
                 p_form += (1.0/dt)*self.form_mass(*w1s, *dws)
             p_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
+
             # vector field
             p_form += theta*self.form_function(*w1s, *dws)
             p_form += (1-theta)*self.form_function(*w0s, *dws)
+
         self.para_form = p_form
