@@ -9,20 +9,19 @@ import importlib
 from ufl.classes import MultiIndex, FixedIndex, Indexed
 
 
-class DiagFFTPC(object):
+class DiagFFTPC(fd.PCBase):
+    r"""A preconditioner for all-at-once systems with alpha-circulant
+    block diagonal structure, using FFT.
+    """
     prefix = "diagfft_"
 
-    def __init__(self):
-        r"""A preconditioner for all-at-once systems with alpha-circulant
-        block diagonal structure, using FFT.
-        """
-        self.initialized = False
+    _asciiname = "paradiag_preconditioner"
 
-    def setUp(self, pc):
-        """Setup method called by PETSc."""
-        if not self.initialized:
-            self.initialize(pc)
-        self.update(pc)
+    needs_python_amat = True
+    """Set this to True if the A matrix needs to be Python (matfree)."""
+
+    needs_python_pmat = True
+    """Set this to False if the P matrix needs to be Python (matfree)."""
 
     def initialize(self, pc):
         if pc.getType() != "python":
@@ -286,7 +285,7 @@ class DiagFFTPC(object):
 
             self.Jsolvers.append(Jsolver)
 
-        self.initialized = True
+        self.update(pc)
 
     def set_CblockV_bcs(self):
         self.CblockV_bcs = []
