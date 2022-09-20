@@ -29,24 +29,14 @@ class JacobianMatrix(object):
         # Newton, solves for delta_u such that
         # dF_{u1}[u1, u2, u3; delta_u, v] = -F[u1,u2,u3; v], for all v
         # then updates u1 += delta_u
-        self.Jform = fd.derivative(self.aaos.para_form, self.aaos.w_all)
+        self.Jform = fd.derivative(self.aaos.aao_form, self.aaos.w_all)
         # Jform contributions from the previous step
-        self.Jform_prev = fd.derivative(self.aaos.para_form,
+        self.Jform_prev = fd.derivative(self.aaos.aao_form,
                                         self.aaos.w_recv)
 
     def mult(self, mat, X, Y):
 
         self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
-
-        # # copy the local data from X into self.u
-        # with self.u.dat.vec_wo as v:
-        #     v.array[:] = X.array_r
-
-        # # wait for the data [we should really do this after internal
-        # # assembly but have avoided that for now]
-        # self.aaos.update_time_halos(wrecv=self.urecv,
-        #                             walls=self.ualls,
-        #                             blocking=True)
 
         # Set the flag for the circulant option
         if self.aaos.circ in ["quasi", "picard"]:
@@ -142,7 +132,8 @@ class AllAtOnceSystem(object):
         for i in range(self.nlocal_timesteps):
             self.set_timestep(i, self.initial_condition, index_range='slice')
 
-        self.set_boundary_conditions()
+        self.boundary_conditions_all = self.set_boundary_conditions(bcs)
+
         for bc in self.boundary_conditions_all:
             bc.apply(self.w_all)
 
@@ -155,27 +146,29 @@ class AllAtOnceSystem(object):
         self.w_recv = fd.Function(self.function_space)
         self.w_send = fd.Function(self.function_space)
 
-        self._set_para_form()
+        self._set_aao_form()
         self.jacobian = JacobianMatrix(self)
 
-    def set_boundary_conditions(self):
+    def set_boundary_conditions(self, bcs):
         """
         Set the boundary conditions onto each solution in the all-at-once system
         """
         is_mixed_element = isinstance(self.function_space.ufl_element(), fd.MixedElement)
 
-        self.boundary_conditions_all = []
-        for bc in self.boundary_conditions:
+        bcs_all = []
+        for bc in bcs:
             for step in range(self.nlocal_timesteps):
                 if is_mixed_element:
                     i = bc.function_space().index
                     index = step*self.ncomponents + i
                 else:
                     index = step
-                all_bc = fd.DirichletBC(self.function_space_all.sub(index),
+                bc_all = fd.DirichletBC(self.function_space_all.sub(index),
                                         bc.function_arg,
                                         bc.sub_domain)
-                self.boundary_conditions_all.append(all_bc)
+                bcs_all.append(bc_all)
+
+        return bcs_all
 
     def check_index(self, i, index_range='slice'):
         '''
@@ -430,7 +423,7 @@ class AllAtOnceSystem(object):
         else:
             self.Circ.assign(0.0)
         # assembly stage
-        fd.assemble(self.para_form, tensor=self.F_all)
+        fd.assemble(self.aao_form, tensor=self.F_all)
 
         # apply boundary conditions
         for bc in self.boundary_conditions_all:
@@ -439,7 +432,7 @@ class AllAtOnceSystem(object):
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
 
-    def _set_para_form(self):
+    def _set_aao_form(self):
         """
         Constructs the bilinear form for the all at once system.
         Specific to the theta-centred Crank-Nicholson method
@@ -466,14 +459,17 @@ class AllAtOnceSystem(object):
 
             # previous time level
             if n == 0:
-                # self.w_recv will contain the adjacent data
                 if self.time_rank == 0:
                     # need the initial data
                     w0list = fd.split(self.initial_condition)
+
+                    # circulant option for quasi-Jacobian
                     wrecvlist = fd.split(self.w_recv)
+
                     w0s = [w0list[i] + self.Circ*alpha*wrecvlist[i]
                            for i in range(self.ncomponents)]
                 else:
+                    # self.w_recv will contain the data from the previous slice
                     w0s = fd.split(self.w_recv)
             else:
                 w0s = get_step(n-1)
@@ -484,13 +480,13 @@ class AllAtOnceSystem(object):
 
             # time derivative
             if n == 0:
-                p_form = (1.0/dt)*self.form_mass(*w1s, *dws)
+                aao_form = (1.0/dt)*self.form_mass(*w1s, *dws)
             else:
-                p_form += (1.0/dt)*self.form_mass(*w1s, *dws)
-            p_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
+                aao_form += (1.0/dt)*self.form_mass(*w1s, *dws)
+            aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
 
             # vector field
-            p_form += theta*self.form_function(*w1s, *dws)
-            p_form += (1-theta)*self.form_function(*w0s, *dws)
+            aao_form += theta*self.form_function(*w1s, *dws)
+            aao_form += (1-theta)*self.form_function(*w0s, *dws)
 
-        self.para_form = p_form
+        self.aao_form = aao_form
