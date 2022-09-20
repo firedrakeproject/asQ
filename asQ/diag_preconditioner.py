@@ -45,6 +45,8 @@ class DiagFFTPC(fd.PCBase):
 
         paradiag = self.context["paradiag"]
         self.paradiag = paradiag
+        aaos = paradiag.aaos
+        self.aaos = paradiag.aaos
 
         # option for whether to use slice or window average for block jacobian
         self.jac_average = PETSc.Options().getString(
@@ -56,35 +58,39 @@ class DiagFFTPC(fd.PCBase):
             raise ValueError("diagfft_jac_average must be one of "+" or ".join(valid_jac_averages))
 
         # this time slice part of the all at once solution
-        self.w_all = paradiag.w_all
-        # this is bad naming
-        W = paradiag.W_all
+        self.w_all = aaos.w_all
+
+        partition = np.array(paradiag.time_partition)
+        self.time_partition = partition
+
+        ensemble = paradiag.ensemble
+        self.ensemble = ensemble
+
+        time_rank = paradiag.time_rank  # the time rank
+        self.time_rank = time_rank
 
         # basic model function space
-        self.blockV = paradiag.W
-        M = np.array(paradiag.M)
-        ensemble = paradiag.ensemble
-        rT = ensemble.ensemble_comm.rank  # the time rank
-        assert(self.blockV.dim()*M[rT] == W.dim())
-        self.M = M
-        self.rT = rT
-        self.NM = W.dim()
+        self.blockV = aaos.function_space
+
+        W_all = aaos.function_space_all
+        # sanity check
+        assert (self.blockV.dim()*partition[time_rank] == W_all.dim())
 
         # Input/Output wrapper Functions
-        self.xf = fd.Function(W)  # input
-        self.yf = fd.Function(W)  # output
+        self.xf = fd.Function(W_all)  # input
+        self.yf = fd.Function(W_all)  # output
 
         # Gamma coefficients
-        self.Nt = np.sum(M)
+        self.Nt = np.sum(partition)
         Nt = self.Nt
         exponents = np.arange(self.Nt)/self.Nt
         alphav = paradiag.alpha
         self.Gam = alphav**exponents
-        self.Gam_slice = self.Gam[np.sum(M[:rT]):np.sum(M[:rT+1])]
+        self.Gam_slice = self.Gam[np.sum(partition[:time_rank]):np.sum(partition[:time_rank+1])]
 
         # Di coefficients
-        thetav = paradiag.theta
-        Dt = paradiag.dt
+        thetav = aaos.theta
+        Dt = aaos.dt
         C1col = np.zeros(Nt)
         C2col = np.zeros(Nt)
         C1col[:2] = np.array([1, -1])/Dt
@@ -143,7 +149,7 @@ class DiagFFTPC(fd.PCBase):
 
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
-            self.ureduce = fd.Function(self.CblockV)
+            self.ureduce = fd.Function(self.blockV)
 
         # extract the real and imaginary parts
         vsr = []
@@ -181,25 +187,25 @@ class DiagFFTPC(fd.PCBase):
         self.Jprob_out = fd.Function(self.CblockV)
 
         # A place to store all the inputs to the block problems
-        self.xfi = fd.Function(W)
-        self.xfr = fd.Function(W)
+        self.xfi = fd.Function(W_all)
+        self.xfr = fd.Function(W_all)
 
         #  Building the nonlinear operator
         self.Jsolvers = []
         self.Js = []
-        form_mass = paradiag.form_mass
-        form_function = paradiag.form_function
+        form_mass = aaos.form_mass
+        form_function = aaos.form_function
 
         # setting up the FFT stuff
         # construct simply dist array and 1d fftn:
-        subcomm = Subcomm(paradiag.ensemble.ensemble_comm, [0, 1])
+        subcomm = Subcomm(self.ensemble.ensemble_comm, [0, 1])
         # get some dimensions
         nlocal = self.blockV.node_set.size
-        NN = np.array([np.sum(M), nlocal], dtype=int)
+        NN = np.array([np.sum(partition), nlocal], dtype=int)
         # transfer pencil is aligned along axis 1
         self.p0 = Pencil(subcomm, NN, axis=1)
         # a0 is the local part of our fft working array
-        # has shape of (M/P, nlocal)
+        # has shape of (partition/P, nlocal)
         self.a0 = np.zeros(self.p0.subshape, complex)
         self.p1 = self.p0.pencil(0)
         # a0 is the local part of our other fft working array
@@ -231,8 +237,8 @@ class DiagFFTPC(fd.PCBase):
         Jii = fd.derivative(Nii, self.u0)
 
         # building the block problem solvers
-        for i in range(M[rT]):
-            ii = np.sum(M[:rT])+i  # global time time index
+        for i in range(partition[time_rank]):
+            ii = np.sum(partition[:time_rank])+i  # global time time index
             D1i = fd.Constant(np.imag(self.D1[ii]))
             D1r = fd.Constant(np.real(self.D1[ii]))
             D2i = fd.Constant(np.imag(self.D2[ii]))
@@ -289,8 +295,8 @@ class DiagFFTPC(fd.PCBase):
 
     def set_CblockV_bcs(self):
         self.CblockV_bcs = []
-        for bc in self.paradiag.W_bcs:
-            is_mixed_element = isinstance(self.paradiag.W.ufl_element(),
+        for bc in self.aaos.boundary_conditions:
+            is_mixed_element = isinstance(self.aaos.function_space.ufl_element(),
                                           fd.MixedElement)
             for r in range(2):  # Complex coefficient index
                 if is_mixed_element:
@@ -304,35 +310,41 @@ class DiagFFTPC(fd.PCBase):
                                             bc.sub_domain)
                 self.CblockV_bcs.append(all_bc)
 
+    @PETSc.Log.EventDecorator()
     def update(self, pc):
         # we need to update u0 from w_all, containing state.
         # we copy w_all into the "real" and "imaginary" parts of u0
         # this is so that when we linearise the nonlinearity, we get
         # an operator that is block diagonal in the 2x2 system coupling
         # real and imaginary parts.
-        self.u0.assign(0)
-        for i in range(self.M[self.rT]):
-            # copy the data into solver input
-            if self.ncpts > 1:
-                u0s = self.u0.split()
-            for r in range(2):
-                if self.ncpts > 1:
-                    for cpt in range(self.ncpts):
-                        u0s[cpt].sub(r).assign(u0s[cpt].sub(r)
-                                               + self.w_all.split()[self.ncpts*i+cpt])
-                else:
-                    self.u0.sub(r).assign(self.u0.sub(r)
-                                          + self.w_all.split()[i])
 
-        # average only over current time-slice
-        if self.jac_average == 'slice':
-            self.u0 /= self.M[self.rT]
+        # accumulate over local time-slice
+        self.ureduce.assign(0)
 
+        for step in range(self.aaos.nlocal_timesteps):
+            for cpt in range(self.aaos.ncomponents):
+                ucpt = self.ureduce.sub(cpt)
+                ucpt.assign(ucpt + self.aaos.get_component(step, cpt))
+
+        # average
+        if self.jac_average == 'slice':  # over current time-slice
+            self.ureduce /= self.aaos.nlocal_timesteps
         else:  # implies self.jac_average == 'window':
-            self.paradiag.ensemble.allreduce(self.u0, self.ureduce)
-            self.u0.assign(self.ureduce)
-            self.u0 /= sum(self.M)
+            self.aaos.w_send.assign(self.ureduce)
+            self.ensemble.allreduce(self.aaos.w_send, self.ureduce)
+            self.ureduce /= sum(self.time_partition)
 
+        # copy the data into solver input
+        if self.ncpts > 1:
+            u0s = self.u0.split()
+        else:
+            u0s = [self.u0]
+
+        for r in range(2):
+            for cpt in range(self.ncpts):
+                u0s[cpt].sub(r).assign(self.ureduce.sub(cpt))
+
+    @PETSc.Log.EventDecorator()
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
@@ -340,11 +352,9 @@ class DiagFFTPC(fd.PCBase):
         with self.xf.dat.vec_wo as v:
             x.copy(v)
 
-        rT = self.paradiag.ensemble.ensemble_comm.rank  # the time rank
-
         # get array of basis coefficients
         with self.xf.dat.vec_ro as v:
-            parray = v.array_r.reshape((self.M[rT],
+            parray = v.array_r.reshape((self.aaos.nlocal_timesteps,
                                         self.blockV.node_set.size))
         # This produces an array whose rows are time slices
         # and columns are finite element basis coefficients
@@ -372,7 +382,7 @@ class DiagFFTPC(fd.PCBase):
 
         # Do the block solves
 
-        for i in range(self.M[rT]):
+        for i in range(self.aaos.nlocal_timesteps):
             # copy the data into solver input
             self.xtemp.assign(0.)
             if self.ncpts > 1:
@@ -410,10 +420,10 @@ class DiagFFTPC(fd.PCBase):
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
         # get array of basis coefficients
         with self.xfi.dat.vec_ro as v:
-            parray = 1j*v.array_r.reshape((self.M[rT],
+            parray = 1j*v.array_r.reshape((self.aaos.nlocal_timesteps,
                                            self.blockV.node_set.size))
         with self.xfr.dat.vec_ro as v:
-            parray += v.array_r.reshape((self.M[rT],
+            parray += v.array_r.reshape((self.aaos.nlocal_timesteps,
                                          self.blockV.node_set.size))
         # transfer forward
         self.a0[:] = parray[:]
