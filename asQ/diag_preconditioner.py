@@ -311,6 +311,7 @@ class DiagFFTPC(object):
                                             bc.sub_domain)
                 self.CblockV_bcs.append(all_bc)
 
+    @PETSc.Log.EventDecorator()
     def update(self, pc):
         # we need to update u0 from w_all, containing state.
         # we copy w_all into the "real" and "imaginary" parts of u0
@@ -344,6 +345,7 @@ class DiagFFTPC(object):
             for cpt in range(self.ncpts):
                 u0s[cpt].sub(r).assign(self.ureduce.sub(cpt))
 
+    @PETSc.Log.EventDecorator()
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
