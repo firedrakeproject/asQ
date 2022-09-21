@@ -8,6 +8,256 @@ from operator import mul
 
 
 @pytest.mark.parallel(nprocs=4)
+def test_for_each_timestep():
+    '''
+    test paradiag.for_each_timestep
+    '''
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    ncpt = 1
+    W = fd.FunctionSpace(mesh, "DG", 1)
+    v0 = fd.Function(W, name="v0")
+    v0.assign(0)
+
+    # dummy forms
+    def form_function(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    def form_mass(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=W, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    def check_timestep(expression, w):
+        assert(fd.errornorm(expression, w) < 1e-12)
+
+    # set each timestep as slice timestep index
+    for step in range(PD.M[PD.rT]):
+        v0.assign(step)
+        PD.set_timestep(step, v0, index_range='slice')
+
+    PD.for_each_timestep(
+        lambda wi, si, w: check_timestep(fd.Constant(si), w))
+
+    # set each timestep as window timestep index
+    for step in range(PD.M[PD.rT]):
+        v0.assign(PD.shift_index(step, from_range='slice', to_range='window'))
+        PD.set_timestep(step, v0, index_range='slice')
+
+    PD.for_each_timestep(
+        lambda wi, si, w: check_timestep(fd.Constant(wi), w))
+
+
+ncpts = [1, 2]
+
+
+@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parametrize("ncpt", ncpts)
+def test_get_timestep(ncpt):
+    '''
+    test getting a specific timestep
+    only valid if test_set_timestep passes
+    '''
+
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    V = fd.FunctionSpace(mesh, "DG", 1)
+    W = V
+    for _ in range(1, ncpt):
+        W *= V
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
+
+    # dummy forms
+    def form_function(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    def form_mass(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    # two random solutions
+    np.random.seed(572046)
+
+    for dat in v0.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+    for dat in v1.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=W, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    # set each step using window index
+    rank = PD.rT
+
+    for slice_index in range(M[rank]):
+        window_index = PD.shift_index(slice_index,
+                                      from_range='slice',
+                                      to_range='window')
+        PD.set_timestep(window_index, v1, index_range='window')
+        err = fd.errornorm(v1, PD.get_timestep(window_index, index_range='window'))
+        assert(err < 1e-12)
+
+    # set each step using slice index
+    vcheck = fd.Function(W)
+    for step in range(M[rank]):
+        PD.set_timestep(step, v0, index_range='slice')
+
+        PD.get_timestep(step, index_range='slice', wout=vcheck)
+        err = fd.errornorm(v0, vcheck)
+        assert(err < 1e-12)
+
+
+@pytest.mark.parametrize("ncpt", ncpts)
+@pytest.mark.parallel(nprocs=4)
+def test_set_timestep(ncpt):
+    '''
+    test setting a specific timestep
+    '''
+
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    V = fd.FunctionSpace(mesh, "DG", 1)
+    W = V
+    for _ in range(1, ncpt):
+        W *= V
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
+
+    # dummy forms
+    def form_function(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    def form_mass(*args):
+        return (args[0]*args[ncpt])*fd.dx
+
+    # two random solutions
+    np.random.seed(572046)
+
+    for dat in v0.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+    for dat in v1.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=W, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    vcheck = fd.Function(W)
+    vchecks = vcheck.split()
+
+    # set each step using window index
+    rank = PD.rT
+
+    for slice_index in range(M[rank]):
+        window_index = PD.shift_index(slice_index,
+                                      from_range='slice',
+                                      to_range='window')
+        PD.set_timestep(window_index, v1, index_range='window')
+        for i in range(ncpt):
+            vchecks[i].assign(PD.w_alls[ncpt*slice_index+i])
+        err = fd.errornorm(v1, vcheck)
+        assert(err < 1e-12)
+
+    # set each step using slice index
+    for step in range(M[rank]):
+        PD.set_timestep(step, v0, index_range='slice')
+
+        for i in range(ncpt):
+            vchecks[i].assign(PD.w_alls[ncpt*step+i])
+
+        err = fd.errornorm(v0, vcheck)
+        assert(err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_next_window():
+    # test resetting paradiag to start to next time-window
+
+    # prep paradiag setup
+    nspatial_domains = 2
+    M = [2, 2]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+
+    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
+
+    V = fd.FunctionSpace(mesh, "DG", 1)
+    v0 = fd.Function(V, name="v0")
+    v1 = fd.Function(V, name="v1")
+
+    def form_function(v, u):
+        return v*u*fd.dx
+
+    def form_mass(v, u):
+        return v*u*fd.dx
+
+    # two random solutions
+    np.random.seed(572046)
+    v0.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
+    v1.dat.data[:] = np.random.rand(*(v0.dat.data.shape))
+
+    # initialise paradiag v0
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, W=V, w0=v0,
+                      dt=1, theta=0.5,
+                      alpha=0.0001, M=M)
+
+    # set next window from new solution
+    PD.next_window(v1)
+
+    # check all timesteps == v1
+    rank = PD.rT
+
+    for step in range(PD.M[rank]):
+        err = fd.errornorm(v1, PD.get_timestep(step))
+        assert(err < 1e-12)
+
+    # force last timestep = v0
+    ncomm = ensemble.ensemble_comm.size
+    if rank == ncomm-1:
+        PD.set_timestep(-1, v0)
+
+    # set next window from end of last window
+    PD.next_window()
+
+    # check all timesteps == v0
+    for step in range(PD.M[rank]):
+        err = fd.errornorm(v0, PD.get_timestep(step))
+        assert(err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
 def test_williamson5_timeseries():
     from utils.shallow_water.verifications.williamson5 import serial_solve, parallel_solve
 
@@ -142,8 +392,8 @@ def test_williamson5_timeseries():
         htol = 1e-3
         utol = 1e-3
 
-        assert (uerror < utol)
-        assert (herror < htol)
+        assert(uerror < utol)
+        assert(herror < htol)
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -221,22 +471,22 @@ def test_steady_swe():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, w0=w0,
+                      form_mass=form_mass, W=W, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      time_partition=M, solver_parameters=solver_parameters_diag,
+                      M=M, solver_parameters=solver_parameters_diag,
                       circ=None, tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
     PD.solve()
 
     # check against initial conditions
-    walls = PD.aaos.w_all.split()
+    walls = PD.w_all.split()
     hn.assign(hn-H+b)
 
     hmag = fd.norm(hn)
     umag = fd.norm(un)
 
-    for step in range(M[PD.time_rank]):
+    for step in range(M[PD.rT]):
 
         up = walls[2*step]
         hp = walls[2*step+1]
@@ -248,11 +498,10 @@ def test_steady_swe():
         htol = pow(10, -ref_level)
         utol = pow(10, -ref_level)
 
-        assert (abs(herr) < htol)
-        assert (abs(uerr) < utol)
+        assert(abs(herr) < htol)
+        assert(abs(uerr) < utol)
 
 
-@pytest.mark.skip
 @pytest.mark.parallel(nprocs=6)
 def test_linear_swe_FFT():
     # minimal test for FFT PC
@@ -323,10 +572,10 @@ def test_linear_swe_FFT():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, w0=w0,
+                      form_mass=form_mass, W=W, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      time_partition=M, solver_parameters=solver_parameters_diag,
+                      M=M, solver_parameters=solver_parameters_diag,
                       circ="quasi",
                       tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
@@ -372,10 +621,10 @@ def test_jacobian_heat_equation():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, w0=u0,
+                      form_mass=form_mass, W=V, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      time_partition=M, solver_parameters=solver_parameters,
+                      M=M, solver_parameters=solver_parameters,
                       circ="none",
                       tol=1.0e-6, maxits=None)
 
@@ -414,10 +663,10 @@ def test_set_para_form():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, w0=u0,
+                      form_mass=form_mass, W=V, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      time_partition=M, solver_parameters=solver_parameters,
+                      M=M, solver_parameters=solver_parameters,
                       circ="none",
                       tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
@@ -432,11 +681,11 @@ def test_set_para_form():
 
     rT = ensemble.ensemble_comm.rank
     # copy the data from the full list into the time slice for this rank in PD.w_all
-    w_alls = PD.aaos.w_all.split()
+    w_alls = PD.w_all.split()
     w_alls[0].assign(ufull_list[rT*2])
     w_alls[1].assign(ufull_list[rT*2+1])
     # copy from w_all into the PETSc vec PD.X
-    with PD.aaos.w_all.dat.vec_ro as v:
+    with PD.w_all.dat.vec_ro as v:
         v.copy(PD.X)
 
     # make a form for all of the time slices
@@ -458,14 +707,14 @@ def test_set_para_form():
 
     Ffull = fd.assemble(fullform)
 
-    PD.aaos._assemble_function(PD.snes, PD.X, PD.F)
-    PD_Ff = fd.Function(PD.aaos.function_space_all)
+    PD._assemble_function(PD.snes, PD.X, PD.F)
+    PD_Ff = fd.Function(PD.W_all)
 
     with PD_Ff.dat.vec_wo as v:
         v.array[:] = PD.F.array_r
 
-    assert (fd.errornorm(Ffull.sub(rT * 2), PD_Ff.sub(0)) < 1.0e-12)
-    assert (fd.errornorm(Ffull.sub(rT * 2 + 1), PD_Ff.sub(1)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT * 2), PD_Ff.sub(0)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT * 2 + 1), PD_Ff.sub(1)) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -503,10 +752,10 @@ def test_set_para_form_mixed_parallel():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, w0=w0,
+                      form_mass=form_mass, W=W, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      time_partition=M, solver_parameters=solver_parameters,
+                      M=M, solver_parameters=solver_parameters,
                       circ="none",
                       tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
@@ -521,14 +770,14 @@ def test_set_para_form_mixed_parallel():
 
     rT = ensemble.ensemble_comm.rank
     # copy the data from the full list into the time slice for this rank in PD.w_all
-    w_alls = PD.aaos.w_all.split()
+    w_alls = PD.w_all.split()
     w_alls[0].assign(ufull_list[4 * rT])   # 1st time slice V
     w_alls[1].assign(ufull_list[4 * rT + 1])  # 1st time slice Q
     w_alls[2].assign(ufull_list[4 * rT + 2])  # 2nd time slice V
     w_alls[3].assign(ufull_list[4 * rT + 3])  # 2nd time slice Q
 
     # copy from w_all into the PETSc vec PD.X
-    with PD.aaos.w_all.dat.vec_ro as v:
+    with PD.w_all.dat.vec_ro as v:
         v.copy(PD.X)
 
     # make a form for all of the time slices
@@ -557,16 +806,16 @@ def test_set_para_form_mixed_parallel():
 
     Ffull = fd.assemble(fullform)
 
-    PD.aaos._assemble_function(PD.snes, PD.X, PD.F)
-    PD_F = fd.Function(PD.aaos.function_space_all)
+    PD._assemble_function(PD.snes, PD.X, PD.F)
+    PD_F = fd.Function(PD.W_all)
 
     with PD_F.dat.vec_wo as v:
         v.array[:] = PD.F.array_r
 
-    assert (fd.errornorm(Ffull.sub(rT*4), PD_F.sub(0)) < 1.0e-12)
-    assert (fd.errornorm(Ffull.sub(rT*4+1), PD_F.sub(1)) < 1.0e-12)
-    assert (fd.errornorm(Ffull.sub(rT*4+2), PD_F.sub(2)) < 1.0e-12)
-    assert (fd.errornorm(Ffull.sub(rT*4+3), PD_F.sub(3)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4), PD_F.sub(0)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+1), PD_F.sub(1)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+2), PD_F.sub(2)) < 1.0e-12)
+    assert(fd.errornorm(Ffull.sub(rT*4+3), PD_F.sub(3)) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -605,10 +854,10 @@ def test_jacobian_mixed_parallel():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, w0=w0,
+                      form_mass=form_mass, W=W, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      time_partition=M, solver_parameters=solver_parameters,
+                      M=M, solver_parameters=solver_parameters,
                       circ="none",
                       tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
@@ -630,8 +879,8 @@ def test_jacobian_mixed_parallel():
     rT = ensemble.ensemble_comm.rank
 
     # copy the data from the full list into the time slice for this rank in PD.w_all
-    w_alls = PD.aaos.w_all.split()
-    v_all = fd.Function(PD.aaos.function_space_all)
+    w_alls = PD.w_all.split()
+    v_all = fd.Function(PD.W_all)
     v_alls = v_all.split()
 
     nM = M[rT]
@@ -647,12 +896,12 @@ def test_jacobian_mixed_parallel():
 
     # Parallel PARADIAG: calculate Jac1 with PD
     # copy from w_all into the PETSc vec PD.X
-    with PD.aaos.w_all.dat.vec_ro as v:
+    with PD.w_all.dat.vec_ro as v:
         v.copy(PD.X)
-    PD.aaos.update(PD.X)
+    PD.update(PD.X)
 
     # use PD to calculate the Jacobian
-    Jac1 = PD.aaos.jacobian
+    Jac1 = PD.JacobianMatrix
 
     # construct Petsc vector X1, Y1:
     nlocal = M[rT]*W.node_set.size  # local times x local space
@@ -699,7 +948,7 @@ def test_jacobian_mixed_parallel():
     jacout = fd.assemble(fd.action(Jac2, vfull))
 
     # generalization of the error evaluation to nM time slices
-    PD_J = fd.Function(PD.aaos.function_space_all)
+    PD_J = fd.Function(PD.W_all)
     with PD_J.dat.vec_wo as v:
         v.array[:] = Y1.array_r
 
@@ -707,8 +956,8 @@ def test_jacobian_mixed_parallel():
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        assert (fd.errornorm(jacout.sub(ind1), PD_J.sub(2*i)) < 1.0e-11)
-        assert (fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
+        assert(fd.errornorm(jacout.sub(ind1), PD_J.sub(2*i)) < 1.0e-11)
+        assert(fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
 
 
 bc_opts = ["none", "homogeneous", "inhomogeneous"]
@@ -773,10 +1022,10 @@ def test_solve_para_form(bc_opt):
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, w0=u0,
+                      form_mass=form_mass, W=V, w0=u0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      time_partition=M, bcs=bcs,
+                      M=M, bcs=bcs,
                       solver_parameters=solver_parameters_diag,
                       circ="quasi", tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
@@ -814,7 +1063,7 @@ def test_solve_para_form(bc_opt):
         # sum over the entries of M until rT determines left position left
         left = np.sum(M[:rT], dtype=int)
         ind1 = left + i
-        assert (fd.errornorm(vfull.sub(ind1), PD.aaos.w_all.sub(i)) < 1.0e-9)
+        assert(fd.errornorm(vfull.sub(ind1), PD.w_all.sub(i)) < 1.0e-9)
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -874,8 +1123,8 @@ def test_solve_para_form_mixed():
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, w0=w0, dt=dt,
-                      theta=theta, alpha=alpha, time_partition=M,
+                      form_mass=form_mass, W=W, w0=w0, dt=dt,
+                      theta=theta, alpha=alpha, M=M,
                       solver_parameters=solver_parameters_diag,
                       circ="quasi",
                       tol=1.0e-6, maxits=None,
@@ -923,5 +1172,5 @@ def test_solve_para_form_mixed():
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        assert (fd.errornorm(vfull_list[ind1], PD.aaos.w_all.sub(2*i)) < 1.0e-9)
-        assert (fd.errornorm(vfull_list[ind2], PD.aaos.w_all.sub(2*i+1)) < 1.0e-9)
+        assert(fd.errornorm(vfull_list[ind1], PD.w_all.sub(2*i)) < 1.0e-9)
+        assert(fd.errornorm(vfull_list[ind2], PD.w_all.sub(2*i+1)) < 1.0e-9)

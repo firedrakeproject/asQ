@@ -39,8 +39,8 @@ PETSc.Sys.Print('')
 
 # time steps
 
-time_partition = [args.slice_length for _ in range(args.nslices)]
-window_length = sum(time_partition)
+M = [args.slice_length for _ in range(args.nslices)]
+window_length = sum(M)
 nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
@@ -91,7 +91,7 @@ sparameters_diag = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
-for i in range(sum(time_partition)):
+for i in range(sum(M)):
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
@@ -118,14 +118,14 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   reference_depth=case5.H0,
                                   create_mesh=create_mesh,
                                   dt=dt, theta=0.5,
-                                  alpha=args.alpha, time_partition=time_partition,
+                                  alpha=args.alpha, slice_partition=M,
                                   paradiag_sparameters=sparameters_diag)
 
 ensemble = miniapp.ensemble
-time_rank = miniapp.paradiag.time_rank
+time_rank = miniapp.paradiag.rT
 
 # only last slice does diagnostics/output
-if time_rank == len(time_partition)-1:
+if time_rank == len(M)-1:
     cfl_series = []
     linear_its = 0
     nonlinear_its = 0
@@ -153,7 +153,7 @@ def window_postproc(swe_app, pdg, wndw):
     global cfl_series
 
     # postprocess this timeslice
-    if time_rank == len(time_partition)-1:
+    if time_rank == len(M)-1:
         linear_its += pdg.snes.getLinearSolveIterations()
         nonlinear_its += pdg.snes.getIterationNumber()
 
@@ -186,7 +186,7 @@ miniapp.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
-if time_rank == len(time_partition)-1:
+if time_rank == len(M)-1:
     PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print('', comm=ensemble.comm)

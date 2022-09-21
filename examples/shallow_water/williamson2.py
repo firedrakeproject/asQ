@@ -43,15 +43,15 @@ PETSc.Sys.Print('')
 
 # time steps
 
-time_partition = [args.slice_length for _ in range(args.nslices)]
-window_length = sum(time_partition)
+M = [args.slice_length for _ in range(args.nslices)]
+window_length = sum(M)
 nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
 
 # multigrid mesh set up
 
-ensemble = asQ.create_ensemble(time_partition)
+ensemble = fd.Ensemble(fd.COMM_WORLD, args.nspatial_domains)
 
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
@@ -141,7 +141,7 @@ sparameters_diag = {
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 PETSc.Sys.Print('')
 
-for i in range(sum(time_partition)):
+for i in range(sum(M)):
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
 # non-petsc information for block solve
@@ -149,7 +149,7 @@ block_ctx = {}
 
 # mesh transfer operators
 transfer_managers = []
-for _ in range(time_partition[ensemble.ensemble_comm.rank]):
+for _ in range(M[ensemble.ensemble_comm.rank]):
     tm = mg.manifold_transfer_manager(W)
     transfer_managers.append(tm)
 
@@ -157,10 +157,10 @@ block_ctx['diag_transfer_managers'] = transfer_managers
 
 PD = asQ.paradiag(ensemble=ensemble,
                   form_function=form_function,
-                  form_mass=form_mass, w0=w0,
+                  form_mass=form_mass, W=W, w0=w0,
                   dt=dt, theta=0.5,
                   alpha=args.alpha,
-                  time_partition=time_partition, solver_parameters=sparameters_diag,
+                  M=M, solver_parameters=sparameters_diag,
                   circ=None, tol=1.0e-6, maxits=None,
                   ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
@@ -198,11 +198,11 @@ def window_postproc(pdg, wndw):
         nonlocal local_errors
         local_errors[window_index, :] = steady_state_test(w)
 
-    pdg.aaos.for_each_timestep(for_each_callback)
+    pdg.for_each_timestep(for_each_callback)
 
     # collect and print errors for full window
     ensemble.ensemble_comm.Reduce(local_errors, errors, root=0)
-    if pdg.time_rank == 0:
+    if pdg.rT == 0:
         for window_index in range(window_length):
             timestep = wndw*window_length + window_index
             uerr = errors[window_index, 0]
