@@ -65,7 +65,7 @@ class DiagFFTPC(fd.PCBase):
         M = np.array(paradiag.M)
         ensemble = paradiag.ensemble
         rT = ensemble.ensemble_comm.rank  # the time rank
-        assert(self.blockV.dim()*M[rT] == W.dim())
+        assert (self.blockV.dim()*M[rT] == W.dim())
         self.M = M
         self.rT = rT
         self.NM = W.dim()
