@@ -1,0 +1,1 @@
+firedrake:WARNING Ignoring duplicate option: ksp_rtol (existing value 1e-08, new value 1e-05)
