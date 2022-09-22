@@ -1,5 +1,4 @@
 import firedrake as fd
-from firedrake.petsc import PETSc
 from pyop2.mpi import MPI
 
 from functools import partial
@@ -159,7 +158,7 @@ class ComparisonMiniapp(object):
               serial_preproc=lambda app, it, t: None,
               serial_postproc=lambda app, it, t: None):
         '''
-        Solve nwindows*sum(time_partition) timesteps using both serial and paradiag solvers and return an array of the errornorm of the two solutions 
+        Solve nwindows*sum(time_partition) timesteps using both serial and paradiag solvers and return an array of the errornorm of the two solutions
 
         :arg nwindows: the number of time-windows to solve
         '''
