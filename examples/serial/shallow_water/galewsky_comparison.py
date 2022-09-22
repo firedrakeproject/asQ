@@ -220,6 +220,7 @@ miniapp = ComparisonMiniapp(ensemble, time_partition,
 miniapp.serial_app.nlsolver.set_transfer_manager(
     mg.manifold_transfer_manager(W))
 
+
 def preproc(serial_app, paradiag, wndw):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'=== --- Time window {wndw} --- ===')
