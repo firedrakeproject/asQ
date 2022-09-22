@@ -1,0 +1,79 @@
+
+### === --- Setting up --- === ###
+
+### === --- Timestepping loop --- === ###
+
+=== --- Timestep 0 --- ===
+
+  0 SNES Function norm 5.785277220173e+09 
+    Residual norms for firedrake_1_ solve.
+    0 KSP Residual norm 5.785277220173e+09 
+    1 KSP Residual norm 2.324548237206e+09 
+    2 KSP Residual norm 1.691612680319e+08 
+    3 KSP Residual norm 1.120330297758e+07 
+    4 KSP Residual norm 5.818370118516e+05 
+    5 KSP Residual norm 2.908271338523e+04 
+  Linear firedrake_1_ solve converged due to CONVERGED_RTOL iterations 5
+  1 SNES Function norm 4.021039292981e+07 
+    Residual norms for firedrake_1_ solve.
+    0 KSP Residual norm 4.021039292981e+07 
+    1 KSP Residual norm 3.674538111160e+06 
+    2 KSP Residual norm 1.742435049136e+05 
+    3 KSP Residual norm 8.596628322473e+03 
+    4 KSP Residual norm 4.196057246533e+02 
+    5 KSP Residual norm 2.126185685093e+01 
+  Linear firedrake_1_ solve converged due to CONVERGED_RTOL iterations 5
+  2 SNES Function norm 1.992593124897e+02 
+    Residual norms for firedrake_1_ solve.
+    0 KSP Residual norm 1.992593124897e+02 
+    1 KSP Residual norm 7.408286270834e+01 
+    2 KSP Residual norm 4.586088017936e+00 
+    3 KSP Residual norm 2.752897178610e-01 
+    4 KSP Residual norm 1.614717948068e-02 
+    5 KSP Residual norm 6.723564243281e-04 
+  Linear firedrake_1_ solve converged due to CONVERGED_RTOL iterations 5
+  3 SNES Function norm 1.916881093737e-03 
+Nonlinear firedrake_1_ solve converged due to CONVERGED_FNORM_RELATIVE iterations 3
+
+=== --- Timestep 1 --- ===
+
+  0 SNES Function norm 1.600138480380e+10 
+    Residual norms for firedrake_1_ solve.
+    0 KSP Residual norm 1.600138480380e+10 
+    1 KSP Residual norm 1.422541843090e+09 
+    2 KSP Residual norm 7.178837107000e+07 
+    3 KSP Residual norm 3.526630393476e+06 
+    4 KSP Residual norm 1.748500161285e+05 
+    5 KSP Residual norm 1.009038673560e+04 
+  Linear firedrake_1_ solve converged due to CONVERGED_RTOL iterations 5
+  1 SNES Function norm 4.148939303791e+07 
+    Residual norms for firedrake_1_ solve.
+    0 KSP Residual norm 4.148939303791e+07 
+    1 KSP Residual norm 4.915136699372e+06 
+    2 KSP Residual norm 1.796775972961e+05 
+    3 KSP Residual norm 8.384906330648e+03 
+    4 KSP Residual norm 4.863483014176e+02 
+    5 KSP Residual norm 2.597754005052e+01 
+  Linear firedrake_1_ solve converged due to CONVERGED_RTOL iterations 5
+  2 SNES Function norm 2.696948067607e+02 
+    Residual norms for firedrake_1_ solve.
+    0 KSP Residual norm 2.696948067607e+02 
+    1 KSP Residual norm 2.643674577736e+02 
+    2 KSP Residual norm 7.351796108804e+01 
+    3 KSP Residual norm 3.016738761500e+00 
+    4 KSP Residual norm 1.008498397505e-01 
+    5 KSP Residual norm 5.466750847416e-03 
+    6 KSP Residual norm 2.402792636209e-04 
+  Linear firedrake_1_ solve converged due to CONVERGED_RTOL iterations 6
+  3 SNES Function norm 2.864578922849e-03 
+Nonlinear firedrake_1_ solve converged due to CONVERGED_FNORM_RELATIVE iterations 3
+
+=== --- Timestep 2 --- ===
+
+  0 SNES Function norm 1.661696474181e+10 
+    Residual norms for firedrake_1_ solve.
+    0 KSP Residual norm 1.661696474181e+10 
+    1 KSP Residual norm 3.012681159750e+09 
+    2 KSP Residual norm 1.552182835634e+08 
+    3 KSP Residual norm 1.057549397356e+07 
+    4 KSP Residual norm 5.069271588089e+05 
