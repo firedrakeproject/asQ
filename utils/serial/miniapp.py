@@ -1,5 +1,4 @@
 import firedrake as fd
-from pyop2.mpi import MPI
 
 from functools import partial
 
@@ -151,10 +150,10 @@ class ComparisonMiniapp(object):
                                      circ=circ, block_ctx=block_ctx)
 
     def solve(self, nwindows,
-              preproc=lambda srl, pdg, w: None,
-              postproc=lambda srl, pdg, w: None,
-              pdg_preproc=lambda pdg, w: None,
-              pdg_postproc=lambda pdg, w: None,
+              preproc=lambda srl, pdg, wndw: None,
+              postproc=lambda srl, pdg, wndw: None,
+              parallel_preproc=lambda pdg, wndw: None,
+              parallel_postproc=lambda pdg, wndw: None,
               serial_preproc=lambda app, it, t: None,
               serial_postproc=lambda app, it, t: None):
         '''
@@ -163,51 +162,48 @@ class ComparisonMiniapp(object):
         :arg nwindows: the number of time-windows to solve
         '''
 
-        errors = np.zeros(nwindows*sum(self.time_partition))
         window_length = sum(self.time_partition)
+        errors = np.zeros(nwindows*window_length)
 
         # set up function to calculate errornorm after each timestep
 
+        rank = self.ensemble.ensemble_comm.rank
+
         def step_on_slice(it):
-            try:
-                self.paradiag.aaos.check_index(it, index_type='slice')
-            except ValueError:
-                return False
-            return True
+            min_step = sum(self.time_partition[:rank])
+            max_step = sum(self.time_partition[:rank+1])
+            return min_step <= it < max_step
 
         def serial_error_postproc(app, it, t, wndw):
-            # nonlocal errors
 
-            # only calculate error it timestep it is on this parallel time-slice
-            try:
-                # try get parallel step (will throw if not here)
-                self.paradiag.aaos.get_timestep(it, wout=self.wparallel, index_range='slice')
+            # only calculate error if timestep it is on this parallel time-slice
+            if step_on_slice(it):
+                # get serial and parallel solutions
+                self.paradiag.aaos.get_timestep(it, wout=self.wparallel, index_range='window')
 
-                # get serial solution at this timestep
-                self.wserial.assign(self.serial_app.w0)
+                self.wserial.assign(self.serial_app.w1)
 
-                # calculate error
+                # calculate error and store in full timeseries
                 err = fd.errornorm(self.wserial, self.wparallel)
 
-                # store in full timeseries
                 global_timestep = wndw*window_length + it
 
                 errors[global_timestep] = err
 
-            except ValueError:
-                pass
-
             # run the users postprocessing
             serial_postproc(app, it, t)
 
+        # timestepping loop
         for wndw in range(nwindows):
 
             preproc(self.serial_app, self.paradiag, wndw)
 
-            self.paradiag.aaos.next_window()
+            if wndw > 0:
+                self.paradiag.aaos.next_window()
+
             self.paradiag.solve(nwindows=1,
-                                preproc=pdg_preproc,
-                                postproc=pdg_postproc)
+                                preproc=parallel_preproc,
+                                postproc=parallel_postproc)
 
             self.serial_app.solve(nt=window_length,
                                   preproc=serial_preproc,
@@ -217,6 +213,6 @@ class ComparisonMiniapp(object):
 
         # collect full error series on all ranks
         global_errors = np.zeros_like(errors)
-        self.ensemble.ensemble_comm.Allreduce(errors, global_errors, op=MPI.SUM)
+        self.ensemble.ensemble_comm.Allreduce(errors, global_errors)
 
         return global_errors
