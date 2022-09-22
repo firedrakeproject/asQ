@@ -30,6 +30,7 @@ parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--degree', type=float, default=swe.default_degree(), help='Degree of the depth function space.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for implicit theta method. 0.5 for trapezium rule, 1 for backwards Euler.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
+parser.add_argument('--print_norms', type=bool, default=False, help='Print the norm of each timestep')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -45,8 +46,6 @@ PETSc.Sys.Print('')
 # time steps
 
 time_partition = [args.slice_length for _ in range(args.nslices)]
-window_length = sum(time_partition)
-nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
 
@@ -96,7 +95,9 @@ serial_sparameters = {
     'snes': {
         # 'monitor': None,
         # 'converged_reason': None,
-        'rtol': 1e-12
+        'atol': 1e-0,
+        'rtol': 1e-12,
+        'stol': 1e-12,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
@@ -145,7 +146,6 @@ block_sparameters = {
     'ksp': {
         'atol': 1e-8,
         'rtol': 1e-8,
-        'max_it': 400,
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'v',
@@ -182,8 +182,8 @@ block_sparameters = {
 parallel_sparameters = {
     'snes': {
         'linesearch_type': 'basic',
-        'monitor': None,
-        'converged_reason': None,
+        # 'monitor': None,
+        # 'converged_reason': None,
         'atol': 1e-0,
         'rtol': 1e-12,
         'stol': 1e-12,
@@ -191,8 +191,8 @@ parallel_sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'preonly',
     'ksp': {
-        'monitor': None,
-        'converged_reason': None,
+        # 'monitor': None,
+        # 'converged_reason': None,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'
@@ -220,6 +220,9 @@ miniapp = ComparisonMiniapp(ensemble, time_partition,
 miniapp.serial_app.nlsolver.set_transfer_manager(
     mg.manifold_transfer_manager(W))
 
+rank = ensemble.ensemble_comm.rank
+norm0 = fd.norm(w_initial)
+
 
 def preproc(serial_app, paradiag, wndw):
     PETSc.Sys.Print('')
@@ -227,13 +230,36 @@ def preproc(serial_app, paradiag, wndw):
     PETSc.Sys.Print('')
 
 
+def serial_postproc(app, it, t):
+    if not args.print_norms:
+        return
+    if rank == 0:
+        PETSc.Sys.Print(f'Rank {rank}: Serial timestep {it} norm {fd.norm(app.w0)/norm0}', comm=ensemble.comm)
+    ensemble.global_comm.Barrier()
+    return
+
+
+def parallel_postproc(pdg, wndw):
+    if not args.print_norms:
+        return
+    aaos = miniapp.paradiag.aaos
+    for step in range(aaos.nlocal_timesteps):
+        it = aaos.shift_index(step, from_range='slice', to_range='window')
+        w = aaos.get_timestep(step)
+        PETSc.Sys.Print(f'Rank {rank}: Parallel timestep {it} norm {fd.norm(w)/norm0}', comm=ensemble.comm)
+    PETSc.Sys.Print('')
+    return
+
+
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-errors = miniapp.solve(nwindows=1)
+errors = miniapp.solve(nwindows=args.nwindows,
+                       preproc=preproc,
+                       serial_postproc=serial_postproc,
+                       parallel_postproc=parallel_postproc)
 
 PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Errors --- === ###')
-PETSc.Sys.Print('')
-rank = ensemble.ensemble_comm.rank
+
 for it, err in enumerate(errors):
-    PETSc.Sys.Print(f'Rank {rank} timestep {it} error: {err}', comm=ensemble.comm)
+    PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
