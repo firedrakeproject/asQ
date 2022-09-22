@@ -10,8 +10,6 @@ from utils.shallow_water import galewsky
 
 from utils.serial import SerialMiniApp
 
-from sys import exit
-
 PETSc.Sys.popErrorHandler()
 
 # get command arguments
@@ -65,6 +63,7 @@ h_initial.project(galewsky.depth_expression(*x))
 # current and next timestep
 w0 = fd.Function(W).assign(w_initial)
 w1 = fd.Function(W).assign(w_initial)
+
 
 # shallow water equation forms
 def form_function(u, h, v, q):
@@ -137,10 +136,31 @@ miniapp.nlsolver.set_transfer_manager(
     mg.manifold_transfer_manager(W))
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
+linear_its = 0
+nonlinear_its = 0
+
 
 def preproc(app, step, t):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'=== --- Timestep {step} --- ===')
     PETSc.Sys.Print('')
 
-miniapp.solve(args.nt, preproc=preproc)
+
+def postproc(app, step, t):
+    global linear_its
+    global nonlinear_its
+
+    linear_its += app.nlsolver.snes.getLinearSolveIterations()
+    nonlinear_its += app.nlsolver.snes.getIterationNumber()
+
+
+miniapp.solve(args.nt,
+              preproc=preproc,
+              postproc=postproc)
+
+PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+PETSc.Sys.Print('')
+
+PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {linear_its/args.nt}')
+PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/args.nt}')
+PETSc.Sys.Print('')

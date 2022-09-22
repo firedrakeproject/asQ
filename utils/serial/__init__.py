@@ -1,1 +1,1 @@
-from .miniapp import SerialMiniApp
+from .miniapp import SerialMiniApp, ComparisonMiniapp
