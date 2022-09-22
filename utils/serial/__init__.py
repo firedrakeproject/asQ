@@ -1,1 +1,1 @@
-from .miniapp import SerialMiniApp, ComparisonMiniapp
+from .miniapp import SerialMiniApp, ComparisonMiniapp  # noqa: F401
