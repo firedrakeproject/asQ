@@ -173,7 +173,7 @@ class ShallowWaterMiniApp(object):
                             postproc=postprocess,
                             verbose=verbose)
 
-    def get_velocity(self, step, index_range='slice', uout=None, name='velocity'):
+    def get_velocity(self, step, index_range='slice', uout=None, name='velocity', deepcopy=False):
         '''
         Return the velocity function at index step
 
@@ -181,20 +181,12 @@ class ShallowWaterMiniApp(object):
         :arg index_range: whether step is a slice or window index
         :arg uout: if None, velocity function is returned, else the velocity function is assigned to uout
         :arg name: if uout is None, the returned velocity function will have this name
+        :arg deepcopy: if True, new function is returned. If false, handle to the velocity component of the all-at-once function is returned. Ignored if wout is not None
         '''
-        w = self.aaos.get_timestep(step,
-                                   index_range=index_range)
-        if uout is None:
-            u = fd.Function(self.velocity_function_space(), name=name)
-            u.assign(w.split()[self.velocity_index])
-            return u
-        elif uout.function_space() == self.velocity_function_space():
-            uout.assign(w.split()[self.velocity_index])
-            return
-        else:
-            raise ValueError("uout must be None or a Function from velocity_function_space")
+        return self.aaos.get_component(step, self.velocity_index, index_range=index_range,
+                                       wout=uout, name=name, deepcopy=deepcopy)
 
-    def get_depth(self, step, index_range='slice', hout=None, name='depth'):
+    def get_depth(self, step, index_range='slice', hout=None, name='depth', deepcopy=False):
         '''
         Return the depth function at index step
 
@@ -202,18 +194,10 @@ class ShallowWaterMiniApp(object):
         :arg index_range: whether step is a slice or window index
         :arg hout: if None, depth function is returned, else the depth function is assigned to hout
         :arg name: if hout is None, the returned depth function will have this name
+        :arg deepcopy: if True, new function is returned. If false, handle to the depth component of the all-at-once function is returned. Ignored if wout is not None
         '''
-        w = self.aaos.get_timestep(step,
-                                   index_range=index_range)
-        if hout is None:
-            h = fd.Function(self.depth_function_space(), name=name)
-            h.assign(w.split()[self.depth_index])
-            return h
-        elif hout.function_space() == self.depth_function_space():
-            hout.assign(w.split()[self.depth_index])
-            return
-        else:
-            raise ValueError("hout must be None or a Function from depth_function_space")
+        return self.aaos.get_component(step, self.depth_index, index_range=index_range,
+                                       wout=hout, name=name, deepcopy=deepcopy)
 
     def get_elevation(self, step, index_range='slice', hout=None, name='depth'):
         '''
