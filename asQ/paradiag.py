@@ -138,6 +138,22 @@ class paradiag(object):
         # complete the snes setup
         self.opts.set_from_options(self.snes)
 
+        # iteration counts
+        self.linear_iterations = 0
+        self.nonlinear_iterations = 0
+        self.total_timesteps = 0
+        self.total_windows = 0
+        self.block_iterations = [0 for _ in range(sum(self.time_partition))]
+
+    def reset_diagnostics(self):
+        """
+        Set all diagnostic information to initial values, e.g. iteration counts to zero
+        """
+        self.linear_iterations = 0
+        self.nonlinear_iterations = 0
+        self.total_timesteps = 0
+        self.block_iterations = [0 for _ in range(sum(self.time_partition))]
+
     def solve(self,
               nwindows=1,
               preproc=lambda pdg, w: None,
@@ -159,6 +175,11 @@ class paradiag(object):
             with self.opts.inserted_options():
                 self.snes.solve(None, self.X)
             self.aaos.update(self.X)
+
+            self.linear_iterations += self.snes.getLinearSolveIterations()
+            self.nonlinear_iterations += self.snes.getIterationNumber()
+            self.total_timesteps += sum(self.time_partition)
+            self.total_windows += 1
 
             postproc(self, wndw)
 
