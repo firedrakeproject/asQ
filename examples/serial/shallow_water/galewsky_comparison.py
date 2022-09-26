@@ -93,8 +93,8 @@ def form_mass(u, h, v, q):
 # solver parameters for the implicit solve
 serial_sparameters = {
     'snes': {
-        # 'monitor': None,
-        # 'converged_reason': None,
+        'monitor': None,
+        'converged_reason': None,
         'atol': 1e-0,
         'rtol': 1e-12,
         'stol': 1e-12,
@@ -104,8 +104,8 @@ serial_sparameters = {
     'ksp': {
         'atol': 1e-8,
         'rtol': 1e-8,
-        # 'monitor': None,
-        # 'converged_reason': None
+        'monitor': None,
+        'converged_reason': None
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
@@ -182,8 +182,8 @@ block_sparameters = {
 parallel_sparameters = {
     'snes': {
         'linesearch_type': 'basic',
-        # 'monitor': None,
-        # 'converged_reason': None,
+        'monitor': None,
+        'converged_reason': None,
         'atol': 1e-0,
         'rtol': 1e-12,
         'stol': 1e-12,
@@ -191,8 +191,8 @@ parallel_sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'preonly',
     'ksp': {
-        # 'monitor': None,
-        # 'converged_reason': None,
+        'monitor': None,
+        'converged_reason': None,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'
@@ -226,7 +226,9 @@ norm0 = fd.norm(w_initial)
 
 def preproc(serial_app, paradiag, wndw):
     PETSc.Sys.Print('')
-    PETSc.Sys.Print(f'=== --- Time window {wndw} --- ===')
+    PETSc.Sys.Print(f'### === --- Time window {wndw} --- === ###')
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'=== --- Parallel solve --- ===')
     PETSc.Sys.Print('')
 
 
@@ -240,13 +242,14 @@ def serial_postproc(app, it, t):
 
 
 def parallel_postproc(pdg, wndw):
-    if not args.print_norms:
-        return
-    aaos = miniapp.paradiag.aaos
-    for step in range(aaos.nlocal_timesteps):
-        it = aaos.shift_index(step, from_range='slice', to_range='window')
-        w = aaos.get_timestep(step)
-        PETSc.Sys.Print(f'Rank {rank}: Parallel timestep {it} norm {fd.norm(w)/norm0}', comm=ensemble.comm)
+    if args.print_norms:
+        aaos = miniapp.paradiag.aaos
+        for step in range(aaos.nlocal_timesteps):
+            it = aaos.shift_index(step, from_range='slice', to_range='window')
+            w = aaos.get_timestep(step)
+            PETSc.Sys.Print(f'Rank {rank}: Parallel timestep {it} norm {fd.norm(w)/norm0}', comm=ensemble.comm)
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'=== --- Serial solve --- ===')
     PETSc.Sys.Print('')
     return
 
