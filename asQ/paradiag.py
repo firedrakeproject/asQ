@@ -157,7 +157,7 @@ class paradiag(object):
         """
         Update diagnostic information from snes.
 
-        Must be called once after each snes solve.
+        Must be called exactly once after each snes solve.
         """
         self.linear_iterations += self.snes.getLinearSolveIterations()
         self.nonlinear_iterations += self.snes.getIterationNumber()

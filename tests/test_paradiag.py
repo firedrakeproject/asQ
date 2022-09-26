@@ -929,7 +929,7 @@ def test_diagnostics():
 
     pdg.solve(nwindows=1)
 
-    assert pdg.total_timesteps == 6
+    assert pdg.total_timesteps == sum(M)
     assert pdg.total_windows == 1
     assert pdg.linear_iterations == pdg.snes.getLinearSolveIterations()
     assert pdg.nonlinear_iterations == pdg.snes.getIterationNumber()
@@ -943,7 +943,7 @@ def test_diagnostics():
 
     pdg.solve(nwindows=1)
 
-    assert pdg.total_timesteps == 12
+    assert pdg.total_timesteps == 2*sum(M)
     assert pdg.total_windows == 2
     assert pdg.linear_iterations == linear_iterations0 + pdg.snes.getLinearSolveIterations()
     assert pdg.nonlinear_iterations == nonlinear_iterations0 + pdg.snes.getIterationNumber()

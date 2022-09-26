@@ -302,7 +302,7 @@ class DiagFFTPC(object):
         """
         Update diagnostic information from block linear solvers.
 
-        Must be called once at the end of each apply()
+        Must be called exactly once at the end of each apply()
         """
         for si in range(self.aaos.nlocal_timesteps):
             wi = self.aaos.shift_index(si, from_range='slice', to_range='window')
