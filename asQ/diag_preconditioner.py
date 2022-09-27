@@ -151,6 +151,8 @@ class DiagFFTPC(object):
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
             self.ureduce = fd.Function(self.blockV)
+            self.ubuf = fd.Function(self.blockV)
+            self.ureduceC = fd.Function(self.CblockV)
 
         # extract the real and imaginary parts
         vsr = []
@@ -312,38 +314,71 @@ class DiagFFTPC(object):
                 self.CblockV_bcs.append(all_bc)
 
     @PETSc.Log.EventDecorator()
+    def update_old(self, pc):
+        self.u0.assign(0)
+        for i in range(self.aaos.nlocal_timesteps):
+            # copy the data into solver input
+            if self.ncpts > 1:
+                u0s = self.u0.split()
+            for r in range(2):
+                if self.ncpts > 1:
+                    for cpt in range(self.ncpts):
+                        u0s[cpt].sub(r).assign(u0s[cpt].sub(r)
+                                               + self.w_all.split()[self.ncpts*i+cpt])
+                else:
+                    self.u0.sub(r).assign(self.u0.sub(r)
+                                          + self.w_all.split()[i])
+
+        # average only over current time-slice
+        if self.jac_average == 'slice':
+            self.u0 /= self.nlocal_timesteps
+        else:  # implies self.jac_average == 'window':
+            self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
+            self.u0.assign(self.ureduceC)
+            self.u0 /= sum(self.time_partition)
+
+    @PETSc.Log.EventDecorator()
     def update(self, pc):
-        # we need to update u0 from w_all, containing state.
-        # we copy w_all into the "real" and "imaginary" parts of u0
-        # this is so that when we linearise the nonlinearity, we get
-        # an operator that is block diagonal in the 2x2 system coupling
-        # real and imaginary parts.
+        '''
+        we need to update u0 from w_all, containing state.
+        we copy w_all into the "real" and "imaginary" parts of u0
+        this is so that when we linearise the nonlinearity, we get
+        an operator that is block diagonal in the 2x2 system coupling
+        real and imaginary parts.
+        '''
+
+        # self.update_old(pc)
+        # return
 
         # accumulate over local time-slice
         self.ureduce.assign(0)
+        urs = self.ureduce.split()
 
         for step in range(self.aaos.nlocal_timesteps):
             for cpt in range(self.aaos.ncomponents):
-                ucpt = self.ureduce.sub(cpt)
-                ucpt.assign(ucpt + self.aaos.get_component(step, cpt))
+                urs[cpt].assign(urs[cpt] + self.aaos.get_component(step, cpt))
 
-        # average
-        if self.jac_average == 'slice':  # over current time-slice
+        # average only over current time-slice
+        if self.jac_average == 'slice':
             self.ureduce /= self.aaos.nlocal_timesteps
         else:  # implies self.jac_average == 'window':
-            self.aaos.w_send.assign(self.ureduce)
-            self.ensemble.allreduce(self.aaos.w_send, self.ureduce)
             self.ureduce /= sum(self.time_partition)
 
-        # copy the data into solver input
-        if self.ncpts > 1:
-            u0s = self.u0.split()
-        else:
-            u0s = [self.u0]
+        # # average only over current time-slice
+        # if self.jac_average == 'window':
+        #     self.ensemble.allreduce(self.ureduce, self.ubuf)
+        #     self.ureduce.assign(self.ubuf)
 
+        # copy the data into solver input
+        u0s = self.u0.split()
         for r in range(2):
             for cpt in range(self.ncpts):
-                u0s[cpt].sub(r).assign(self.ureduce.sub(cpt))
+                u0s[cpt].sub(r).assign(urs[cpt])
+
+        # average only over current time-slice
+        if self.jac_average == 'window':
+            self.ensemble.allreduce(self.u0, self.ureduceC)
+            self.u0.assign(self.ureduceC)
 
     @PETSc.Log.EventDecorator()
     def apply(self, pc, x, y):
