@@ -49,6 +49,8 @@ class DiagFFTPC(object):
         aaos = paradiag.aaos
         self.aaos = paradiag.aaos
 
+        paradiag.diagfftpc = self
+
         # option for whether to use slice or window average for block jacobian
         self.jac_average = PETSc.Options().getString(
             f"{prefix}{self.prefix}jac_average", default='window')
@@ -151,6 +153,8 @@ class DiagFFTPC(object):
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
             self.ureduce = fd.Function(self.blockV)
+            self.ubuf = fd.Function(self.blockV)
+            self.ureduceC = fd.Function(self.CblockV)
 
         # extract the real and imaginary parts
         vsr = []
@@ -312,38 +316,111 @@ class DiagFFTPC(object):
                 self.CblockV_bcs.append(all_bc)
 
     @PETSc.Log.EventDecorator()
-    def update(self, pc):
-        # we need to update u0 from w_all, containing state.
-        # we copy w_all into the "real" and "imaginary" parts of u0
-        # this is so that when we linearise the nonlinearity, we get
-        # an operator that is block diagonal in the 2x2 system coupling
-        # real and imaginary parts.
-
+    def time_average(self, uaverage):
         # accumulate over local time-slice
-        self.ureduce.assign(0)
+        uaverage.assign(0)
+        us = uaverage.split()
 
         for step in range(self.aaos.nlocal_timesteps):
             for cpt in range(self.aaos.ncomponents):
-                ucpt = self.ureduce.sub(cpt)
-                ucpt.assign(ucpt + self.aaos.get_component(step, cpt))
+                us[cpt].assign(us[cpt] + self.aaos.get_component(step, cpt))
 
-        # average
-        if self.jac_average == 'slice':  # over current time-slice
-            self.ureduce /= self.aaos.nlocal_timesteps
+        # average only over current time-slice
+        if self.jac_average == 'slice':
+            uaverage /= self.aaos.nlocal_timesteps
         else:  # implies self.jac_average == 'window':
-            self.aaos.w_send.assign(self.ureduce)
-            self.ensemble.allreduce(self.aaos.w_send, self.ureduce)
-            self.ureduce /= sum(self.time_partition)
+            uaverage /= sum(self.time_partition)
+
+        # average only over current time-slice
+        if self.jac_average == 'window':
+            self.ensemble.allreduce(uaverage, self.ubuf)
+            uaverage.assign(self.ubuf)
+
+    @PETSc.Log.EventDecorator()
+    def update_old(self, pc):
+        '''
+        Original update method
+        '''
+
+        self.u0.assign(0)
+        for i in range(self.aaos.nlocal_timesteps):
+            # copy the data into solver input
+            if self.ncpts > 1:
+                u0s = self.u0.split()
+            for r in range(2):
+                if self.ncpts > 1:
+                    for cpt in range(self.ncpts):
+                        u0s[cpt].sub(r).assign(u0s[cpt].sub(r)
+                                               + self.w_all.split()[self.ncpts*i+cpt])
+                else:
+                    self.u0.sub(r).assign(self.u0.sub(r)
+                                          + self.w_all.split()[i])
+
+        # average only over current time-slice
+        if self.jac_average == 'slice':
+            self.u0 /= self.nlocal_timesteps
+        else:  # implies self.jac_average == 'window':
+            self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
+            self.u0.assign(self.ureduceC)
+            self.u0 /= sum(self.time_partition)
+
+    @PETSc.Log.EventDecorator()
+    def update_new(self, pc):
+        '''
+        What the update method should be
+        '''
+        self.time_average(self.ureduce)
 
         # copy the data into solver input
-        if self.ncpts > 1:
-            u0s = self.u0.split()
-        else:
-            u0s = [self.u0]
+        u0s = self.u0.split()
+        urs = self.ureduce.split()
+        for r in range(2):
+            for cpt in range(self.aaos.ncomponents):
+                u0s[cpt].sub(r).assign(urs[cpt])
 
+    @PETSc.Log.EventDecorator()
+    def update(self, pc, old=True):
+        '''
+        we need to update u0 from w_all, containing state.
+        we copy w_all into the "real" and "imaginary" parts of u0
+        this is so that when we linearise the nonlinearity, we get
+        an operator that is block diagonal in the 2x2 system coupling
+        real and imaginary parts.
+        '''
+
+        if old:
+            self.update_old(pc)
+            return
+
+        # accumulate over local time-slice
+        self.ureduce.assign(0)
+        urs = self.ureduce.split()
+
+        for step in range(self.aaos.nlocal_timesteps):
+            for cpt in range(self.aaos.ncomponents):
+                urs[cpt].assign(urs[cpt] + self.aaos.get_component(step, cpt))
+
+        # average only over current time-slice
+        if self.jac_average == 'slice':
+            self.ureduce /= self.aaos.nlocal_timesteps
+        else:  # implies self.jac_average == 'window':
+            self.ureduce /= sum(self.time_partition)
+
+        # # reduce real valued function then assign real function into complex function
+        # if self.jac_average == 'window':
+        #     self.ensemble.allreduce(self.ureduce, self.ubuf)
+        #     self.ureduce.assign(self.ubuf)
+
+        # copy the data into solver input
+        u0s = self.u0.split()
         for r in range(2):
             for cpt in range(self.ncpts):
-                u0s[cpt].sub(r).assign(self.ureduce.sub(cpt))
+                u0s[cpt].sub(r).assign(urs[cpt])
+
+        # assign real function into complex function then reduce complex function
+        if self.jac_average == 'window':
+            self.ensemble.allreduce(self.u0, self.ureduceC)
+            self.u0.assign(self.ureduceC)
 
     @PETSc.Log.EventDecorator()
     def apply(self, pc, x, y):
