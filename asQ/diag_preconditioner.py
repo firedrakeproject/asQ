@@ -99,10 +99,7 @@ class DiagFFTPC(object):
         mesh = self.blockV.mesh()
         Ve = self.blockV.ufl_element()
         self.ncpts = len(self.blockV)
-        if self.ncpts == 1:
-            V_cpts = (self.blockV,)
-        else:
-            V_cpts = self.blockV.split()
+        V_cpts = self.blockV.split()
         ComplexCpts = []
         for V_cpt in V_cpts:
             rank = V_cpt.rank
@@ -119,11 +116,8 @@ class DiagFFTPC(object):
                 shape = (2,) + V_cpt_ele._shape
                 scalar_element = V_cpt_ele.sub_elements()[0]
                 ComplexCpts.append(fd.TensorElement(scalar_element, shape))
-        if self.ncpts == 1:
-            self.CblockV = fd.FunctionSpace(mesh, ComplexCpts[0])
-        else:
-            self.CblockV = reduce(mul, [fd.FunctionSpace(mesh, ComplexCpt)
-                                        for ComplexCpt in ComplexCpts])
+        self.CblockV = reduce(mul, [fd.FunctionSpace(mesh, ComplexCpt)
+                                    for ComplexCpt in ComplexCpts])
 
         # get the boundary conditions
         self.set_CblockV_bcs()
