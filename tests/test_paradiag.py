@@ -962,7 +962,8 @@ bc_opts = ["none", "homogeneous", "inhomogeneous"]
 
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("bc_opt", bc_opts)
-def test_solve_para_form(bc_opt):
+@pytest.mark.parametrize("extruded", [True, False])
+def test_solve_para_form(bc_opt, extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR heat equation as an example by
     # solving the all-at-once system and comparing with the sequential
@@ -971,7 +972,13 @@ def test_solve_para_form(bc_opt):
     # set up the ensemble communicator for space-time parallelism
     nspatial_domains = 2
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    if extruded:
+        mesh1D = fd.UnitIntervalMesh(4, comm=ensemble.comm)
+        mesh = fd.ExtrudedMesh(mesh1D, 4, layer_height=0.25)
+    else:
+        mesh = fd.UnitSquareMesh(4, 4, quadrilateral=True, comm=ensemble.comm)
+
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
