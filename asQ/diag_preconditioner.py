@@ -66,7 +66,7 @@ class DiagFFTPC(object):
         M = np.array(paradiag.M)
         ensemble = paradiag.ensemble
         rT = ensemble.ensemble_comm.rank  # the time rank
-        assert(self.blockV.dim()*M[rT] == W.dim())
+        assert (self.blockV.dim()*M[rT] == W.dim())
         self.M = M
         self.rT = rT
         self.NM = W.dim()
@@ -115,7 +115,7 @@ class DiagFFTPC(object):
                 scalar_element = V_cpt_ele.sub_elements()[0]
                 ComplexCpts.append(fd.TensorElement(scalar_element, shape))
             else:
-                assert(rank > 0)
+                assert (rank > 0)
                 shape = (2,) + V_cpt_ele._shape
                 scalar_element = V_cpt_ele.sub_elements()[0]
                 ComplexCpts.append(fd.TensorElement(scalar_element, shape))
