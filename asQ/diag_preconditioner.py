@@ -49,6 +49,8 @@ class DiagFFTPC(object):
         aaos = paradiag.aaos
         self.aaos = paradiag.aaos
 
+        paradiag.diagfftpc = self
+
         # option for whether to use slice or window average for block jacobian
         self.jac_average = PETSc.Options().getString(
             f"{prefix}{self.prefix}jac_average", default='window')
