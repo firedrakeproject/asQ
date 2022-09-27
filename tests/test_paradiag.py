@@ -1071,7 +1071,8 @@ def test_solve_para_form(bc_opt, extruded):
 
 
 @pytest.mark.parallel(nprocs=6)
-def test_solve_para_form_mixed():
+@pytest.mark.parametrize("extruded", [True, False])
+def test_solve_para_form_mixed(extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR mixed wave equation as an
     # example by substituting the sequential solution and evaluating
@@ -1080,9 +1081,36 @@ def test_solve_para_form_mixed():
     # set up the ensemble communicator for space-time parallelism
     nspatial_domains = 2
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-    mesh = fd.PeriodicUnitSquareMesh(4, 4, comm=ensemble.comm)
-    V = fd.FunctionSpace(mesh, "BDM", 1)
-    Q = fd.FunctionSpace(mesh, "DG", 0)
+
+    if extruded:
+        mesh1D = fd.UnitIntervalMesh(4, comm=ensemble.comm)
+        mesh = fd.ExtrudedMesh(mesh1D, 4, layer_height=0.25)
+
+        horizontal_degree = 1
+        vertical_degree = 1
+        S1 = fd.FiniteElement("CG", fd.interval, horizontal_degree+1)
+        S2 = fd.FiniteElement("DG", fd.interval, horizontal_degree)
+
+        # vertical base spaces
+        T0 = fd.FiniteElement("CG", fd.interval, vertical_degree+1)
+        T1 = fd.FiniteElement("DG", fd.interval, vertical_degree)
+
+        # build spaces V2, V3
+        V2h_elt = fd.HDiv(fd.TensorProductElement(S1, T1))
+        V2t_elt = fd.TensorProductElement(S2, T0)
+        V3_elt = fd.TensorProductElement(S2, T1)
+        V2v_elt = fd.HDiv(V2t_elt)
+        V2_elt = V2h_elt + V2v_elt
+
+        V = fd.FunctionSpace(mesh, V2_elt, name="HDiv")
+        Q = fd.FunctionSpace(mesh, V3_elt, name="DG")
+    else:
+        mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+        V = fd.FunctionSpace(mesh, "BDM", 1)
+        Q = fd.FunctionSpace(mesh, "DG", 0)
+
+    # mesh = fd.PeriodicUnitSquareMesh(4, 4, comm=ensemble.comm)
+
     W = V * Q
 
     x, y = fd.SpatialCoordinate(mesh)
