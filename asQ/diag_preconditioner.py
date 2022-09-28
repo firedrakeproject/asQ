@@ -383,7 +383,6 @@ class DiagFFTPC(object):
 
             Jins = self.xtemp.split()
             for cpt in range(self.ncpts):
-
                 self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
                 self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())
 
@@ -398,7 +397,6 @@ class DiagFFTPC(object):
             # copy the data from solver output
             Jpouts = self.Jprob_out.split()
             for cpt in range(self.ncpts):
-
                 self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.split())
                 self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.split())
 
