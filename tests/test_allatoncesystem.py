@@ -328,7 +328,7 @@ def test_get_component(ensemble, mesh, W,
 
 @pytest.mark.parallel(nprocs=4)
 def test_set_field(ensemble, mesh, W,
-                      form_function, form_mass):
+                   form_function, form_mass):
     '''
     test setting a specific timestep
     '''
@@ -384,7 +384,7 @@ def test_set_field(ensemble, mesh, W,
 
 @pytest.mark.parallel(nprocs=4)
 def test_get_field(ensemble, mesh, W,
-                      form_function, form_mass):
+                   form_function, form_mass):
     '''
     test getting a specific timestep
     only valid if test_set_field passes
