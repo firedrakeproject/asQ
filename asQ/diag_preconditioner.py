@@ -298,6 +298,15 @@ class DiagFFTPC(object):
                                             bc.sub_domain)
                 self.CblockV_bcs.append(all_bc)
 
+    def _record_diagnostics(self):
+        """
+        Update diagnostic information from block linear solvers.
+
+        Must be called once at the end of each apply()
+        """
+        for i in range(self.aaos.nlocal_timesteps):
+            self.paradiag.block_iterations[i] += self.Jsolvers[i].snes.getLinearSolveIterations()
+
     @PETSc.Log.EventDecorator()
     def update(self, pc):
         '''
@@ -392,9 +401,6 @@ class DiagFFTPC(object):
                 self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.split())
                 self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.split())
 
-            # record solver diagnostics
-            self.paradiag.block_iterations[i] += self.Jsolvers[i].snes.getLinearSolveIterations()
-
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
         # get array of basis coefficients
@@ -420,6 +426,8 @@ class DiagFFTPC(object):
         with self.yf.dat.vec_ro as v:
             v.copy(y)
         ################
+
+        self._record_diagnostics()
 
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError
