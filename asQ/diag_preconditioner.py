@@ -317,9 +317,14 @@ class DiagFFTPC(object):
 
     @PETSc.Log.EventDecorator()
     def time_average(self, uaverage):
+        '''
+        Compute the time-average solution of the all-at-once system
+
+        :arg uaverage: the function to save the average into
+        '''
         # accumulate over local time-slice
-        uaverage.assign(0)
-        us = uaverage.split()
+        self.ubuf.assign(0)
+        us = self.ubuf.split()
 
         for step in range(self.aaos.nlocal_timesteps):
             for cpt in range(self.aaos.ncomponents):
@@ -327,14 +332,13 @@ class DiagFFTPC(object):
 
         # average only over current time-slice
         if self.jac_average == 'slice':
-            uaverage /= self.aaos.nlocal_timesteps
+            self.ubuf /= self.aaos.nlocal_timesteps
         else:  # implies self.jac_average == 'window':
-            uaverage /= sum(self.time_partition)
+            self.ubuf /= sum(self.time_partition)
 
         # average only over current time-slice
         if self.jac_average == 'window':
-            self.ensemble.allreduce(uaverage, self.ubuf)
-            uaverage.assign(self.ubuf)
+            self.ensemble.allreduce(self.ubuf, uaverage)
 
     @PETSc.Log.EventDecorator()
     def update_old(self, pc):
