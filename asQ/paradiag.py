@@ -136,11 +136,7 @@ class paradiag(object):
         self.opts.set_from_options(self.snes)
 
         # iteration counts
-        self.linear_iterations = 0
-        self.nonlinear_iterations = 0
-        self.total_timesteps = 0
-        self.total_windows = 0
-        self.block_iterations = [0 for _ in range(sum(self.time_partition))]
+        self.reset_diagnostics()
 
     def reset_diagnostics(self):
         """
@@ -149,8 +145,21 @@ class paradiag(object):
         self.linear_iterations = 0
         self.nonlinear_iterations = 0
         self.total_timesteps = 0
+        self.total_windows = 0
         self.block_iterations = [0 for _ in range(sum(self.time_partition))]
 
+    def _record_diagnostics(self):
+        """
+        Update diagnostic information from snes.
+
+        Must be called once after each snes solve.
+        """
+        self.linear_iterations += self.snes.getLinearSolveIterations()
+        self.nonlinear_iterations += self.snes.getIterationNumber()
+        self.total_timesteps += sum(self.time_partition)
+        self.total_windows += 1
+
+    @PETSc.Log.EventDecorator()
     def solve(self,
               nwindows=1,
               preproc=lambda pdg, w: None,
@@ -173,10 +182,7 @@ class paradiag(object):
                 self.snes.solve(None, self.X)
             self.aaos.update(self.X)
 
-            self.linear_iterations += self.snes.getLinearSolveIterations()
-            self.nonlinear_iterations += self.snes.getIterationNumber()
-            self.total_timesteps += sum(self.time_partition)
-            self.total_windows += 1
+            self._record_diagnostics()
 
             postproc(self, wndw)
 
@@ -184,5 +190,6 @@ class paradiag(object):
                 PETSc.Sys.Print(f'SNES diverged with error code {self.snes.getConvergedReason()}. Cancelling paradiag time integration.')
                 return
 
+            # don't wipe all-at-once function at last window
             if wndw != nwindows-1:
                 self.aaos.next_window()
