@@ -112,11 +112,7 @@ class AllAtOnceSystem(object):
 
         self.circ = circ
         self.alpha = alpha
-
-        if self.circ == "picard":
-            self.Circ = fd.Constant(1.0)
-        else:
-            self.Circ = fd.Constant(0.0)
+        self.Circ = fd.Constant(0.0)
 
         self.max_indices = {
             'component': self.ncomponents,
@@ -132,7 +128,7 @@ class AllAtOnceSystem(object):
         self.w_alls = self.w_all.split()
 
         for i in range(self.nlocal_timesteps):
-            self.set_timestep(i, self.initial_condition, index_range='slice')
+            self.set_field(i, self.initial_condition, index_range='slice')
 
         self.boundary_conditions_all = self.set_boundary_conditions(bcs)
 
@@ -281,7 +277,7 @@ class AllAtOnceSystem(object):
             return wreturn
 
     @PETSc.Log.EventDecorator()
-    def set_timestep(self, step, wnew, index_range='slice', f_alls=None):
+    def set_field(self, step, wnew, index_range='slice', f_alls=None):
         '''
         Set solution at a timestep to new value
 
@@ -295,7 +291,7 @@ class AllAtOnceSystem(object):
                                index_range=index_range, f_alls=f_alls)
 
     @PETSc.Log.EventDecorator()
-    def get_timestep(self, step, index_range='slice', wout=None, name=None, f_alls=None):
+    def get_field(self, step, index_range='slice', wout=None, name=None, f_alls=None):
         '''
         Get solution at a timestep to new value
 
@@ -330,7 +326,7 @@ class AllAtOnceSystem(object):
             window_index = self.shift_index(slice_index,
                                             from_range='slice',
                                             to_range='window')
-            self.get_timestep(slice_index, wout=w, index_range='slice')
+            self.get_field(slice_index, wout=w, index_range='slice')
             callback(window_index, slice_index, w)
 
     @PETSc.Log.EventDecorator()
@@ -349,14 +345,14 @@ class AllAtOnceSystem(object):
         else:  # last rank broadcasts final timestep
             if rank == ncomm-1:
                 # index of start of final timestep
-                self.get_timestep(-1, wout=self.initial_condition, index_range='slice')
+                self.get_field(-1, wout=self.initial_condition, index_range='slice')
 
             with self.initial_condition.dat.vec as vec:
                 self.ensemble.ensemble_comm.Bcast(vec.array, root=ncomm-1)
 
         # persistence forecast
         for i in range(self.nlocal_timesteps):
-            self.set_timestep(i, self.initial_condition, index_range='slice')
+            self.set_field(i, self.initial_condition, index_range='slice')
 
         return
 
@@ -383,7 +379,7 @@ class AllAtOnceSystem(object):
         # Communication stage
         mpi_requests = []
 
-        self.get_timestep(-1, wout=wsend, index_range='slice', f_alls=walls)
+        self.get_field(-1, wout=wsend, index_range='slice', f_alls=walls)
 
         # these should be replaced with isendrecv once ensemble updates are pushed to Firedrake
         request_send = self.ensemble.isend(wsend, dest=((r+1) % n), tag=r)
