@@ -401,9 +401,6 @@ class DiagFFTPC(object):
                 self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.split())
                 self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.split())
 
-            # record solver diagnostics
-            self.paradiag.block_iterations[i] += self.Jsolvers[i].snes.getLinearSolveIterations()
-
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
         # get array of basis coefficients
