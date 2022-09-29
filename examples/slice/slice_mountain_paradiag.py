@@ -137,7 +137,6 @@ for bc in bcs:
 lines_parameters = {
     "ksp_type": "gmres",
     "ksp_converged_reason": None,
-    "ksp_monitor": None,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled_pc_type": "python",
@@ -196,10 +195,9 @@ if PD.time_rank == len(M)-1:
                     comm=ensemble.comm)
 
     def assign_out_functions():
-        uout.assign(PD.w_all.split()[-3])
-        PETSc.Sys.Print("uout", uout.dat.data[:].max())
-        rhoout.assign(PD.w_all.split()[-2] - rho_back)
-        thetaout.assign(PD.w_all.split()[-1] - theta_back)
+        uout.assign(PD.aaos.w_all.split()[-3])
+        rhoout.assign(PD.aaos.w_all.split()[-2] - rho_back)
+        thetaout.assign(PD.aaos.w_all.split()[-1] - theta_back)
 
     def write_to_file():
         ofile.write(uout, rhoout, thetaout)
