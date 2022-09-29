@@ -105,11 +105,11 @@ def test_check_index(ensemble, W,
             assert False, f"{err}"
 
         # check outside +ve range
-        with pytest.raises(ValueError):
+        with pytest.raises(IndexError):
             aaos.check_index(outside_range, index_type)
 
         # check outside -ve range
-        with pytest.raises(ValueError):
+        with pytest.raises(IndexError):
             aaos.check_index(-outside_range, index_type)
 
 
@@ -173,11 +173,11 @@ def test_shift_index(ensemble, W,
     slice_index = slice_length + 1
 
     # +ve index out of slice range
-    with pytest.raises(ValueError):
+    with pytest.raises(IndexError):
         window_index = aaos.shift_index(slice_index, from_range='slice', to_range='window')
 
     # -ve index out of slice range
-    with pytest.raises(ValueError):
+    with pytest.raises(IndexError):
         window_index = aaos.shift_index(-slice_index, from_range='slice', to_range='window')
 
     # window_range -> slice_range
@@ -197,7 +197,7 @@ def test_shift_index(ensemble, W,
     # for some reason pytest.raises doesn't work with this call
     try:
         slice_index = aaos.shift_index(window_index, from_range='window', to_range='slice')
-    except ValueError:
+    except IndexError:
         pass
 
     # -ve index out of slice range
@@ -205,7 +205,7 @@ def test_shift_index(ensemble, W,
     # for some reason pytest.raises doesn't work with this call
     try:
         slice_index = aaos.shift_index(-window_index, from_range='window', to_range='slice')
-    except ValueError:
+    except IndexError:
         pass
 
     # component indices
@@ -225,9 +225,9 @@ def test_shift_index(ensemble, W,
     check_index = ncpts*(slice_index+1) + cpt_index
 
     # reject component index out of range
-    with pytest.raises(ValueError):
+    with pytest.raises(IndexError):
         aaos.shift_index(0, 100, from_range='slice')
-    with pytest.raises(ValueError):
+    with pytest.raises(IndexError):
         window_index = aaos.shift_index(0, from_range='slice', to_range='window')
         aaos.shift_index(window_index, -100, from_range='window')
 
