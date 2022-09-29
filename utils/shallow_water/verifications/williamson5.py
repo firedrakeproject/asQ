@@ -272,14 +272,14 @@ def parallel_solve(base_level=1,
 
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
-                      form_mass=form_mass, W=W, w0=w0,
+                      form_mass=form_mass, w0=w0,
                       dt=dT, theta=theta,
                       alpha=alpha,
-                      M=M, solver_parameters=sparameters_diag,
+                      time_partition=M, solver_parameters=sparameters_diag,
                       circ=None, tol=1.0e-8, maxits=None,
                       ctx={}, block_ctx=block_ctx, block_mat_type="aij")
 
-    trank = PD.rT
+    trank = PD.time_rank
 
     # list of snapshots: time_series[window][slice-local-index]
     time_series = []
@@ -299,13 +299,13 @@ def parallel_solve(base_level=1,
 
         for i in range(M[trank]):
 
-            up.assign(PD.w_all.split()[2*i])
-            hp.assign(PD.w_all.split()[2*i+1])
+            up.assign(PD.aaos.w_all.split()[2*i])
+            hp.assign(PD.aaos.w_all.split()[2*i+1])
 
             window_series.append(wp.copy(deepcopy=True))
 
         time_series.append(window_series)
 
-        PD.next_window()
+        PD.aaos.next_window()
 
     return time_series
