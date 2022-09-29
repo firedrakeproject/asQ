@@ -179,7 +179,7 @@ class AllAtOnceSystem(object):
         '''
         # set valid range
         if index_range not in self.max_indices.keys():
-            raise ValueError("index_range must be one of "+" or ".join(self.max_indices.keys()))
+            raise IndexError("index_range must be one of "+" or ".join(self.max_indices.keys()))
 
         maxidx = self.max_indices[index_range]
 
@@ -187,7 +187,7 @@ class AllAtOnceSystem(object):
         minidx = -maxidx
 
         if not (minidx <= i < maxidx):
-            raise ValueError(f"index {i} outside {index_range} range {maxidx}")
+            raise IndexError(f"index {i} outside {index_range} range {maxidx}")
 
     def shift_index(self, i, cpt=None, from_range='slice', to_range='slice'):
         '''
