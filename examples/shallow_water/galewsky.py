@@ -92,11 +92,11 @@ sparameters_diag = {
         'monitor': None,
         'converged_reason': None,
         'atol': 1e-0,
-        'rtol': 1e-12,
+        'rtol': 1e-8,
         'stol': 1e-12,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'preonly',
+    'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
@@ -131,8 +131,6 @@ time_rank = miniapp.paradiag.time_rank
 is_io_rank = (time_rank == len(time_partition)-1)
 if is_io_rank:
     cfl_series = []
-    linear_its = 0
-    nonlinear_its = 0
 
     ofile = fd.File('output/'+args.filename+'.pvd',
                     comm=ensemble.comm)
@@ -159,8 +157,6 @@ def window_preproc(swe_app, pdg, wndw):
 
 def window_postproc(swe_app, pdg, wndw):
     # make sure variables are properly captured
-    global linear_its
-    global nonlinear_its
     global cfl_series
 
     # postprocess this timeslice
@@ -196,19 +192,23 @@ miniapp.solve(nwindows=args.nwindows,
               preproc=window_preproc,
               postproc=window_postproc)
 
-
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+PETSc.Sys.Print('')
+
+nw = miniapp.paradiag.total_windows
+nt = miniapp.paradiag.total_timesteps
+PETSc.Sys.Print(f'windows: {nw}')
+PETSc.Sys.Print(f'timesteps: {nt}')
+PETSc.Sys.Print('')
+
+lits = miniapp.paradiag.linear_iterations
+nlits = miniapp.paradiag.nonlinear_iterations
+
+PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
+PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
 PETSc.Sys.Print('')
 
 if is_io_rank:
     PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
-
-    PETSc.Sys.Print(f'windows: {(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'timesteps: {(args.nwindows)*window_length}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
-
-    PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows)}', comm=ensemble.comm)
     PETSc.Sys.Print('', comm=ensemble.comm)
