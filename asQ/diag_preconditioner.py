@@ -66,7 +66,7 @@ class DiagFFTPC(object):
         M = np.array(paradiag.M)
         ensemble = paradiag.ensemble
         rT = ensemble.ensemble_comm.rank  # the time rank
-        assert(self.blockV.dim()*M[rT] == W.dim())
+        assert (self.blockV.dim()*M[rT] == W.dim())
         self.M = M
         self.rT = rT
         self.NM = W.dim()
@@ -98,40 +98,26 @@ class DiagFFTPC(object):
         # blockV
         mesh = self.blockV.mesh()
         Ve = self.blockV.ufl_element()
-        if isinstance(Ve, fd.MixedElement):
-            MixedCpts = []
-            self.ncpts = Ve.num_sub_elements()
-            for cpt in range(Ve.num_sub_elements()):
-                SubV = Ve.sub_elements()[cpt]
-                if isinstance(SubV, fd.FiniteElement):
-                    MixedCpts.append(fd.VectorElement(SubV, dim=2))
-                elif isinstance(SubV, fd.VectorElement):
-                    shape = (2, SubV.num_sub_elements())
-                    MixedCpts.append(fd.TensorElement(SubV, shape))
-                elif isinstance(SubV, fd.TensorElement):
-                    shape = (2,) + SubV._shape
-                    MixedCpts.append(fd.TensorElement(SubV, shape))
-                else:
-                    raise NotImplementedError
-
-            dim = len(MixedCpts)
-            self.CblockV = reduce(mul, [fd.FunctionSpace(mesh,
-                                                         MixedCpts[i]) for i in range(dim)])
-        else:
-            self.ncpts = 1
-            if isinstance(Ve, fd.FiniteElement):
-                self.CblockV = fd.FunctionSpace(mesh,
-                                                fd.VectorElement(Ve, dim=2))
-            elif isinstance(Ve, fd.VectorElement):
-                shape = (2, Ve.num_sub_elements())
-                self.CblockV = fd.FunctionSpace(mesh,
-                                                fd.TensorElement(Ve, shape))
-            elif isinstance(Ve, fd.TensorElement):
-                shape = (2,) + Ve._shape
-                self.CblockV = fd.FunctionSpace(mesh,
-                                                fd.TensorElement(Ve, shape))
+        self.ncpts = len(self.blockV)
+        V_cpts = self.blockV.split()
+        ComplexCpts = []
+        for V_cpt in V_cpts:
+            rank = V_cpt.rank
+            V_cpt_ele = V_cpt.ufl_element()
+            if rank == 0:  # scalar basis coefficients
+                ComplexCpts.append(fd.VectorElement(V_cpt_ele, dim=2))
+            elif rank == 1:  # vector basis coefficients
+                dim = V_cpt_ele.num_sub_elements()
+                shape = (2, dim)
+                scalar_element = V_cpt_ele.sub_elements()[0]
+                ComplexCpts.append(fd.TensorElement(scalar_element, shape))
             else:
-                raise NotImplementedError
+                assert (rank > 0)
+                shape = (2,) + V_cpt_ele._shape
+                scalar_element = V_cpt_ele.sub_elements()[0]
+                ComplexCpts.append(fd.TensorElement(scalar_element, shape))
+        self.CblockV = reduce(mul, [fd.FunctionSpace(mesh, ComplexCpt)
+                                    for ComplexCpt in ComplexCpts])
 
         # get the boundary conditions
         self.set_CblockV_bcs()

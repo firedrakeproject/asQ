@@ -42,7 +42,7 @@ def test_williamson2_elevation():
         return c.evaluate(None, None, None, None)
 
     for i in range(nsamples):
-        assert(abs(evalc(h[i]) - hcheck[i]) < 1e-12)
+        assert (abs(evalc(h[i]) - hcheck[i]) < 1e-12)
 
 
 def test_williamson2_velocity():
@@ -85,9 +85,9 @@ def test_williamson2_velocity():
 
         u = case2.velocity_expression(x[i], y[i], z[i], uref=uref)
 
-        assert(abs(evalc(u[0]) - ucheck[i][0]) < 1e-12)
-        assert(abs(evalc(u[1]) - ucheck[i][1]) < 1e-12)
-        assert(abs(evalc(u[2]) - ucheck[i][2]) < 1e-12)
+        assert (abs(evalc(u[0]) - ucheck[i][0]) < 1e-12)
+        assert (abs(evalc(u[1]) - ucheck[i][1]) < 1e-12)
+        assert (abs(evalc(u[2]) - ucheck[i][2]) < 1e-12)
 
 
 def test_williamson5_elevation():
@@ -125,7 +125,7 @@ def test_williamson5_elevation():
         return c.evaluate(None, None, None, None)
 
     for i in range(nsamples):
-        assert(abs(evalc(h[i]) - evalc(hcheck[i])) < 1e-12)
+        assert (abs(evalc(h[i]) - evalc(hcheck[i])) < 1e-12)
 
 
 def test_williamson5_velocity():
@@ -162,9 +162,9 @@ def test_williamson5_velocity():
         u = case2.velocity_expression(x[i], y[i], z[i], uref=uref)
         ucheck = case5.velocity_expression(x[i], y[i], z[i], uref=uref)
 
-        assert(abs(evalc(u[0]) - evalc(ucheck[0])) < 1e-12)
-        assert(abs(evalc(u[1]) - evalc(ucheck[1])) < 1e-12)
-        assert(abs(evalc(u[2]) - evalc(ucheck[2])) < 1e-12)
+        assert (abs(evalc(u[0]) - evalc(ucheck[0])) < 1e-12)
+        assert (abs(evalc(u[1]) - evalc(ucheck[1])) < 1e-12)
+        assert (abs(evalc(u[2]) - evalc(ucheck[2])) < 1e-12)
 
 
 def test_convective_cfl():
@@ -194,7 +194,7 @@ def test_convective_cfl():
     u.assign(vel)
     cfl = diagnostics.convective_cfl(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity x case
     vel = fd.as_vector([one, zero])
@@ -203,7 +203,7 @@ def test_convective_cfl():
     u.assign(vel)
     cfl = diagnostics.convective_cfl(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity y case
     vel = fd.as_vector([zero, one])
@@ -212,7 +212,7 @@ def test_convective_cfl():
     u.assign(vel)
     cfl = diagnostics.convective_cfl(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity xy case
     vel = fd.as_vector([one, one])
@@ -221,7 +221,7 @@ def test_convective_cfl():
     u.assign(vel)
     cfl = diagnostics.convective_cfl(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # rng
     np.random.seed(23767)
@@ -237,7 +237,7 @@ def test_convective_cfl():
         u.assign(vel)
         cfl = diagnostics.convective_cfl(u, dt)
 
-        assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+        assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
 
 def test_get_cfl_calculator():
@@ -269,7 +269,7 @@ def test_get_cfl_calculator():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity x case
     vel = fd.as_vector([one, zero])
@@ -278,7 +278,7 @@ def test_get_cfl_calculator():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity y case
     vel = fd.as_vector([zero, one])
@@ -287,7 +287,7 @@ def test_get_cfl_calculator():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity xy case
     vel = fd.as_vector([one, one])
@@ -296,7 +296,7 @@ def test_get_cfl_calculator():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # rng
     np.random.seed(23767)
@@ -312,7 +312,7 @@ def test_get_cfl_calculator():
         u.assign(vel)
         cfl = cfl_calculator(u, dt)
 
-        assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+        assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
 
 def test_get_cfl_calculator_extruded():
@@ -345,7 +345,7 @@ def test_get_cfl_calculator_extruded():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity x case
     vel = fd.as_vector([one, zero])
@@ -354,7 +354,7 @@ def test_get_cfl_calculator_extruded():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity y case
     vel = fd.as_vector([zero, one])
@@ -363,7 +363,7 @@ def test_get_cfl_calculator_extruded():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity xy case
     vel = fd.as_vector([one, one])
@@ -372,7 +372,7 @@ def test_get_cfl_calculator_extruded():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # rng
     np.random.seed(23767)
@@ -388,4 +388,4 @@ def test_get_cfl_calculator_extruded():
         u.assign(vel)
         cfl = cfl_calculator(u, dt)
 
-        assert(fd.errornorm(cfl_check, cfl) < 1e-12)
+        assert (fd.errornorm(cfl_check, cfl) < 1e-12)

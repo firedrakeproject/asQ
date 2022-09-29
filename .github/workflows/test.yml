@@ -42,4 +42,5 @@ jobs:
       - name: Test
         run: |
           . /home/firedrake/firedrake/bin/activate
-          pytest -v --durations=0 tests
+          export OMP_NUM_THREADS=1
+          pytest -v --durations=0 tests -s

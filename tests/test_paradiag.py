@@ -40,7 +40,7 @@ def test_for_each_timestep():
                       alpha=0.0001, M=M)
 
     def check_timestep(expression, w):
-        assert(fd.errornorm(expression, w) < 1e-12)
+        assert (fd.errornorm(expression, w) < 1e-12)
 
     # set each timestep as slice timestep index
     for step in range(PD.M[PD.rT]):
@@ -116,7 +116,7 @@ def test_get_timestep(ncpt):
                                       to_range='window')
         PD.set_timestep(window_index, v1, index_range='window')
         err = fd.errornorm(v1, PD.get_timestep(window_index, index_range='window'))
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
     # set each step using slice index
     vcheck = fd.Function(W)
@@ -125,7 +125,7 @@ def test_get_timestep(ncpt):
 
         PD.get_timestep(step, index_range='slice', wout=vcheck)
         err = fd.errornorm(v0, vcheck)
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
 
 @pytest.mark.parametrize("ncpt", ncpts)
@@ -186,7 +186,7 @@ def test_set_timestep(ncpt):
         for i in range(ncpt):
             vchecks[i].assign(PD.w_alls[ncpt*slice_index+i])
         err = fd.errornorm(v1, vcheck)
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
     # set each step using slice index
     for step in range(M[rank]):
@@ -196,7 +196,7 @@ def test_set_timestep(ncpt):
             vchecks[i].assign(PD.w_alls[ncpt*step+i])
 
         err = fd.errornorm(v0, vcheck)
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -241,7 +241,7 @@ def test_next_window():
 
     for step in range(PD.M[rank]):
         err = fd.errornorm(v1, PD.get_timestep(step))
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
     # force last timestep = v0
     ncomm = ensemble.ensemble_comm.size
@@ -254,7 +254,7 @@ def test_next_window():
     # check all timesteps == v0
     for step in range(PD.M[rank]):
         err = fd.errornorm(v0, PD.get_timestep(step))
-        assert(err < 1e-12)
+        assert (err < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -392,8 +392,8 @@ def test_williamson5_timeseries():
         htol = 1e-3
         utol = 1e-3
 
-        assert(uerror < utol)
-        assert(herror < htol)
+        assert (uerror < utol)
+        assert (herror < htol)
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -498,8 +498,8 @@ def test_steady_swe():
         htol = pow(10, -ref_level)
         utol = pow(10, -ref_level)
 
-        assert(abs(herr) < htol)
-        assert(abs(uerr) < utol)
+        assert (abs(herr) < htol)
+        assert (abs(uerr) < utol)
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -713,8 +713,8 @@ def test_set_para_form():
     with PD_Ff.dat.vec_wo as v:
         v.array[:] = PD.F.array_r
 
-    assert(fd.errornorm(Ffull.sub(rT * 2), PD_Ff.sub(0)) < 1.0e-12)
-    assert(fd.errornorm(Ffull.sub(rT * 2 + 1), PD_Ff.sub(1)) < 1.0e-12)
+    assert (fd.errornorm(Ffull.sub(rT * 2), PD_Ff.sub(0)) < 1.0e-12)
+    assert (fd.errornorm(Ffull.sub(rT * 2 + 1), PD_Ff.sub(1)) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -812,10 +812,10 @@ def test_set_para_form_mixed_parallel():
     with PD_F.dat.vec_wo as v:
         v.array[:] = PD.F.array_r
 
-    assert(fd.errornorm(Ffull.sub(rT*4), PD_F.sub(0)) < 1.0e-12)
-    assert(fd.errornorm(Ffull.sub(rT*4+1), PD_F.sub(1)) < 1.0e-12)
-    assert(fd.errornorm(Ffull.sub(rT*4+2), PD_F.sub(2)) < 1.0e-12)
-    assert(fd.errornorm(Ffull.sub(rT*4+3), PD_F.sub(3)) < 1.0e-12)
+    assert (fd.errornorm(Ffull.sub(rT*4), PD_F.sub(0)) < 1.0e-12)
+    assert (fd.errornorm(Ffull.sub(rT*4+1), PD_F.sub(1)) < 1.0e-12)
+    assert (fd.errornorm(Ffull.sub(rT*4+2), PD_F.sub(2)) < 1.0e-12)
+    assert (fd.errornorm(Ffull.sub(rT*4+3), PD_F.sub(3)) < 1.0e-12)
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -956,8 +956,8 @@ def test_jacobian_mixed_parallel():
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        assert(fd.errornorm(jacout.sub(ind1), PD_J.sub(2*i)) < 1.0e-11)
-        assert(fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
+        assert (fd.errornorm(jacout.sub(ind1), PD_J.sub(2*i)) < 1.0e-11)
+        assert (fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
 
 
 bc_opts = ["none", "homogeneous", "inhomogeneous"]
@@ -965,7 +965,8 @@ bc_opts = ["none", "homogeneous", "inhomogeneous"]
 
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("bc_opt", bc_opts)
-def test_solve_para_form(bc_opt):
+@pytest.mark.parametrize("extruded", [True, False])
+def test_solve_para_form(bc_opt, extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR heat equation as an example by
     # solving the all-at-once system and comparing with the sequential
@@ -974,7 +975,13 @@ def test_solve_para_form(bc_opt):
     # set up the ensemble communicator for space-time parallelism
     nspatial_domains = 2
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+
+    if extruded:
+        mesh1D = fd.UnitIntervalMesh(4, comm=ensemble.comm)
+        mesh = fd.ExtrudedMesh(mesh1D, 4, layer_height=0.25)
+    else:
+        mesh = fd.UnitSquareMesh(4, 4, quadrilateral=True, comm=ensemble.comm)
+
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -1063,11 +1070,12 @@ def test_solve_para_form(bc_opt):
         # sum over the entries of M until rT determines left position left
         left = np.sum(M[:rT], dtype=int)
         ind1 = left + i
-        assert(fd.errornorm(vfull.sub(ind1), PD.w_all.sub(i)) < 1.0e-9)
+        assert (fd.errornorm(vfull.sub(ind1), PD.w_all.sub(i)) < 1.0e-9)
 
 
 @pytest.mark.parallel(nprocs=6)
-def test_solve_para_form_mixed():
+@pytest.mark.parametrize("extruded", [True, False])
+def test_solve_para_form_mixed(extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR mixed wave equation as an
     # example by substituting the sequential solution and evaluating
@@ -1076,9 +1084,36 @@ def test_solve_para_form_mixed():
     # set up the ensemble communicator for space-time parallelism
     nspatial_domains = 2
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-    mesh = fd.PeriodicUnitSquareMesh(4, 4, comm=ensemble.comm)
-    V = fd.FunctionSpace(mesh, "BDM", 1)
-    Q = fd.FunctionSpace(mesh, "DG", 0)
+
+    if extruded:
+        mesh1D = fd.UnitIntervalMesh(4, comm=ensemble.comm)
+        mesh = fd.ExtrudedMesh(mesh1D, 4, layer_height=0.25)
+
+        horizontal_degree = 1
+        vertical_degree = 1
+        S1 = fd.FiniteElement("CG", fd.interval, horizontal_degree+1)
+        S2 = fd.FiniteElement("DG", fd.interval, horizontal_degree)
+
+        # vertical base spaces
+        T0 = fd.FiniteElement("CG", fd.interval, vertical_degree+1)
+        T1 = fd.FiniteElement("DG", fd.interval, vertical_degree)
+
+        # build spaces V2, V3
+        V2h_elt = fd.HDiv(fd.TensorProductElement(S1, T1))
+        V2t_elt = fd.TensorProductElement(S2, T0)
+        V3_elt = fd.TensorProductElement(S2, T1)
+        V2v_elt = fd.HDiv(V2t_elt)
+        V2_elt = V2h_elt + V2v_elt
+
+        V = fd.FunctionSpace(mesh, V2_elt, name="HDiv")
+        Q = fd.FunctionSpace(mesh, V3_elt, name="DG")
+    else:
+        mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+        V = fd.FunctionSpace(mesh, "BDM", 1)
+        Q = fd.FunctionSpace(mesh, "DG", 0)
+
+    # mesh = fd.PeriodicUnitSquareMesh(4, 4, comm=ensemble.comm)
+
     W = V * Q
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -1172,5 +1207,5 @@ def test_solve_para_form_mixed():
         left = np.sum(M[:rT], dtype=int)
         ind1 = 2*left + 2*i
         ind2 = 2*left + 2*i + 1
-        assert(fd.errornorm(vfull_list[ind1], PD.w_all.sub(2*i)) < 1.0e-9)
-        assert(fd.errornorm(vfull_list[ind2], PD.w_all.sub(2*i+1)) < 1.0e-9)
+        assert (fd.errornorm(vfull_list[ind1], PD.w_all.sub(2*i)) < 1.0e-9)
+        assert (fd.errornorm(vfull_list[ind2], PD.w_all.sub(2*i+1)) < 1.0e-9)
