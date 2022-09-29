@@ -1,10 +1,9 @@
 import firedrake as fd
 import asQ
 import numpy as np
-from slice_utils import hydrostatic_rho, pi_formula,\
-    get_form_mass, get_form_function, both, maximum
+from slice_utils import hydrostatic_rho, \
+    get_form_mass, get_form_function, maximum
 from petsc4py import PETSc
-PETSc.Sys.popErrorHandler()
 dT = fd.Constant(1)
 
 nlayers = 50  # horizontal layers
@@ -19,8 +18,8 @@ M = [2, 2, 2, 2]
 # we expect 16 processors
 
 ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-m = fd.PeriodicIntervalMesh(base_columns, L, distribution_parameters =
-                            distribution_parameters,
+m = fd.PeriodicIntervalMesh(base_columns, L,
+                            distribution_parameters=distribution_parameters,
                             comm=ensemble.comm)
 
 g = fd.Constant(9.810616)
@@ -53,7 +52,7 @@ if smooth_z:
 else:
     xexpr = fd.as_vector([x, z + ((H-z)/H)*zs])
 mesh.coordinates.interpolate(xexpr)
-    
+
 horizontal_degree = 1
 vertical_degree = 1
 
@@ -76,7 +75,7 @@ V2 = fd.FunctionSpace(mesh, V3_elt, name="Pressure")
 Vt = fd.FunctionSpace(mesh, V2t_elt, name="Temperature")
 Vv = fd.FunctionSpace(mesh, V2v_elt, name="Vv")
 
-W = V1 * V2 * Vt #velocity, density, temperature
+W = V1 * V2 * Vt  # velocity, density, temperature
 
 Un = fd.Function(W)
 
@@ -87,7 +86,7 @@ Tsurf = fd.Constant(300.)
 thetab = Tsurf*fd.exp(N**2*z/g)
 
 cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
-Up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)]) # up direction
+Up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
 un, rhon, thetan = Un.split()
 un.project(fd.as_vector([20.0, 0.0]))
@@ -98,13 +97,12 @@ rhon.assign(1.0e-5)
 Pi = fd.Function(V2)
 
 hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.02),
-                    cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
-                    top=True, Pi=Pi)
+                cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
+                top=True, Pi=Pi)
 p0 = maximum(Pi)
 
 hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.05),
-                    cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
-
+                cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
                 top=True, Pi=Pi)
 p1 = maximum(Pi)
 alpha = 2.*(p1-p0)
@@ -112,8 +110,8 @@ beta = p1-alpha
 pi_top = (1.-beta)/alpha
 
 hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
-                    cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
-                    top=True)
+                cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
+                top=True)
 
 rho_back = fd.Function(V2).assign(rhon)
 
@@ -146,7 +144,7 @@ lines_parameters = {
     "assembled_pc_python_type": "firedrake.ASMVankaPC",
     "assembled_pc_vanka_construct_dim": 0,
     "assembled_pc_vanka_sub_sub_pc_type": "lu",
-    "assembled_pc_vanka_sub_sub_pc_factor_mat_solver_type" : 'mumps',
+    "assembled_pc_vanka_sub_sub_pc_factor_mat_solver_type": 'mumps',
 }
 
 solver_parameters_diag = {
@@ -158,7 +156,6 @@ solver_parameters_diag = {
     "ksp_atol": 1e-8,
     "ksp_rtol": 1e-8,
     "ksp_max_it": 400,
-    #"snes_linesearch_type": "basic",
     'snes_monitor': None,
     'snes_converged_reason': None,
     'mat_type': 'matfree',
@@ -203,7 +200,7 @@ if PD.time_rank == len(M)-1:
         PETSc.Sys.Print("uout", uout.dat.data[:].max())
         rhoout.assign(PD.w_all.split()[-2] - rho_back)
         thetaout.assign(PD.w_all.split()[-1] - theta_back)
-        
+
     def write_to_file():
         ofile.write(uout, rhoout, thetaout)
 
@@ -219,6 +216,7 @@ def window_postproc(pdg, wndw):
     if r == len(M)-1:
         assign_out_functions()
         write_to_file()
+
 
 # solve for each window
 PD.solve(nwindows=5,
