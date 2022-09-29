@@ -149,7 +149,10 @@ class AllAtOnceSystem(object):
 
     def set_boundary_conditions(self, bcs):
         """
-        Set the boundary conditions onto each solution in the all-at-once system
+        Set the boundary conditions onto solution at each timestep in the all-at-once system.
+        Returns a list of all boundary conditions on the all-at-once system.
+
+        :arg bcs: a list of the boundary conditions to apply
         """
         is_mixed_element = isinstance(self.function_space.ufl_element(), fd.MixedElement)
 
@@ -157,10 +160,10 @@ class AllAtOnceSystem(object):
         for bc in bcs:
             for step in range(self.nlocal_timesteps):
                 if is_mixed_element:
-                    i = bc.function_space().index
-                    index = step*self.ncomponents + i
+                    cpt = bc.function_space().index
                 else:
-                    index = step
+                    cpt = 0
+                index = self.shift_index(step, cpt)
                 bc_all = fd.DirichletBC(self.function_space_all.sub(index),
                                         bc.function_arg,
                                         bc.sub_domain)
@@ -186,15 +189,19 @@ class AllAtOnceSystem(object):
         if not (minidx <= i < maxidx):
             raise ValueError(f"index {i} outside {index_range} range {maxidx}")
 
-    def shift_index(self, i, from_range='slice', to_range='slice'):
+    def shift_index(self, i, cpt=None, from_range='slice', to_range='slice'):
         '''
-        Shift timestep index from one range to another, and accounts for -ve indices
-        :arg i: timestep index to shift
-        :arg from_range: range of i. Either slice or window
-        :arg to_range: range to shift i to. Either slice or window
+        Shift timestep or component index from one range to another, and accounts for -ve indices.
+
+        If cpt is None, shifts from one timestep range to another. If cpt is not None, returns index in all-at-once function of component cpt in timestep i.
+
+        :arg i: timestep index to shift.
+        :arg cpt: component index in timestep i to shift.
+        :arg from_range: range of i. Either slice or window.
+        :arg to_range: range to shift i to. Either slice or window. Ignored if cpt is not None.
         '''
         if from_range == 'component' or to_range == 'component':
-            raise ValueError('Component indices cannot be shifted')
+            raise ValueError("from_range and to_range apply to the timestep index and cannot be 'component'")
 
         self.check_index(i, index_range=from_range)
 
@@ -202,21 +209,31 @@ class AllAtOnceSystem(object):
         i = i % self.max_indices[from_range]
 
         # no shift needed
-        if to_range == from_range:
-            return i
+        if (to_range == from_range):
+            if cpt is None:
+                return i
 
-        # index of first timestep in slice
-        index0 = sum(self.time_partition[:self.time_rank])
+        else:  # shift to other timestep range
 
-        if to_range == 'slice':  # 'from_range' == 'window'
-            i -= index0
+            # index of first timestep in slice
+            index0 = sum(self.time_partition[:self.time_rank])
 
-        if to_range == 'window':  # 'from_range' == 'slice'
-            i += index0
+            if to_range == 'slice':  # 'from_range' == 'window'
+                i -= index0
+
+            if to_range == 'window':  # 'from_range' == 'slice'
+                i += index0
 
         self.check_index(i, index_range=to_range)
 
-        return i
+        if cpt is None:
+            return i
+
+        else:  # cpt is not None:
+
+            self.check_index(cpt, index_range='component')
+            cpt = cpt % self.max_indices['component']
+            return i*self.ncomponents + cpt
 
     @PETSc.Log.EventDecorator()
     def set_component(self, step, cpt, wnew, index_range='slice', f_alls=None):
@@ -229,16 +246,13 @@ class AllAtOnceSystem(object):
         :arg index_range: is index in window or slice?
         :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
         '''
-        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
-        self.check_index(cpt, index_range='component')
+        # index of component in all at once function
+        aao_index = self.shift_index(step, cpt, from_range=index_range, to_range='slice')
 
         if f_alls is None:
             f_alls = self.w_alls
 
-        # index of first component of this step
-        index0 = self.ncomponents*step_local
-
-        f_alls[index0 + cpt].assign(wnew)
+        f_alls[aao_index].assign(wnew)
 
     @PETSc.Log.EventDecorator()
     def get_component(self, step, cpt, index_range='slice', wout=None, name=None, f_alls=None, deepcopy=False):
@@ -253,17 +267,14 @@ class AllAtOnceSystem(object):
         :arg f_alls: an all-at-once function to get timestep from. If None, self.w_alls is used
         :arg deepcopy: if True, new function is returned. If false, handle to component of f_alls is returned. Ignored if wout is not None
         '''
-        step_local = self.shift_index(step, from_range=index_range, to_range='slice')
-        self.check_index(cpt, index_range='component')
+        # index of component in all at once function
+        aao_index = self.shift_index(step, cpt, from_range=index_range, to_range='slice')
 
         if f_alls is None:
             f_alls = self.w_alls
 
-        # index of first component of this step
-        index0 = self.ncomponents*step_local
-
         # required component
-        wget = f_alls[index0 + cpt]
+        wget = f_alls[aao_index]
 
         if wout is not None:
             wout.assign(wget)
