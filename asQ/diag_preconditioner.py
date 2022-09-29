@@ -375,8 +375,8 @@ class DiagFFTPC(object):
             Jins = self.xtemp.split()
             for cpt in range(self.ncpts):
 
-                xfr_cpt = self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
-                xfi_cpt = self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())
+                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
+                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())
 
             # Do a project for Riesz map, to be superceded
             # when we get Cofunction
