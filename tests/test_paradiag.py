@@ -878,3 +878,268 @@ def test_solve_para_form_mixed(extruded):
         ind2 = 2*left + 2*i + 1
         assert (fd.errornorm(vfull_list[ind1], PD.aaos.w_all.sub(2*i)) < 1.0e-9)
         assert (fd.errornorm(vfull_list[ind2], PD.aaos.w_all.sub(2*i+1)) < 1.0e-9)
+
+
+@pytest.mark.parallel(nprocs=6)
+def test_time_average():
+    '''
+    Checks that the DiagFFTPC properly calculates the time-averaged solution
+    '''
+
+    # set up the ensemble communicator for space-time parallelism
+    nspatial_domains = 2
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    V = fd.FunctionSpace(mesh, "CG", 1)
+
+    x, y = fd.SpatialCoordinate(mesh)
+    u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    dt = 0.01
+    theta = 0.5
+    alpha = 0.001
+    c = fd.Constant(1)
+    M = [2, 2, 2]
+    nt = np.sum(M)
+
+    # Parameters for the diag
+    sparameters = {
+        "ksp_type": "preonly",
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'
+    }
+
+    solver_parameters_diag = {
+        "snes_linesearch_type": "basic",
+        'snes_monitor': None,
+        'snes_stol': 1.0e-100,
+        'snes_converged_reason': None,
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'ksp_monitor': None,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC'}
+
+    for i in range(np.sum(M)):
+        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
+
+    def form_function(u, v):
+        return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
+
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, w0=u0,
+                      dt=dt, theta=theta,
+                      alpha=alpha,
+                      time_partition=M,
+                      solver_parameters=solver_parameters_diag,
+                      circ="quasi", tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
+
+    # need to call solve at least once to make sure PC is initialised by snes
+    PD.solve()
+
+    # pc = PD.snes.getKSP().getPC()
+    pc = PD.diagfftpc
+
+    uaverage = fd.Function(V).assign(0)
+    ucheck = fd.Function(V).assign(0)
+
+    ucomplex0 = fd.Function(pc.CblockV)
+    ucomplex1 = fd.Function(pc.CblockV)
+
+    aaos = PD.aaos
+
+    for sstep in range(aaos.nlocal_timesteps):
+        wstep = aaos.shift_index(sstep, from_range='slice', to_range='window')
+        u0.assign(wstep)
+        aaos.set_timestep(sstep, u0)
+
+    ucheck.assign(0.5*(nt-1))
+
+    pc.time_average(uaverage)
+
+    assert fd.errornorm(uaverage, ucheck) < 1e-12
+
+    u0s = pc.u0.split()
+    ucs = ucheck.split()
+
+    pc.update(pc, old=True)
+    ucomplex0.assign(pc.u0)
+
+    pc.update(pc, old=False)
+    ucomplex1.assign(pc.u0)
+
+    assert fd.errornorm(ucomplex0, ucomplex1) < 1e-12
+
+    for r in range(2):
+        for cpt in range(aaos.ncomponents):
+            assert fd.errornorm(u0s[cpt].sub(r), ucs[cpt])
+
+    u0.assign(1)
+    for sstep in range(aaos.nlocal_timesteps):
+        wstep = aaos.shift_index(sstep, from_range='slice', to_range='window')
+        aaos.set_timestep(sstep, u0)
+
+    ucheck.assign(1)
+
+    pc.time_average(uaverage)
+
+    assert fd.errornorm(uaverage, ucheck) < 1e-12
+
+    pc.update(pc, old=True)
+    ucomplex0.assign(pc.u0)
+
+    pc.update(pc, old=False)
+    ucomplex1.assign(pc.u0)
+
+    assert fd.errornorm(ucomplex0, ucomplex1) < 1e-12
+
+    for r in range(2):
+        for cpt in range(aaos.ncomponents):
+            assert fd.errornorm(u0s[cpt].sub(r), ucs[cpt])
+
+
+@pytest.mark.parallel(nprocs=6)
+def test_time_average_mixed():
+    '''
+    Checks that the DiagFFTPC properly calculates the time-averaged solution
+    '''
+
+    # set up the ensemble communicator for space-time parallelism
+    nspatial_domains = 2
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    V = fd.FunctionSpace(mesh, "CG", 1)
+    V = V*V
+
+    def assign(u, expr):
+        for v in u.split():
+            v.assign(expr)
+
+    def interp(u, expr):
+        for v in u.split():
+            v.interpolate(expr)
+
+    x, y = fd.SpatialCoordinate(mesh)
+    init_expr = fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2)
+    u0 = fd.Function(V)
+    interp(u0, init_expr)
+    dt = 0.01
+    theta = 0.5
+    alpha = 0.001
+    c = fd.Constant(1)
+    M = [2, 2, 2]
+    nt = np.sum(M)
+
+    # Parameters for the diag
+    sparameters = {
+        "ksp_type": "preonly",
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'
+    }
+
+    solver_parameters_diag = {
+        "snes_linesearch_type": "basic",
+        'snes_monitor': None,
+        'snes_stol': 1.0e-100,
+        'snes_converged_reason': None,
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'ksp_monitor': None,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC'}
+
+    for i in range(np.sum(M)):
+        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
+
+    def form_function(u, p, v, q):
+        return (fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))
+                + fd.inner((1.+c*fd.inner(p, p))*fd.grad(p), fd.grad(q)))*fd.dx
+
+    def form_mass(u, p, v, q):
+        return (u*v + p*q)*fd.dx
+
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, w0=u0,
+                      dt=dt, theta=theta,
+                      alpha=alpha,
+                      time_partition=M,
+                      solver_parameters=solver_parameters_diag,
+                      circ="quasi", tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
+
+    # need to call solve at least once to make sure PC is initialised by snes
+    PD.solve()
+
+    pc = PD.diagfftpc
+
+    uaverage = fd.Function(V)
+    ucheck = fd.Function(V)
+
+    assign(uaverage, 0)
+    assign(ucheck, 0)
+
+    ucomplex0 = fd.Function(pc.CblockV)
+    ucomplex1 = fd.Function(pc.CblockV)
+
+    aaos = PD.aaos
+
+    # arithmetic sequence
+    for sstep in range(aaos.nlocal_timesteps):
+        wstep = aaos.shift_index(sstep, from_range='slice', to_range='window')
+        assign(u0, wstep)
+        aaos.set_timestep(sstep, u0)
+
+    assign(ucheck, 0.5*(nt-1))
+
+    # time average works
+    pc.time_average(uaverage)
+
+    assert fd.errornorm(uaverage, ucheck) < 1e-12
+
+    u0s = pc.u0.split()
+    ucs = ucheck.split()
+
+    # new update gives same result as old update
+    pc.update(pc, old=True)
+    ucomplex0.assign(pc.u0)
+
+    pc.update(pc, old=False)
+    ucomplex1.assign(pc.u0)
+
+    assert fd.errornorm(ucomplex0, ucomplex1) < 1e-12
+
+    # both components of complex average match the real average
+    for r in range(2):
+        for cpt in range(aaos.ncomponents):
+            assert fd.errornorm(u0s[cpt].sub(r), ucs[cpt])
+
+    u0.assign(1)
+    for step in range(aaos.nlocal_timesteps):
+        aaos.set_timestep(step, u0)
+
+    # uniform field sequence
+    assign(ucheck, 1)
+
+    # time average works
+    pc.time_average(uaverage)
+
+    assert fd.errornorm(uaverage, ucheck) < 1e-12
+
+    # new update gives same result as old update
+    pc.update(pc, old=True)
+    ucomplex0.assign(pc.u0)
+
+    pc.update(pc, old=False)
+    ucomplex1.assign(pc.u0)
+
+    assert fd.errornorm(ucomplex0, ucomplex1) < 1e-12
+
+    # both components of complex average match the real average
+    for r in range(2):
+        for cpt in range(aaos.ncomponents):
+            assert fd.errornorm(u0s[cpt].sub(r), ucs[cpt])
