@@ -1,4 +1,5 @@
 import firedrake as fd
+from pyop2.mpi import MPI
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
@@ -161,6 +162,22 @@ class paradiag(object):
         self.nonlinear_iterations += self.snes.getIterationNumber()
         self.total_timesteps += sum(self.time_partition)
         self.total_windows += 1
+
+    def sync_diagnostics(self):
+        """
+        Synchronise diagnostic information over all time-ranks.
+
+        Until this method is called, diagnostic information is not guaranteed to be valid.
+        """
+        # blank out iteration counts from other time ranks
+        for i in range(sum(self.time_partition)):
+            try:
+                self.check_index(i, index_range='slice')
+            except ValueError:
+                self.block_iterations[i] = 0
+
+        self.ensemble.ensemble_comm.Allreduce(MPI.IN_PLACE,
+                                              self.block_iterations)
 
     @PETSc.Log.EventDecorator()
     def solve(self,
