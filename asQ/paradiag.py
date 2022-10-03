@@ -1,4 +1,5 @@
 import firedrake as fd
+from pyop2.mpi import MPI
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
