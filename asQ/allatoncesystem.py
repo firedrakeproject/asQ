@@ -196,7 +196,7 @@ class AllAtOnceSystem(object):
         If cpt is None, shifts from one timestep range to another. If cpt is not None, returns index in all-at-once function of component cpt in timestep i.
 
         :arg i: timestep index to shift.
-        :arg cpt: component index in timestep i to shift.
+        :arg cpt: None or component index in timestep i to shift.
         :arg from_range: range of i. Either slice or window.
         :arg to_range: range to shift i to. Either slice or window. Ignored if cpt is not None.
         '''
@@ -261,7 +261,7 @@ class AllAtOnceSystem(object):
 
         :arg step: index of timestep to get
         :arg cpt: index of component
-        :arg index_range: is index in window or slice?
+        :arg index_range: is timestep index in window or slice?
         :arg wout: function to set to component (component returned if None)
         :arg name: name of returned function if deepcopy=True. Ignored if wout is not None
         :arg f_alls: an all-at-once function to get timestep from. If None, self.w_alls is used
@@ -287,6 +287,20 @@ class AllAtOnceSystem(object):
             wreturn.assign(wget)
             return wreturn
 
+    def get_field_components(self, step, index_range='slice', f_alls=None):
+        '''
+        Get tuple of the components of the all-at-once function for a timestep.
+
+        :arg step: index of timestep.
+        :arg index_range: is index in window or slice?
+        :arg f_alls: an all-at-once function to get timestep from. If None, self.w_alls is used
+        '''
+        if f_alls is None:
+            f_alls = self.w_alls
+
+        return tuple(self.get_component(step, cpt, f_alls=f_alls)
+                     for cpt in range(self.ncomponents))
+
     @PETSc.Log.EventDecorator()
     def set_field(self, step, wnew, index_range='slice', f_alls=None):
         '''
@@ -304,7 +318,7 @@ class AllAtOnceSystem(object):
     @PETSc.Log.EventDecorator()
     def get_field(self, step, index_range='slice', wout=None, name=None, f_alls=None):
         '''
-        Get solution at a timestep to new value
+        Get solution at a timestep
 
         :arg step: index of timestep to set.
         :arg index_range: is index in window or slice?
@@ -463,15 +477,11 @@ class AllAtOnceSystem(object):
         theta = fd.Constant(self.theta)
         alpha = fd.Constant(self.alpha)
 
-        def get_cpts(i, buf):
-            return [self.get_component(i, cpt, f_alls=buf)
-                    for cpt in range(self.ncomponents)]
-
         def get_step(i):
-            return get_cpts(i, w_alls)
+            return self.get_field_components(i, f_alls=w_alls)
 
         def get_test(i):
-            return get_cpts(i, test_fns)
+            return self.get_field_components(i, f_alls=test_fns)
 
         for n in range(self.nlocal_timesteps):
 
