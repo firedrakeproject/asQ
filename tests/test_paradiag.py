@@ -929,6 +929,8 @@ def test_diagnostics():
 
     pdg.solve(nwindows=1)
 
+    pdg.sync_diagnostics()
+
     assert pdg.total_timesteps == sum(M)
     assert pdg.total_windows == 1
     assert pdg.linear_iterations == pdg.snes.getLinearSolveIterations()
