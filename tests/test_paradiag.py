@@ -929,13 +929,24 @@ def test_diagnostics():
 
     pdg.solve(nwindows=1)
 
-    pdg.sync_diagnostics()
-
     assert pdg.total_timesteps == 6
     assert pdg.total_windows == 1
     assert pdg.linear_iterations == pdg.snes.getLinearSolveIterations()
     assert pdg.nonlinear_iterations == pdg.snes.getIterationNumber()
 
     # direct block solve
+    for itcount in pdg.block_iterations:
+        assert itcount == pdg.linear_iterations
+
+    linear_iterations0 = pdg.linear_iterations
+    nonlinear_iterations0 = pdg.nonlinear_iterations
+
+    pdg.solve(nwindows=1)
+
+    assert pdg.total_timesteps == 12
+    assert pdg.total_windows == 2
+    assert pdg.linear_iterations == linear_iterations0 + pdg.snes.getLinearSolveIterations()
+    assert pdg.nonlinear_iterations == nonlinear_iterations0 + pdg.snes.getIterationNumber()
+
     for itcount in pdg.block_iterations:
         assert itcount == pdg.linear_iterations

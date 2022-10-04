@@ -207,3 +207,5 @@ class paradiag(object):
             # don't wipe all-at-once function at last window
             if wndw != nwindows-1:
                 self.aaos.next_window()
+
+        self.sync_diagnostics()
