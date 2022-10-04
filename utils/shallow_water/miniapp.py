@@ -1,3 +1,4 @@
+import numpy as np
 import firedrake as fd
 import asQ
 from utils import diagnostics
@@ -19,7 +20,9 @@ class ShallowWaterMiniApp(object):
                  block_ctx={},
                  reference_depth=0,
                  velocity_function_space=swe.default_velocity_function_space,
-                 depth_function_space=swe.default_depth_function_space):
+                 depth_function_space=swe.default_depth_function_space,
+                 record_diagnostics={'cfl': True, 'file': True},
+                 save_step=-1, file_name='swe'):
         '''
         A miniapp to integrate the rotating shallow water equations on the sphere using the paradiag method.
 
@@ -33,10 +36,13 @@ class ShallowWaterMiniApp(object):
         :arg theta: parameter for the implicit theta-method integrator
         :arg alpha: value used for the alpha-circulant approximation in the paradiag method.
         :arg time_partition: a list with how many timesteps are on each of the ensemble time-ranks.
-        :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
-        :block_ctx: a dictionary of extra values required for the block system solvers.
-        :velocity_function_space: function to return a firedrake FunctionSpace for the velocity field, given a mesh
-        :depth_function_space: function to return a firedrake FunctionSpace for the depth field, given a mesh
+        arg :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
+        :arg block_ctx: a dictionary of extra values required for the block system solvers.
+        :arg velocity_function_space: function to return a firedrake FunctionSpace for the velocity field, given a mesh
+        :arg depth_function_space: function to return a firedrake FunctionSpace for the depth field, given a mesh
+        :arg record_diagnostics: List of bools whether to: record CFL at each timestep; save timesteps to file
+        :arg save_step: if record_diagnostics['file'] is True, save timestep with this window index to file
+        :arg file_name: if record_diagnostics['file'] is True, save timesteps to file with this name
         '''
 
         self.ensemble = asQ.create_ensemble(time_partition)
@@ -106,13 +112,21 @@ class ShallowWaterMiniApp(object):
         self.aaos = self.paradiag.aaos
 
         # set up swe diagnostics
+        self.record_diagnostics = record_diagnostics
 
         # cfl
         self.cfl = diagnostics.convective_cfl_calculator(self.mesh)
-
         # potential vorticity
         self.potential_vorticity = diagnostics.potential_vorticity_calculator(
             self.velocity_function_space(), name='vorticity')
+
+        if record_diagnostics['cfl']:
+            self.cfl_series = np.zeros(sum(time_partition))
+
+        if record_diagnostics['file']:
+            ofile = fd.File(file_name+'.pvd',
+                            comm=self.ensemble.comm)
+
 
     def function_space(self):
         return self.W
@@ -123,10 +137,10 @@ class ShallowWaterMiniApp(object):
     def depth_function_space(self):
         return self.W.sub(self.depth_index)
 
-    def max_cfl(self, dt, step=None, index_range='slice', v=None):
+    def max_cfl(self, dt=None, step=None, index_range='slice', v=None):
         '''
         Return the maximum convective CFL number for the field u with timestep dt
-        :arg dt: the timestep
+        :arg dt: the timestep. If None, the timestep of the all-at-once system is used
         :arg step: timestep to calculate CFL number for. If None, cfl calculated for function v.
         :arg index_range: type of index of step: slice or window
         :arg v: velocity Function from FunctionSpace V1 or a full MixedFunction from W if None, calculate cfl of timestep step. Ignored if step is not None.
@@ -142,6 +156,9 @@ class ShallowWaterMiniApp(object):
                 raise ValueError("function v must be in FunctionSpace V1 or MixedFunctionSpace W")
         else:
             raise ValueError("v or step must be not None")
+
+        if dt is None:
+            dt = self.aaos.dt
 
         with self.cfl(u, dt).dat.vec_ro as cfl_vec:
             return cfl_vec.max()[1]
