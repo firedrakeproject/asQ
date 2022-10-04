@@ -193,7 +193,16 @@ class AllAtOnceSystem(object):
         '''
         Shift timestep or component index from one range to another, and accounts for -ve indices.
 
+        For example, if there are 3 ensemble ranks, each owning two timesteps, then:
+            window index 0 is slice index 0 on ensemble rank 0
+            window index 1 is slice index 1 on ensemble rank 0
+            window index 2 is slice index 0 on ensemble rank 1
+            window index 3 is slice index 1 on ensemble rank 1
+            window index 4 is slice index 0 on ensemble rank 2
+            window index 5 is slice index 1 on ensemble rank 2
+
         If cpt is None, shifts from one timestep range to another. If cpt is not None, returns index in all-at-once function of component cpt in timestep i.
+        Throws IndexError if original or shifted index is out of bounds.
 
         :arg i: timestep index to shift.
         :arg cpt: None or component index in timestep i to shift.
