@@ -3,6 +3,7 @@ from pyop2.mpi import MPI
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
+from numpy import zeros as zero_array
 
 from asQ.allatoncesystem import AllAtOnceSystem
 from asQ.parallel_arrays import SharedArray
