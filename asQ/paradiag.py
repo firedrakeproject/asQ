@@ -3,6 +3,7 @@ from pyop2.mpi import MPI
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
+from numpy import zeros as zero_array
 
 from asQ.allatoncesystem import AllAtOnceSystem
 
@@ -147,7 +148,7 @@ class paradiag(object):
         self.nonlinear_iterations = 0
         self.total_timesteps = 0
         self.total_windows = 0
-        self.block_iterations = [0 for _ in range(sum(self.time_partition))]
+        self.block_iterations = zero_array(sum(self.time_partition), dtype=int)
 
     def _record_diagnostics(self):
         """
@@ -166,14 +167,7 @@ class paradiag(object):
 
         Until this method is called, diagnostic information is not guaranteed to be valid.
         """
-        # blank out iteration counts from other time ranks
-        for i in range(sum(self.time_partition)):
-            try:
-                self.check_index(i, index_range='slice')
-            except ValueError:
-                self.block_iterations[i] = 0
-
-        self.ensemble.ensemble_comm.Allreduce(MPI.IN_PLACE,
+        self.ensemble.ensemble_comm.Allgather(MPI.IN_PLACE,
                                               self.block_iterations)
 
     @PETSc.Log.EventDecorator()
