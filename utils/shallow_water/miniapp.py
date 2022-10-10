@@ -1,6 +1,8 @@
 import numpy as np
 import firedrake as fd
 import asQ
+
+from utils.planets import earth
 from utils import diagnostics
 import utils.shallow_water as swe
 from utils import mg
@@ -121,12 +123,15 @@ class ShallowWaterMiniApp(object):
             self.velocity_function_space(), name='vorticity')
 
         if record_diagnostics['cfl']:
-            self.cfl_series = np.zeros(sum(time_partition))
+            if self.aaos.is_on_slice(save_step):
+                self.cfl_series = np.zeros(1)
 
         if record_diagnostics['file']:
-            ofile = fd.File(file_name+'.pvd',
-                            comm=self.ensemble.comm)
-
+            if self.aaos.is_on_slice(save_step):
+                self.uout = fd.Function(miniapp.velocity_function_space(), name='velocity')
+                self.hout = fd.Function(miniapp.depth_function_space(), name='elevation')
+                self.ofile = fd.File(file_name+'.pvd',
+                                     comm=self.ensemble.comm)
 
     def function_space(self):
         return self.W
@@ -137,11 +142,11 @@ class ShallowWaterMiniApp(object):
     def depth_function_space(self):
         return self.W.sub(self.depth_index)
 
-    def max_cfl(self, dt=None, step=None, index_range='slice', v=None):
+    def max_cfl(self, step=None, dt=None, index_range='slice', v=None):
         '''
         Return the maximum convective CFL number for the field u with timestep dt
-        :arg dt: the timestep. If None, the timestep of the all-at-once system is used
         :arg step: timestep to calculate CFL number for. If None, cfl calculated for function v.
+        :arg dt: the timestep. If None, the timestep of the all-at-once system is used
         :arg index_range: type of index of step: slice or window
         :arg v: velocity Function from FunctionSpace V1 or a full MixedFunction from W if None, calculate cfl of timestep step. Ignored if step is not None.
         '''
@@ -163,6 +168,58 @@ class ShallowWaterMiniApp(object):
         with self.cfl(u, dt).dat.vec_ro as cfl_vec:
             return cfl_vec.max()[1]
 
+    def _record_diagnostics(self):
+        '''
+        Update diagnostic information after each solve
+        '''
+
+        write_to_file = self.aaos.is_on_slice(save_step)
+        index_to_write = self.aaos.shift_index(save_step,
+                                               from_index='window',
+                                               to_index='slice')
+
+        # extend cfl_series to correct length
+        window = self.paradiag.total_windows
+        cfl_series.resize(window + 1)
+
+        # for each slice
+        for i in range(self.aaos.nlocal_timesteps):
+            if write_to_file:
+
+                # calculate cfl
+                self.cfl_series[window] = self.max_cfl(i)
+
+                # get components
+                self.get_velocity(i, uout=self.uout)
+                self.get_elevation(i, hout=self.hout)
+
+                # calculate time
+                window_length = sum(self.aaos.time_partition)
+                nt = window*window_length + save_step + 1
+                dt = self.aaos.dt
+                t = nt*dt
+
+                # save to file
+                self.ofile.write(uout, hout,
+                                 self.potential_vorticity(uout),
+                                 time = t/earth.day)
+
+    def sync_diagnostics(self):
+        """
+        Synchronise diagnostic information over all time-ranks.
+
+        Until this method is called, diagnostic information is not guaranteed to be valid.
+        """
+        # find rank that cfl series is on
+        for rank in range(len(self.aaos.time_partition)):
+            begin = sum(self.aaos.time_partition[:i])
+            end = sum(self.aaos.time_partition[:i+1])
+            if begin <= rank < end:
+                root = rank
+
+        self.ensemble.ensemble_comm.Broadcast(self.cfl_series,
+                                              root=root)
+
     def solve(self,
               nwindows=1,
               preproc=lambda miniapp, pdg, w: None,
@@ -183,12 +240,15 @@ class ShallowWaterMiniApp(object):
             preproc(self, pdg, w)
 
         def postprocess(pdg, w):
+            self._record_diagnostics()
             postproc(self, pdg, w)
 
         self.paradiag.solve(nwindows,
                             preproc=preprocess,
                             postproc=postprocess,
                             verbose=verbose)
+
+        self.sync_diagnostics()
 
     def get_velocity(self, step, index_range='slice', uout=None, name='velocity', deepcopy=False):
         '''
