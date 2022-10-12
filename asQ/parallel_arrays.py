@@ -154,3 +154,52 @@ class SharedArray(object):
         offsets = zeros(self.comm.size)
         offsets[1:] = cumsum(self.partition)[:-1]
         self.comm.Allgatherv(MPI.IN_PLACE, [self._data, self.partition])
+
+
+class SynchronisedArray(object):
+    def __init__(self, size, dtype=None, comm=MPI.COMM_WORLD, root=0):
+        '''
+        Array owned by one rank but viewed over an MPI comm.
+
+        The array can only be modified by the root rank, but every rank has a copy of the entire array.
+        Modifying the array from any rank other than root invalidates the data.
+
+        :arg size: length of the array.
+        :arg dtype: datatype, defaults to numpy default dtype.
+        :arg comm: MPI communicator the array is synchronised over.
+        :arg root: owning rank.
+        '''
+        self.size = size
+        self.comm = comm
+        self.root = root
+        self.rank = comm.rank
+
+        self._data = zeros(size, dtype=dtype)
+
+    def is_root(self):
+        '''
+        Is the array owned by the current rank?
+        '''
+        return self.rank == self.root
+
+    def __getitem__(self, i):
+        '''
+        Get the value of the element at index i
+        '''
+        return self._data[i]
+
+    def __setitem__(self, i, val):
+        '''
+        Set the value of the element at index i to val. Throws if the current rank does not own the array.
+        '''
+        if not self.is_root():
+            raise IndexError(f"Rank {self.rank} is not the owning rank {self.root}")
+        self._data[i] = val
+
+    def synchronise(self):
+        """
+        Synchronise the array over the comm
+
+        Until this method is called, array elements on any rank but root are not guaranteed to be valid
+        """
+        self.comm.Broadcast(self._data, root=self.root)
