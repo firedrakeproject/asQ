@@ -157,7 +157,7 @@ class SharedArray(object):
         self.comm.Allgatherv(MPI.IN_PLACE, [self._data, self.partition])
 
 
-class SynchronisedArray(object):
+class SingleOwnerArray(object):
     def __init__(self, size, dtype=None, comm=MPI.COMM_WORLD, root=0):
         '''
         Array owned by one rank but viewed over an MPI comm.
@@ -203,4 +203,4 @@ class SynchronisedArray(object):
 
         Until this method is called, array elements on any rank but root are not guaranteed to be valid
         """
-        self.comm.Broadcast(self._data, root=self.root)
+        self.comm.Bcast(self._data, root=self.root)
