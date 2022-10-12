@@ -2,9 +2,11 @@ import pytest
 from pyop2.mpi import MPI
 from asQ import DistributedDataLayout, SharedArray
 
+partitions = [3, [2, 3, 4, 2]]
+
 
 @pytest.mark.parallel(nprocs=4)
-@pytest.mark.parametrize("partition", [3, [2, 3, 4, 2]])
+@pytest.mark.parametrize("partition", partitions)
 def test_distributed_data_layout(partition):
     comm = MPI.COMM_WORLD
     layout = DistributedDataLayout(partition, comm=comm)
@@ -103,7 +105,7 @@ def test_distributed_data_layout(partition):
 
 
 @pytest.mark.parallel(nprocs=4)
-@pytest.mark.parametrize("partition", [3, [2, 3, 4, 2]])
+@pytest.mark.parametrize("partition", partitions)
 def test_shared_array(partition):
     comm = MPI.COMM_WORLD
     rank = comm.rank
@@ -154,9 +156,8 @@ def test_shared_array(partition):
             assert array.dglobal[j] == check
 
 
-@pytest.mark.skip
 @pytest.mark.parallel(nprocs=4)
-@pytest.mark.parametrize("partition", [3])
+@pytest.mark.parametrize("partition", partitions)
 def test_shared_array_manager(partition):
     comm = MPI.COMM_WORLD
     rank = comm.rank
@@ -164,36 +165,22 @@ def test_shared_array_manager(partition):
     if isinstance(partition, int):
         partition = [partition for _ in range(comm.size)]
 
-    # local_size = partition[rank]
+    local_size = partition[rank]
 
     array = SharedArray(partition=partition, dtype=int, comm=comm)
 
     # try to set a globally addressed element we don't own
     bad_global_index = array.offset-1
 
-    # with pytest.raises(IndexError):
-    #     array.dglobal[bad_global_index] = 1
-
-    try:
+    with pytest.raises(IndexError):
         array.dglobal[bad_global_index] = 1
-        assert False, 'should have thrown'
-    except IndexError as err:
-        print(f"IndexError on rank {rank}: "+str(err))
-        pass
-    except Exception as err:
-        # print("unidentified error")
-        print(f"Exception on rank {rank}: "+str(err))
-        pass
 
-    # with pytest.raises(IndexError):
-    #     array.dglobal[bad_global_index] = 1
+    # try to set a locally addressed element we don't own
+    bad_local_index = local_size
 
-    # # try to set a locally addressed element we don't own
-    # bad_local_index = local_size
+    with pytest.raises(IndexError):
+        array.dlocal[bad_local_index] = 1
 
-    # with pytest.raises(IndexError):
-    #     array.dlocal[bad_local_index] = 1
-
-    # # try to get a locally addressed element we don't own
-    # with pytest.raises(IndexError):
-    #     x = array.dlocal[bad_local_index]  # noqa: F841 unused variable
+    # try to get a locally addressed element we don't own
+    with pytest.raises(IndexError):
+        x = array.dlocal[bad_local_index]  # noqa: F841 unused variable

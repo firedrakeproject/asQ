@@ -1,15 +1,18 @@
 from pyop2.mpi import MPI
-from numpy import zeros, cumsum
+from numpy import zeros as zero_array
 
 
-def in_range(i, length, throws=False):
+def in_range(i, length, allow_negative=True, throws=False):
     '''
     Is the index i within the range of length?
     :arg i: index to check
     :arg length: the number of elements in the range
     :arg throws: if True, then an IndexError is raised if the index is out of range
     '''
-    result = (-length <= i < length)
+    if allow_negative:
+        result = (-length <= i < length)
+    else:
+        result = (0 <= i < length)
     if throws and result is False:
         raise IndexError(f"Index {i} is outside the range {length}")
     return result
@@ -69,7 +72,7 @@ class DistributedDataLayout(object):
                 i += self.offset
             elif itype == 'g':  # rtype == 'l'
                 i -= self.offset
-            in_range(i, sizes[rtype], throws=True)
+            in_range(i, sizes[rtype], allow_negative=False, throws=True)
             return i
 
     def is_local(self, i, throws=False):
@@ -109,7 +112,7 @@ class SharedArray(object):
         self.global_size = self.layout.global_size
         self.offset = self.layout.offset
 
-        self._data = zeros(self.global_size, dtype=dtype)
+        self._data = zero_array(self.global_size, dtype=dtype)
 
         self.dglobal = self._GlobalAccessor(self)
         self.dlocal = self._LocalAccessor(self)
@@ -151,8 +154,6 @@ class SharedArray(object):
 
         Until this method is called, array elements not owned by the current rank are not guaranteed to be valid.
         """
-        offsets = zeros(self.comm.size)
-        offsets[1:] = cumsum(self.partition)[:-1]
         self.comm.Allgatherv(MPI.IN_PLACE, [self._data, self.partition])
 
 
@@ -174,7 +175,7 @@ class SynchronisedArray(object):
         self.root = root
         self.rank = comm.rank
 
-        self._data = zeros(size, dtype=dtype)
+        self._data = zero_array(size, dtype=dtype)
 
     def is_root(self):
         '''
