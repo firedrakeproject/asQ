@@ -157,7 +157,7 @@ class SharedArray(object):
         self.comm.Allgatherv(MPI.IN_PLACE, [self._data, self.partition])
 
 
-class SingleOwnerArray(object):
+class SynchronisedArray(object):
     def __init__(self, size, dtype=None, comm=MPI.COMM_WORLD, root=0):
         '''
         Array owned by one rank but viewed over an MPI comm.
