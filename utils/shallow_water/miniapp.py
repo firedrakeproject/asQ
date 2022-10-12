@@ -127,9 +127,10 @@ class ShallowWaterMiniApp(object):
                 self.cfl_series = np.zeros(1)
 
         if record_diagnostics['file']:
+            self.save_step = save_step
             if self.aaos.is_on_slice(save_step):
-                self.uout = fd.Function(miniapp.velocity_function_space(), name='velocity')
-                self.hout = fd.Function(miniapp.depth_function_space(), name='elevation')
+                self.uout = fd.Function(self.velocity_function_space(), name='velocity')
+                self.hout = fd.Function(self.depth_function_space(), name='elevation')
                 self.ofile = fd.File(file_name+'.pvd',
                                      comm=self.ensemble.comm)
 
@@ -173,36 +174,30 @@ class ShallowWaterMiniApp(object):
         Update diagnostic information after each solve
         '''
 
-        write_to_file = self.aaos.is_on_slice(save_step)
-        index_to_write = self.aaos.shift_index(save_step,
-                                               from_index='window',
-                                               to_index='slice')
-
+        write_to_file = self.aaos.is_on_slice(self.save_step)
         # extend cfl_series to correct length
         window = self.paradiag.total_windows
-        cfl_series.resize(window + 1)
+        self.cfl_series.resize(window + 1)
 
         # for each slice
-        for i in range(self.aaos.nlocal_timesteps):
-            if write_to_file:
+        if write_to_file:
+            # calculate cfl
+            self.cfl_series[window] = self.max_cfl(self.save_step, index_range='window')
 
-                # calculate cfl
-                self.cfl_series[window] = self.max_cfl(i)
+            # get components
+            self.get_velocity(self.save_step, uout=self.uout, index_range='window')
+            self.get_elevation(self.save_step, hout=self.hout, index_range='window')
 
-                # get components
-                self.get_velocity(i, uout=self.uout)
-                self.get_elevation(i, hout=self.hout)
+            # calculate time
+            window_length = sum(self.aaos.time_partition)
+            nt = window*window_length + self.save_step + 1
+            dt = self.aaos.dt
+            t = nt*dt
 
-                # calculate time
-                window_length = sum(self.aaos.time_partition)
-                nt = window*window_length + save_step + 1
-                dt = self.aaos.dt
-                t = nt*dt
-
-                # save to file
-                self.ofile.write(uout, hout,
-                                 self.potential_vorticity(uout),
-                                 time = t/earth.day)
+            # save to file
+            self.ofile.write(self.uout, self.hout,
+                             self.potential_vorticity(self.uout),
+                             time=t/earth.day)
 
     def sync_diagnostics(self):
         """
@@ -212,8 +207,8 @@ class ShallowWaterMiniApp(object):
         """
         # find rank that cfl series is on
         for rank in range(len(self.aaos.time_partition)):
-            begin = sum(self.aaos.time_partition[:i])
-            end = sum(self.aaos.time_partition[:i+1])
+            begin = sum(self.aaos.time_partition[:rank])
+            end = sum(self.aaos.time_partition[:rank+1])
             if begin <= rank < end:
                 root = rank
 
