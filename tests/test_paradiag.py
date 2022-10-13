@@ -532,7 +532,7 @@ def test_jacobian_mixed_parallel():
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
-    WFull = np.prod([W for i in range(Ml)])
+    WFull = reduce(mul, (W for _ in range(Ml)))
     ufull = fd.Function(WFull)
     np.random.seed(132574)
     ufull_list = ufull.split()
