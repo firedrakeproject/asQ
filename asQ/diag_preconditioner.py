@@ -307,9 +307,9 @@ class DiagFFTPC(object):
 
         Must be called once at the end of each apply()
         """
-        for si in range(self.aaos.nlocal_timesteps):
-            wi = self.aaos.shift_index(si, from_range='slice', to_range='window')
-            self.paradiag.block_iterations[wi] += self.Jsolvers[si].snes.getLinearSolveIterations()
+        for i in range(self.aaos.nlocal_timesteps):
+            its = self.Jsolvers[i].snes.getLinearSolveIterations()
+            self.paradiag.block_iterations.dlocal[i] += its
 
     @PETSc.Log.EventDecorator()
     def update(self, pc):
