@@ -937,8 +937,8 @@ def test_diagnostics():
     assert pdg.nonlinear_iterations == pdg.snes.getIterationNumber()
 
     # direct block solve
-    for itcount in pdg.block_iterations:
-        assert itcount == pdg.linear_iterations
+    for i in range(sum(M)):
+        assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations
 
     linear_iterations0 = pdg.linear_iterations
     nonlinear_iterations0 = pdg.nonlinear_iterations
@@ -950,5 +950,5 @@ def test_diagnostics():
     assert pdg.linear_iterations == linear_iterations0 + pdg.snes.getLinearSolveIterations()
     assert pdg.nonlinear_iterations == nonlinear_iterations0 + pdg.snes.getIterationNumber()
 
-    for itcount in pdg.block_iterations:
-        assert itcount == pdg.linear_iterations
+    for i in range(sum(M)):
+        assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations

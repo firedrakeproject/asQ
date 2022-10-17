@@ -1,11 +1,10 @@
 import firedrake as fd
-from pyop2.mpi import MPI
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
-from numpy import zeros as zero_array
 
 from asQ.allatoncesystem import AllAtOnceSystem
+from asQ.parallel_arrays import SharedArray
 
 appctx = {}
 
@@ -151,7 +150,9 @@ class paradiag(object):
         self.nonlinear_iterations = 0
         self.total_timesteps = 0
         self.total_windows = 0
-        self.block_iterations = zero_array(sum(self.time_partition), dtype=int)
+        self.block_iterations = SharedArray(self.time_partition,
+                                            dtype=int,
+                                            comm=self.ensemble.ensemble_comm)
 
     def _record_diagnostics(self):
         """
@@ -170,8 +171,7 @@ class paradiag(object):
 
         Until this method is called, diagnostic information is not guaranteed to be valid.
         """
-        self.ensemble.ensemble_comm.Allgather(MPI.IN_PLACE,
-                                              self.block_iterations)
+        self.block_iterations.synchronise()
 
     @PETSc.Log.EventDecorator()
     def solve(self,
