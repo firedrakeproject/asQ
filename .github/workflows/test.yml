@@ -29,6 +29,10 @@ jobs:
         run: |
           sudo chmod -R 777 $GITHUB_WORKSPACE /github /__w/_temp
       - uses: actions/checkout@v2
+      - name: Install test dependencies
+        run: |
+          . /home/firedrake/firedrake/bin/activate
+          python -m pip install pytest-timeout
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
@@ -43,4 +47,4 @@ jobs:
         run: |
           . /home/firedrake/firedrake/bin/activate
           export OMP_NUM_THREADS=1
-          pytest -v --durations=0 tests -s
+          python -m pytest -v -s --durations=0 tests --timeout=600
