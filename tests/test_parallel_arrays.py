@@ -7,7 +7,6 @@ partitions = [3, [2, 3, 4, 2]]
 
 
 def test_in_range():
-
     length = 5
     inside_range = length - 1
     outside_range = length + 1
@@ -35,7 +34,6 @@ def test_in_range():
 
     with pytest.raises(IndexError):
         in_range(-inside_range, length, allow_negative=False, throws=True)
-    
 
 
 @pytest.mark.parallel(nprocs=4)
