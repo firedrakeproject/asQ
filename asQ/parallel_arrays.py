@@ -40,12 +40,15 @@ class DistributedDataLayout1D(object):
 
     def shift_index(self, i, itype='l', rtype='l'):
         '''
-        Shift index between local and global addressing, and account for -ve indices.
+        Shift index between local and global addressing, and transform negative indices to their positive equivalent.
 
         For example if there are 3 ranks each owning two elements then:
             global indices 0,1 are local indices 0,1 on rank 0.
             global indices 2,3 are local indices 0,1 on rank 1.
             global indices 4,5 are local indices 0,1 on rank 2.
+        Negative indices are shifted to their positive equivalent:
+            local index -1 becomes local index 1.
+            global index -2 becomes local index 0 on rank 2.
         Throws IndexError if original or shifted index is out of bounds.
 
         :arg i: index to shift.
