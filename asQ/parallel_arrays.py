@@ -28,10 +28,11 @@ class DistributedDataLayout1D(object):
         :arg comm: MPI communicator the data is distributed over.
         '''
         if isinstance(partition, int):
-            partition = (partition for _ in range(comm.size))
+            partition = tuple(partition for _ in range(comm.size))
         else:
             if len(partition) != comm.size:
                 raise ValueError(f"Partition size {len(partition)} not equal to comm size {comm.size}")
+            partition = tuple(partition)
         self.partition = partition
         self.comm = comm
         self.rank = comm.rank

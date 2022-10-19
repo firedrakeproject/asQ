@@ -43,7 +43,7 @@ def test_distributed_data_layout(partition):
     layout = DistributedDataLayout1D(partition, comm=comm)
 
     if isinstance(partition, int):
-        partition = [partition for _ in range(layout.comm.size)]
+        partition = tuple(partition for _ in range(layout.comm.size))
 
     rank = layout.rank
     nlocal = partition[rank]
