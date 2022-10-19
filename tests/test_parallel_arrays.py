@@ -1,6 +1,6 @@
 import pytest
 from pyop2.mpi import MPI
-from asQ import DistributedDataLayout, SharedArray, SynchronisedArray
+from asQ import DistributedDataLayout1D, SharedArray, OwnedArray
 
 partitions = [3, [2, 3, 4, 2]]
 
@@ -9,7 +9,7 @@ partitions = [3, [2, 3, 4, 2]]
 @pytest.mark.parametrize("partition", partitions)
 def test_distributed_data_layout(partition):
     comm = MPI.COMM_WORLD
-    layout = DistributedDataLayout(partition, comm=comm)
+    layout = DistributedDataLayout1D(partition, comm=comm)
 
     if isinstance(partition, int):
         partition = [partition for _ in range(layout.comm.size)]
@@ -187,26 +187,26 @@ def test_shared_array_manager(partition):
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_synchronised_array():
+def test_owned_array():
     size = 8
     comm = MPI.COMM_WORLD
-    root = 0
+    owner = 0
 
-    array = SynchronisedArray(size, dtype=int, comm=comm, root=root)
+    array = OwnedArray(size, dtype=int, comm=comm, owner=owner)
 
     assert array.size == size
-    assert array.root == root
+    assert array.owner == owner
     assert array.comm == comm
     assert array.rank == comm.rank
 
-    if comm.rank == root:
-        assert array.is_root()
+    if comm.rank == owner:
+        assert array.is_owner()
     else:
-        assert not array.is_root()
+        assert not array.is_owner()
 
     # initialise data
     for i in range(size):
-        if array.is_root():
+        if array.is_owner():
             array[i] = 2*(i+1)
         else:
             assert array[i] == 0
@@ -217,7 +217,7 @@ def test_synchronised_array():
     for i in range(size):
         assert array[i] == 2*(i+1)
 
-    # only root can modify
-    if not array.is_root():
+    # only owner can modify
+    if not array.is_owner():
         with pytest.raises(IndexError):
             array[0] = 0

@@ -18,7 +18,7 @@ def in_range(i, length, allow_negative=True, throws=False):
     return result
 
 
-class DistributedDataLayout(object):
+class DistributedDataLayout1D(object):
     def __init__(self, partition, comm=MPI.COMM_WORLD):
         '''
         A representation of a 1D set of data distributed over several MPI ranks.
@@ -97,7 +97,7 @@ class SharedArray(object):
         '''
         1D array shared over an MPI comm.
 
-        Each rank has a copy of the entire array of size len(partition) but can only  modify the partition[comm.rank] section of the array.
+        Each rank has a copy of the entire array of size sum(partition) but can only  modify the partition[comm.rank] section of the array.
         Provides method for synchronising the array over the comm and testing if an element is owned by the current rank.
 
         :arg partition: The number of data elements on each rank. Can be a list of integers, in which case len(partition) must be comm.size. Can be a single integer, in which case all ranks have the same number of elements.
@@ -106,7 +106,7 @@ class SharedArray(object):
         '''
         self.comm = comm
         self.rank = comm.rank
-        self.layout = DistributedDataLayout(partition, comm=comm)
+        self.layout = DistributedDataLayout1D(partition, comm=comm)
         self.partition = partition
         self.local_size = self.layout.local_size
         self.global_size = self.layout.global_size
@@ -157,8 +157,8 @@ class SharedArray(object):
         self.comm.Allgatherv(MPI.IN_PLACE, [self._data, self.partition])
 
 
-class SynchronisedArray(object):
-    def __init__(self, size, dtype=None, comm=MPI.COMM_WORLD, root=0):
+class OwnedArray(object):
+    def __init__(self, size, dtype=None, comm=MPI.COMM_WORLD, owner=0):
         '''
         Array owned by one rank but viewed over an MPI comm.
 
@@ -168,20 +168,20 @@ class SynchronisedArray(object):
         :arg size: length of the array.
         :arg dtype: datatype, defaults to numpy default dtype.
         :arg comm: MPI communicator the array is synchronised over.
-        :arg root: owning rank.
+        :arg owner: owning rank.
         '''
         self.size = size
         self.comm = comm
-        self.root = root
+        self.owner = owner
         self.rank = comm.rank
 
         self._data = zero_array(size, dtype=dtype)
 
-    def is_root(self):
+    def is_owner(self):
         '''
         Is the array owned by the current rank?
         '''
-        return self.rank == self.root
+        return self.rank == self.owner
 
     def __getitem__(self, i):
         '''
@@ -193,8 +193,8 @@ class SynchronisedArray(object):
         '''
         Set the value of the element at index i to val. Throws if the current rank does not own the array.
         '''
-        if not self.is_root():
-            raise IndexError(f"Rank {self.rank} is not the owning rank {self.root}")
+        if not self.is_owner():
+            raise IndexError(f"Rank {self.rank} is not the owning rank {self.owner}")
         self._data[i] = val
 
     def synchronise(self):
@@ -203,4 +203,4 @@ class SynchronisedArray(object):
 
         Until this method is called, array elements on any rank but root are not guaranteed to be valid
         """
-        self.comm.Bcast(self._data, root=self.root)
+        self.comm.Bcast(self._data, root=self.owner)
