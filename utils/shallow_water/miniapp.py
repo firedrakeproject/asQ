@@ -146,6 +146,7 @@ class ShallowWaterMiniApp(object):
     def max_cfl(self, step=None, dt=None, index_range='slice', v=None):
         '''
         Return the maximum convective CFL number for the field u with timestep dt
+
         :arg step: timestep to calculate CFL number for. If None, cfl calculated for function v.
         :arg dt: the timestep. If None, the timestep of the all-at-once system is used
         :arg index_range: type of index of step: slice or window
