@@ -105,7 +105,7 @@ sparameters_diag = {
     'pc_python_type': 'asQ.DiagFFTPC'
 }
 
-for i in range(sum(time_partition)):
+for i in range(window_length):
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
@@ -128,7 +128,8 @@ ensemble = miniapp.ensemble
 time_rank = miniapp.paradiag.time_rank
 
 # only last slice does diagnostics/output
-if time_rank == len(time_partition)-1:
+is_io_rank = (time_rank == len(time_partition)-1)
+if is_io_rank:
     cfl_series = []
     linear_its = 0
     nonlinear_its = 0
@@ -163,7 +164,7 @@ def window_postproc(swe_app, pdg, wndw):
     global cfl_series
 
     # postprocess this timeslice
-    if time_rank == len(time_partition)-1:
+    if is_io_rank:
         linear_its += pdg.snes.getLinearSolveIterations()
         nonlinear_its += pdg.snes.getIterationNumber()
 
@@ -199,7 +200,7 @@ miniapp.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
-if time_rank == len(time_partition)-1:
+if is_io_rank:
     PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print('', comm=ensemble.comm)
