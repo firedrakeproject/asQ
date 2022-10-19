@@ -7,7 +7,8 @@ def in_range(i, length, allow_negative=True, throws=False):
     Is the index i within the range of length?
     :arg i: index to check
     :arg length: the number of elements in the range
-    :arg throws: if True, then an IndexError is raised if the index is out of range
+    :arg allow_negative: is negative indexing allowed?
+    :arg throws: if True, an IndexError is raised if the index is out of range
     '''
     if allow_negative:
         result = (-length <= i < length)
@@ -101,55 +102,55 @@ class SharedArray(object):
         1D array shared over an MPI comm.
 
         Each rank has a copy of the entire array of size sum(partition) but can only  modify the partition[comm.rank] section of the array.
-        Provides method for synchronising the array over the comm and testing if an element is owned by the current rank.
+        Provides method for synchronising the array over the comm.
 
         :arg partition: The number of data elements on each rank. Can be a list of integers, in which case len(partition) must be comm.size. Can be a single integer, in which case all ranks have the same number of elements.
         :arg dtype: datatype, defaults to numpy default dtype.
-        :arg comm: MPI communicator the array is distributed over.
+        :arg comm: MPI communicator that the array is distributed over.
         '''
         self.comm = comm
         self.rank = comm.rank
         self.layout = DistributedDataLayout1D(partition, comm=comm)
-        self.partition = partition
+        self.partition = self.layout.partition
         self.local_size = self.layout.local_size
         self.global_size = self.layout.global_size
         self.offset = self.layout.offset
 
         self._data = zero_array(self.global_size, dtype=dtype)
 
-        self.dglobal = self._GlobalAccessor(self)
-        self.dlocal = self._LocalAccessor(self)
+        self.dglobal = self._GlobalAccessor(self.layout, self._data)
+        self.dlocal = self._LocalAccessor(self.layout, self._data)
 
     class _GlobalAccessor(object):
         '''
         Manage access by global addressing
         '''
-        def __init__(self, parent):
-            self.parent = parent
-            self.layout = parent.layout
+        def __init__(self, layout, data):
+            self.layout = layout
+            self._data = data
 
         def __getitem__(self, i):
-            return self.parent._data[i]
+            return self._data[i]
 
         def __setitem__(self, i, val):
             self.layout.is_local(i, throws=True)
-            self.parent._data[i] = val
+            self._data[i] = val
 
     class _LocalAccessor(object):
         '''
         Manage access by local addressing
         '''
-        def __init__(self, parent):
-            self.parent = parent
-            self.layout = parent.layout
+        def __init__(self, layout, data):
+            self.layout = layout
+            self._data = data
 
         def __getitem__(self, i):
             i = self.layout.shift_index(i, itype='l', rtype='g')
-            return self.parent._data[i]
+            return self._data[i]
 
         def __setitem__(self, i, val):
             i = self.layout.shift_index(i, itype='l', rtype='g')
-            self.parent._data[i] = val
+            self._data[i] = val
 
     def synchronise(self):
         """
