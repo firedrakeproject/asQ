@@ -161,9 +161,6 @@ def window_postproc(swe_app, pdg, wndw):
 
     # postprocess this timeslice
     if is_io_rank:
-        linear_its += pdg.snes.getLinearSolveIterations()
-        nonlinear_its += pdg.snes.getIterationNumber()
-
         swe_app.get_velocity(-1, uout=uout)
         swe_app.get_elevation(-1, hout=hout)
 

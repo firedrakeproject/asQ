@@ -3,7 +3,7 @@ from pyop2.mpi import MPI
 from asQ.parallel_arrays import in_range
 from asQ import DistributedDataLayout1D, SharedArray, OwnedArray
 
-partitions = [3, [2, 3, 4, 2]]
+partitions = [3, (2, 3, 4, 2)]
 
 
 def test_in_range():
@@ -141,10 +141,10 @@ def test_shared_array(partition):
     comm = MPI.COMM_WORLD
     rank = comm.rank
 
-    if isinstance(partition, int):
-        partition = [partition for _ in range(comm.size)]
-
     array = SharedArray(partition=partition, dtype=int, comm=comm)
+
+    if isinstance(partition, int):
+        partition = tuple(partition for _ in range(comm.size))
 
     local_size = partition[rank]
     offset = sum(partition[:rank])
