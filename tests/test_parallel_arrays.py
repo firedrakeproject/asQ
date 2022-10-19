@@ -1,8 +1,41 @@
 import pytest
 from pyop2.mpi import MPI
+from asQ.parallel_arrays import in_range
 from asQ import DistributedDataLayout1D, SharedArray, OwnedArray
 
 partitions = [3, [2, 3, 4, 2]]
+
+
+def test_in_range():
+
+    length = 5
+    inside_range = length - 1
+    outside_range = length + 1
+
+    # check inside +ve range
+    assert in_range(inside_range, length)
+
+    # check inside -ve range
+    assert in_range(-inside_range, length)
+
+    # check outside +ve range
+    assert not in_range(outside_range, length)
+
+    with pytest.raises(IndexError):
+        in_range(outside_range, length, throws=True)
+
+    # check outside -ve range
+    assert not in_range(-outside_range, length)
+
+    with pytest.raises(IndexError):
+        in_range(-outside_range, length, throws=True)
+
+    # reject -ve indices
+    assert not in_range(-inside_range, length, allow_negative=False)
+
+    with pytest.raises(IndexError):
+        in_range(-inside_range, length, allow_negative=False, throws=True)
+    
 
 
 @pytest.mark.parallel(nprocs=4)
