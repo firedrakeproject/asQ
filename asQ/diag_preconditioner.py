@@ -2,7 +2,8 @@ import numpy as np
 import firedrake as fd
 from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc
-from mpi4py_fft.pencil import Pencil, Subcomm
+# from mpi4py_fft.pencil import Pencil, Subcomm
+from asQ.pencil import Pencil, Subcomm
 from operator import mul
 from functools import reduce
 import importlib
