@@ -159,7 +159,7 @@ class SharedArray(object):
 
         Until this method is called, array elements not owned by the current rank are not guaranteed to be valid.
         """
-        self.comm.Allgatherv(MPI.IN_PLACE, [self._data, self.partition])
+        self.comm.Allgatherv(MPI.IN_PLACE, [self._data, list(self.partition)])
 
 
 class OwnedArray(object):
