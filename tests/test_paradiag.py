@@ -157,15 +157,16 @@ def test_steady_swe():
     # set up the ensemble communicator for space-time parallelism
     nspatial_domains = 2
     ref_level = 2
+    degree = 1
+
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
     mesh = fd.IcosahedralSphereMesh(radius=earth.radius,
                                     refinement_level=ref_level,
-                                    degree=2,
+                                    degree=degree,
                                     comm=ensemble.comm)
     x = fd.SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
 
-    degree = 1
     V1 = fd.FunctionSpace(mesh, "BDM", degree+1)
     V2 = fd.FunctionSpace(mesh, "DG", degree)
     W = fd.MixedFunctionSpace((V1, V2))
@@ -231,7 +232,7 @@ def test_steady_swe():
 
     # check against initial conditions
     walls = PD.aaos.w_all.split()
-    hn.assign(hn-H+b)
+    hn.assign(hn - H + b)
 
     hmag = fd.norm(hn)
     umag = fd.norm(un)
