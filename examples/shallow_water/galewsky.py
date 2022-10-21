@@ -18,7 +18,7 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid.')
-parser.add_argument('--nwindows', type=int, default=2, help='Number of time-windows.')
+parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
@@ -54,7 +54,7 @@ sparameters = {
         'max_it': 400,
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
+    'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
     'mg': {
         'levels': {
@@ -125,17 +125,6 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename)
 
-ensemble = miniapp.ensemble
-time_rank = miniapp.paradiag.time_rank
-
-# only last slice does diagnostics/output
-is_io_rank = miniapp.paradiag.layout.is_local(miniapp.save_step)
-if is_io_rank:
-    cfl_series = []
-
-    def time_at_last_step(w):
-        return dt*(w + 1)*window_length
-
 
 def window_preproc(swe_app, pdg, wndw):
     PETSc.Sys.Print('')
@@ -144,27 +133,16 @@ def window_preproc(swe_app, pdg, wndw):
 
 
 def window_postproc(swe_app, pdg, wndw):
-    # make sure variables are properly captured
-    global cfl_series
+    if miniapp.aaos.layout.is_local(miniapp.save_step):
+        nt = pdg.total_windows*pdg.ntimesteps + miniapp.save_step + 1
+        time = nt*miniapp.aaos.dt
+        comm = miniapp.ensemble.comm
+        PETSc.Sys.Print('', comm=comm)
+        PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
+        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
+        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
+        PETSc.Sys.Print('', comm=comm)
 
-    # postprocess this timeslice
-    if is_io_rank:
-        time = time_at_last_step(wndw)
-
-        cfl = swe_app.max_cfl(-1)
-        cfl_series.append(cfl)
-
-        PETSc.Sys.Print('', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm)
-        PETSc.Sys.Print('', comm=ensemble.comm)
-    PETSc.Sys.Print('')
-
-
-# solve for each window
-if args.nwindows == 0:
-    quit()
 
 miniapp.solve(nwindows=args.nwindows,
               preproc=window_preproc,
@@ -181,12 +159,13 @@ PETSc.Sys.Print('')
 
 lits = miniapp.paradiag.linear_iterations
 nlits = miniapp.paradiag.nonlinear_iterations
+blits = miniapp.paradiag.block_iterations._data
 
 PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
 PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
+PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
 PETSc.Sys.Print('')
 
-if is_io_rank:
-    PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
+PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+PETSc.Sys.Print('')
