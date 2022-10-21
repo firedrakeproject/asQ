@@ -252,3 +252,24 @@ def test_owned_array():
     if not array.is_owner():
         with pytest.raises(IndexError):
             array[0] = 0
+
+    # resize
+    new_size = 2*size
+    array.resize(new_size)
+
+    assert array.size == new_size
+
+    # check original data is unmodified
+    for i in range(size):
+        assert array[i] == 2*(i+1)
+
+    # initialise new data
+    for i in range(new_size):
+        if array.is_owner():
+            array[i] = 10*(i-5)
+
+    array.synchronise()
+
+    # check new data
+    for i in range(new_size):
+        assert array[i] == 10*(i-5)
