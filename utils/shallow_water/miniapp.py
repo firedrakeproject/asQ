@@ -114,7 +114,7 @@ class ShallowWaterMiniApp(object):
 
         # set up swe diagnostics
         self.record_diagnostics = record_diagnostics
-        self.save_step = save_step
+        self.save_step = self.aaos.shift_index(save_step, from_range='window', to_range='window')
 
         # cfl
         self.cfl = diagnostics.convective_cfl_calculator(self.mesh)
@@ -135,6 +135,18 @@ class ShallowWaterMiniApp(object):
                 self.ofile.write(self.uout, self.hout,
                                  self.potential_vorticity(self.uout),
                                  time=0)
+
+        if record_diagnostics['cfl']:
+            # which rank is the owner?
+            for rank in range(self.ensemble.ensemble_comm.size):
+                end = sum(self.aaos.layout.partition[:rank+1])
+                if self.save_step < end:
+                    owner = rank
+                    break
+
+            self.cfl_series = asQ.OwnedArray(size=1,
+                                             owner=owner,
+                                             comm=self.ensemble.ensemble_comm)
 
     def function_space(self):
         return self.W
@@ -175,25 +187,33 @@ class ShallowWaterMiniApp(object):
     def _record_diagnostics(self):
         '''
         Update diagnostic information after each solve
+
+        :arg w: index of window in current solve loop
         '''
         if self.aaos.layout.is_local(self.save_step):
-            # get components
-            self.get_velocity(self.save_step, uout=self.uout, index_range='window')
-            self.get_elevation(self.save_step, hout=self.hout, index_range='window')
 
-            # global timestep over all windows
-            window_length = self.paradiag.ntimesteps
-            windows = self.paradiag.total_windows
-            tstep = self.aaos.shift_index(self.save_step, from_range='window', to_range='window')
+            window = self.paradiag.total_windows
 
-            nt = windows*window_length + tstep + 1
-            dt = self.aaos.dt
-            t = nt*dt
+            if self.record_diagnostics['file']:
+                self.get_velocity(self.save_step, uout=self.uout, index_range='window')
+                self.get_elevation(self.save_step, hout=self.hout, index_range='window')
 
-            # save to file
-            self.ofile.write(self.uout, self.hout,
-                             self.potential_vorticity(self.uout),
-                             time=t/units.hour)
+                # global timestep over all windows
+                window_length = self.paradiag.ntimesteps
+
+                nt = window*window_length + self.save_step + 1
+                dt = self.aaos.dt
+                t = nt*dt
+
+                # save to file
+                self.ofile.write(self.uout, self.hout,
+                                 self.potential_vorticity(self.uout),
+                                 time=t/units.hour)
+
+            if self.record_diagnostics['cfl']:
+                self.cfl_series[window-1] = self.max_cfl(self.save_step, index_range='window')
+
+        self.ensemble.global_comm.Barrier()
 
     def sync_diagnostics(self):
         """
@@ -201,7 +221,7 @@ class ShallowWaterMiniApp(object):
 
         Until this method is called, diagnostic information is not guaranteed to be valid.
         """
-        pass
+        self.cfl_series.synchronise()
 
     def solve(self,
               nwindows=1,
@@ -225,6 +245,9 @@ class ShallowWaterMiniApp(object):
         def postprocess(pdg, w):
             self._record_diagnostics()
             postproc(self, pdg, w)
+
+        # extend cfl array
+        self.cfl_series.resize(self.paradiag.total_windows + nwindows)
 
         self.paradiag.solve(nwindows,
                             preproc=preprocess,

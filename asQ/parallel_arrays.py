@@ -163,7 +163,7 @@ class SharedArray(object):
 
 
 class OwnedArray(object):
-    def __init__(self, size, dtype=None, comm=MPI.COMM_WORLD, owner=0):
+    def __init__(self, size, owner=0, comm=MPI.COMM_WORLD, dtype=None):
         '''
         Array owned by one rank but viewed over an MPI comm.
 
