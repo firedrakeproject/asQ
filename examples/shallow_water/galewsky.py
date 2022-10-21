@@ -1,5 +1,4 @@
 
-import firedrake as fd
 from petsc4py import PETSc
 
 from utils import units
@@ -19,7 +18,7 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid.')
-parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
+parser.add_argument('--nwindows', type=int, default=2, help='Number of time-windows.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
@@ -110,7 +109,8 @@ for i in range(window_length):
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
-    ref_level=args.ref_level)
+    ref_level=args.ref_level,
+    coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
@@ -122,28 +122,16 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   create_mesh=create_mesh,
                                   dt=dt, theta=0.5,
                                   alpha=args.alpha, time_partition=time_partition,
-                                  paradiag_sparameters=sparameters_diag)
+                                  paradiag_sparameters=sparameters_diag,
+                                  file_name='output/'+args.filename)
 
 ensemble = miniapp.ensemble
 time_rank = miniapp.paradiag.time_rank
 
 # only last slice does diagnostics/output
-is_io_rank = (time_rank == len(time_partition)-1)
+is_io_rank = miniapp.paradiag.layout.is_local(miniapp.save_step)
 if is_io_rank:
     cfl_series = []
-
-    ofile = fd.File('output/'+args.filename+'.pvd',
-                    comm=ensemble.comm)
-
-    uout = fd.Function(miniapp.velocity_function_space(), name='velocity')
-    hout = fd.Function(miniapp.depth_function_space(), name='depth')
-
-    miniapp.get_velocity(-1, uout=uout)
-    miniapp.get_elevation(-1, hout=hout)
-
-    ofile.write(uout, hout,
-                miniapp.potential_vorticity(uout),
-                time=0)
 
     def time_at_last_step(w):
         return dt*(w + 1)*window_length
@@ -161,16 +149,9 @@ def window_postproc(swe_app, pdg, wndw):
 
     # postprocess this timeslice
     if is_io_rank:
-        swe_app.get_velocity(-1, uout=uout)
-        swe_app.get_elevation(-1, hout=hout)
-
         time = time_at_last_step(wndw)
 
-        ofile.write(uout, hout,
-                    swe_app.potential_vorticity(uout),
-                    time=time/earth.day)
-
-        cfl = swe_app.max_cfl(dt, -1)
+        cfl = swe_app.max_cfl(-1)
         cfl_series.append(cfl)
 
         PETSc.Sys.Print('', comm=ensemble.comm)

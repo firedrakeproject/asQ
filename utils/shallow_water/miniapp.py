@@ -1,8 +1,7 @@
-import numpy as np
 import firedrake as fd
 import asQ
 
-from utils.planets import earth
+from utils import units
 from utils import diagnostics
 import utils.shallow_water as swe
 from utils import mg
@@ -115,24 +114,27 @@ class ShallowWaterMiniApp(object):
 
         # set up swe diagnostics
         self.record_diagnostics = record_diagnostics
+        self.save_step = save_step
 
         # cfl
         self.cfl = diagnostics.convective_cfl_calculator(self.mesh)
+
         # potential vorticity
         self.potential_vorticity = diagnostics.potential_vorticity_calculator(
             self.velocity_function_space(), name='vorticity')
 
-        if record_diagnostics['cfl']:
-            if self.aaos.is_on_slice(save_step):
-                self.cfl_series = np.zeros(1)
-
         if record_diagnostics['file']:
-            self.save_step = save_step
-            if self.aaos.is_on_slice(save_step):
+            if self.aaos.layout.is_local(self.save_step):
                 self.uout = fd.Function(self.velocity_function_space(), name='velocity')
                 self.hout = fd.Function(self.depth_function_space(), name='elevation')
                 self.ofile = fd.File(file_name+'.pvd',
                                      comm=self.ensemble.comm)
+                # save initial conditions
+                self.uout.assign(u0)
+                self.hout.assign(h0 + self.topography_function - self.reference_depth)
+                self.ofile.write(self.uout, self.hout,
+                                 self.potential_vorticity(self.uout),
+                                 time=0)
 
     def function_space(self):
         return self.W
@@ -174,31 +176,24 @@ class ShallowWaterMiniApp(object):
         '''
         Update diagnostic information after each solve
         '''
-
-        write_to_file = self.aaos.is_on_slice(self.save_step)
-        # extend cfl_series to correct length
-        window = self.paradiag.total_windows
-        self.cfl_series.resize(window + 1)
-
-        # for each slice
-        if write_to_file:
-            # calculate cfl
-            self.cfl_series[window] = self.max_cfl(self.save_step, index_range='window')
-
+        if self.aaos.layout.is_local(self.save_step):
             # get components
             self.get_velocity(self.save_step, uout=self.uout, index_range='window')
             self.get_elevation(self.save_step, hout=self.hout, index_range='window')
 
-            # calculate time
-            window_length = sum(self.aaos.time_partition)
-            nt = window*window_length + self.save_step + 1
+            # global timestep over all windows
+            window_length = self.paradiag.ntimesteps
+            windows = self.paradiag.total_windows
+            tstep = self.aaos.shift_index(self.save_step, from_range='window', to_range='window')
+
+            nt = windows*window_length + tstep + 1
             dt = self.aaos.dt
             t = nt*dt
 
             # save to file
             self.ofile.write(self.uout, self.hout,
                              self.potential_vorticity(self.uout),
-                             time=t/earth.day)
+                             time=t/units.hour)
 
     def sync_diagnostics(self):
         """
@@ -206,15 +201,7 @@ class ShallowWaterMiniApp(object):
 
         Until this method is called, diagnostic information is not guaranteed to be valid.
         """
-        # find rank that cfl series is on
-        for rank in range(len(self.aaos.time_partition)):
-            begin = sum(self.aaos.time_partition[:rank])
-            end = sum(self.aaos.time_partition[:rank+1])
-            if begin <= rank < end:
-                root = rank
-
-        self.ensemble.ensemble_comm.Broadcast(self.cfl_series,
-                                              root=root)
+        pass
 
     def solve(self,
               nwindows=1,
@@ -282,12 +269,12 @@ class ShallowWaterMiniApp(object):
         :arg name: if hout is None, the returned depth function will have this name
         '''
         if hout is None:
-            h = self.get_depth(step, index_range=index_range, name=name)
+            h = self.get_depth(step, index_range=index_range, name=name, deepcopy=True)
             h.assign(h + self.topography_function - self.reference_depth)
             return h
         elif hout.function_space() == self.depth_function_space():
-            self.get_depth(step, index_range=index_range, hout=hout)
-            hout.assign(hout + self.topography_function - self.reference_depth)
+            h = self.get_depth(step, index_range=index_range)
+            hout.assign(h + self.topography_function - self.reference_depth)
             return
         else:
             raise ValueError("hout must be None or a Function from depth_function_space")
