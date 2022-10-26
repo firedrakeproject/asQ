@@ -11,12 +11,17 @@ on:
 
 jobs:
   build:
+   name: "Build and test asQ"
     # The type of runner that the job will run on
     # runs-on: ubuntu-latest
     runs-on: self-hosted
     # The docker container to use.
     container:
       image: firedrakeproject/firedrake-vanilla:latest
+   env:
+      ASQ_CI_TESTS: 1
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:
@@ -48,5 +53,4 @@ jobs:
       - name: Test
         run: |
           . /home/firedrake/firedrake/bin/activate
-          export OMP_NUM_THREADS=1
           python -m pytest -vvv -s --durations=0 --timeout=600 --cov=asQ tests/ -k "timeseries"
