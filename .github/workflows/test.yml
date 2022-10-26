@@ -11,12 +11,17 @@ on:
 
 jobs:
   build:
+   name: "Build and test asQ"
     # The type of runner that the job will run on
     # runs-on: ubuntu-latest
     runs-on: self-hosted
     # The docker container to use.
     container:
       image: firedrakeproject/firedrake-vanilla:latest
+   env:
+      ASQ_CI_TESTS: 1
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:
@@ -36,6 +41,8 @@ jobs:
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
+          echo firedrake-status
+          firedrake-status
           FFTW_INCLUDE_DIR=/home/firedrake/firedrake/src/petsc/default/include FFTW_LIBRARY_DIR=/home/firedrake/firedrake/src/petsc/default/lib python -m pip install mpi4py-fft 
           python -m pip install --upgrade scipy
           python -m pip install -e .
@@ -46,5 +53,4 @@ jobs:
       - name: Test
         run: |
           . /home/firedrake/firedrake/bin/activate
-          export OMP_NUM_THREADS=1
           python -m pytest -v -s --durations=0 tests --timeout=1200
