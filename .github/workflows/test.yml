@@ -11,13 +11,14 @@ on:
 
 jobs:
   build:
+    name: "Build and test asQ"
     # The type of runner that the job will run on
     # runs-on: ubuntu-latest
     runs-on: self-hosted
     # The docker container to use.
     container:
       image: firedrakeproject/firedrake-vanilla:latest
-   env:
+    env:
       ASQ_CI_TESTS: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
