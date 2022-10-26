@@ -149,6 +149,10 @@ miniapp.solve(nwindows=args.nwindows,
               postproc=window_postproc)
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+
+from asQ import write_paradiag_metrics
+write_paradiag_metrics(miniapp.paradiag)
+
 PETSc.Sys.Print('')
 
 nw = miniapp.paradiag.total_windows

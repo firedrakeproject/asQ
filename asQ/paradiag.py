@@ -111,11 +111,12 @@ class paradiag(object):
             if solver_parameters["pc_python_type"] == "asQ.DiagFFTPC":
                 appctx["paradiag"] = self
                 solver_parameters["diagfft_context"] = "asQ.paradiag.get_context"
-        solver_parameters = flatten_parameters(solver_parameters)
+        self.solver_parameters = solver_parameters
+        flat_solver_parameters = flatten_parameters(solver_parameters)
 
         # set up the snes
         self.snes = PETSc.SNES().create(comm=fd.COMM_WORLD)
-        self.opts = OptionsManager(solver_parameters, '')
+        self.opts = OptionsManager(flat_solver_parameters, '')
         self.snes.setOptionsPrefix('')
         self.snes.setFunction(self.aaos._assemble_function, self.F)
 
