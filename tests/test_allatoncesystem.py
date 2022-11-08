@@ -61,59 +61,6 @@ def form_mass():
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_check_index(ensemble, W,
-                     form_function, form_mass):
-    # prep aaos setup
-    slice_length = 3
-    assert (fd.COMM_WORLD.size % 2 == 0)
-    nslices = fd.COMM_WORLD.size//2
-    time_partition = [slice_length for _ in range(nslices)]
-
-    window_length = sum(time_partition)
-
-    dt = 1
-    theta = 0.5
-
-    v0 = fd.Function(W).assign(0)
-
-    aaos = asQ.AllAtOnceSystem(ensemble, time_partition,
-                               dt, theta,
-                               form_function, form_mass,
-                               w0=v0)
-
-    max_indices = {
-        'component': len(W.split()),
-        'slice': slice_length,
-        'window': window_length
-    }
-
-    for index_type in max_indices.keys():
-
-        inside_range = max_indices[index_type] - 1
-        outside_range = max_indices[index_type] + 1
-
-        # check inside +ve range
-        try:
-            aaos.check_index(inside_range, index_type)
-        except ValueError as err:
-            assert False, f"{err}"
-
-        # check inside -ve range
-        try:
-            aaos.check_index(-inside_range, index_type)
-        except ValueError as err:
-            assert False, f"{err}"
-
-        # check outside +ve range
-        with pytest.raises(IndexError):
-            aaos.check_index(outside_range, index_type)
-
-        # check outside -ve range
-        with pytest.raises(IndexError):
-            aaos.check_index(-outside_range, index_type)
-
-
-@pytest.mark.parallel(nprocs=4)
 def test_shift_index(ensemble, W,
                      form_function, form_mass):
     # prep aaos setup

@@ -1,5 +1,4 @@
 
-import firedrake as fd
 from petsc4py import PETSc
 
 from utils import units
@@ -55,7 +54,7 @@ sparameters = {
         'max_it': 400,
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
+    'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
     'mg': {
         'levels': {
@@ -92,11 +91,11 @@ sparameters_diag = {
         'monitor': None,
         'converged_reason': None,
         'atol': 1e-0,
-        'rtol': 1e-12,
+        'rtol': 1e-8,
         'stol': 1e-12,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'preonly',
+    'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
@@ -105,12 +104,13 @@ sparameters_diag = {
     'pc_python_type': 'asQ.DiagFFTPC'
 }
 
-for i in range(sum(time_partition)):
+for i in range(window_length):
     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
-    ref_level=args.ref_level)
+    ref_level=args.ref_level,
+    coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
@@ -122,32 +122,8 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   create_mesh=create_mesh,
                                   dt=dt, theta=0.5,
                                   alpha=args.alpha, time_partition=time_partition,
-                                  paradiag_sparameters=sparameters_diag)
-
-ensemble = miniapp.ensemble
-time_rank = miniapp.paradiag.time_rank
-
-# only last slice does diagnostics/output
-if time_rank == len(time_partition)-1:
-    cfl_series = []
-    linear_its = 0
-    nonlinear_its = 0
-
-    ofile = fd.File('output/'+args.filename+'.pvd',
-                    comm=ensemble.comm)
-
-    uout = fd.Function(miniapp.velocity_function_space(), name='velocity')
-    hout = fd.Function(miniapp.depth_function_space(), name='depth')
-
-    miniapp.get_velocity(-1, uout=uout)
-    miniapp.get_elevation(-1, hout=hout)
-
-    ofile.write(uout, hout,
-                miniapp.potential_vorticity(uout),
-                time=0)
-
-    def time_at_last_step(w):
-        return dt*(w + 1)*window_length
+                                  paradiag_sparameters=sparameters_diag,
+                                  file_name='output/'+args.filename)
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -157,57 +133,43 @@ def window_preproc(swe_app, pdg, wndw):
 
 
 def window_postproc(swe_app, pdg, wndw):
-    # make sure variables are properly captured
-    global linear_its
-    global nonlinear_its
-    global cfl_series
+    if miniapp.aaos.layout.is_local(miniapp.save_step):
+        nt = pdg.total_windows*pdg.ntimesteps + miniapp.save_step + 1
+        time = nt*miniapp.aaos.dt
+        comm = miniapp.ensemble.comm
+        PETSc.Sys.Print('', comm=comm)
+        PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
+        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
+        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
+        PETSc.Sys.Print('', comm=comm)
 
-    # postprocess this timeslice
-    if time_rank == len(time_partition)-1:
-        linear_its += pdg.snes.getLinearSolveIterations()
-        nonlinear_its += pdg.snes.getIterationNumber()
-
-        swe_app.get_velocity(-1, uout=uout)
-        swe_app.get_elevation(-1, hout=hout)
-
-        time = time_at_last_step(wndw)
-
-        ofile.write(uout, hout,
-                    swe_app.potential_vorticity(uout),
-                    time=time/earth.day)
-
-        cfl = swe_app.max_cfl(dt, -1)
-        cfl_series.append(cfl)
-
-        PETSc.Sys.Print('', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm)
-        PETSc.Sys.Print('', comm=ensemble.comm)
-    PETSc.Sys.Print('')
-
-
-# solve for each window
-if args.nwindows == 0:
-    quit()
 
 miniapp.solve(nwindows=args.nwindows,
               preproc=window_preproc,
               postproc=window_postproc)
 
-
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+
+from asQ import write_paradiag_metrics
+write_paradiag_metrics(miniapp.paradiag)
+
 PETSc.Sys.Print('')
 
-if time_rank == len(time_partition)-1:
-    PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+nw = miniapp.paradiag.total_windows
+nt = miniapp.paradiag.total_timesteps
+PETSc.Sys.Print(f'windows: {nw}')
+PETSc.Sys.Print(f'timesteps: {nt}')
+PETSc.Sys.Print('')
 
-    PETSc.Sys.Print(f'windows: {(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'timesteps: {(args.nwindows)*window_length}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+lits = miniapp.paradiag.linear_iterations
+nlits = miniapp.paradiag.nonlinear_iterations
+blits = miniapp.paradiag.block_iterations._data
 
-    PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
+PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
+PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
+PETSc.Sys.Print('')
+
+PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
+PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+PETSc.Sys.Print('')

@@ -111,9 +111,9 @@ sparameters = {
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
+    'ksp_rtol': 1e-10,
     'ksp': {
         'atol': 1e-0,
-        'rtol': 1e-10,
         'monitor': None,
         'converged_reason': None
     },

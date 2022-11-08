@@ -1,5 +1,7 @@
 import firedrake as fd
 import asQ
+
+from utils import units
 from utils import diagnostics
 import utils.shallow_water as swe
 from utils import mg
@@ -19,7 +21,9 @@ class ShallowWaterMiniApp(object):
                  block_ctx={},
                  reference_depth=0,
                  velocity_function_space=swe.default_velocity_function_space,
-                 depth_function_space=swe.default_depth_function_space):
+                 depth_function_space=swe.default_depth_function_space,
+                 record_diagnostics={'cfl': True, 'file': True},
+                 save_step=-1, file_name='swe'):
         '''
         A miniapp to integrate the rotating shallow water equations on the sphere using the paradiag method.
 
@@ -33,10 +37,13 @@ class ShallowWaterMiniApp(object):
         :arg theta: parameter for the implicit theta-method integrator
         :arg alpha: value used for the alpha-circulant approximation in the paradiag method.
         :arg time_partition: a list with how many timesteps are on each of the ensemble time-ranks.
-        :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
-        :block_ctx: a dictionary of extra values required for the block system solvers.
-        :velocity_function_space: function to return a firedrake FunctionSpace for the velocity field, given a mesh
-        :depth_function_space: function to return a firedrake FunctionSpace for the depth field, given a mesh
+        arg :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
+        :arg block_ctx: a dictionary of extra values required for the block system solvers.
+        :arg velocity_function_space: function to return a firedrake FunctionSpace for the velocity field, given a mesh
+        :arg depth_function_space: function to return a firedrake FunctionSpace for the depth field, given a mesh
+        :arg record_diagnostics: List of bools whether to: record CFL at each timestep; save timesteps to file
+        :arg save_step: if record_diagnostics['file'] is True, save timestep with this window index to file
+        :arg file_name: if record_diagnostics['file'] is True, save timesteps to file with this name
         '''
 
         self.ensemble = asQ.create_ensemble(time_partition)
@@ -106,6 +113,8 @@ class ShallowWaterMiniApp(object):
         self.aaos = self.paradiag.aaos
 
         # set up swe diagnostics
+        self.record_diagnostics = record_diagnostics
+        self.save_step = self.aaos.shift_index(save_step, from_range='window', to_range='window')
 
         # cfl
         self.cfl = diagnostics.convective_cfl_calculator(self.mesh)
@@ -113,6 +122,31 @@ class ShallowWaterMiniApp(object):
         # potential vorticity
         self.potential_vorticity = diagnostics.potential_vorticity_calculator(
             self.velocity_function_space(), name='vorticity')
+
+        if record_diagnostics['file']:
+            if self.aaos.layout.is_local(self.save_step):
+                self.uout = fd.Function(self.velocity_function_space(), name='velocity')
+                self.hout = fd.Function(self.depth_function_space(), name='elevation')
+                self.ofile = fd.File(file_name+'.pvd',
+                                     comm=self.ensemble.comm)
+                # save initial conditions
+                self.uout.assign(u0)
+                self.hout.assign(h0 + self.topography_function - self.reference_depth)
+                self.ofile.write(self.uout, self.hout,
+                                 self.potential_vorticity(self.uout),
+                                 time=0)
+
+        if record_diagnostics['cfl']:
+            # which rank is the owner?
+            for rank in range(self.ensemble.ensemble_comm.size):
+                end = sum(self.aaos.layout.partition[:rank+1])
+                if self.save_step < end:
+                    owner = rank
+                    break
+
+            self.cfl_series = asQ.OwnedArray(size=1,
+                                             owner=owner,
+                                             comm=self.ensemble.ensemble_comm)
 
     def function_space(self):
         return self.W
@@ -123,11 +157,12 @@ class ShallowWaterMiniApp(object):
     def depth_function_space(self):
         return self.W.sub(self.depth_index)
 
-    def max_cfl(self, dt, step=None, index_range='slice', v=None):
+    def max_cfl(self, step=None, dt=None, index_range='slice', v=None):
         '''
         Return the maximum convective CFL number for the field u with timestep dt
-        :arg dt: the timestep
+
         :arg step: timestep to calculate CFL number for. If None, cfl calculated for function v.
+        :arg dt: the timestep. If None, the timestep of the all-at-once system is used
         :arg index_range: type of index of step: slice or window
         :arg v: velocity Function from FunctionSpace V1 or a full MixedFunction from W if None, calculate cfl of timestep step. Ignored if step is not None.
         '''
@@ -143,8 +178,50 @@ class ShallowWaterMiniApp(object):
         else:
             raise ValueError("v or step must be not None")
 
+        if dt is None:
+            dt = self.aaos.dt
+
         with self.cfl(u, dt).dat.vec_ro as cfl_vec:
             return cfl_vec.max()[1]
+
+    def _record_diagnostics(self):
+        '''
+        Update diagnostic information after each solve
+
+        :arg w: index of window in current solve loop
+        '''
+        if self.aaos.layout.is_local(self.save_step):
+
+            window = self.paradiag.total_windows
+
+            if self.record_diagnostics['file']:
+                self.get_velocity(self.save_step, uout=self.uout, index_range='window')
+                self.get_elevation(self.save_step, hout=self.hout, index_range='window')
+
+                # global timestep over all windows
+                window_length = self.paradiag.ntimesteps
+
+                nt = window*window_length + self.save_step + 1
+                dt = self.aaos.dt
+                t = nt*dt
+
+                # save to file
+                self.ofile.write(self.uout, self.hout,
+                                 self.potential_vorticity(self.uout),
+                                 time=t/units.hour)
+
+            if self.record_diagnostics['cfl']:
+                self.cfl_series[window-1] = self.max_cfl(self.save_step, index_range='window')
+
+        self.ensemble.global_comm.Barrier()
+
+    def sync_diagnostics(self):
+        """
+        Synchronise diagnostic information over all time-ranks.
+
+        Until this method is called, diagnostic information is not guaranteed to be valid.
+        """
+        self.cfl_series.synchronise()
 
     def solve(self,
               nwindows=1,
@@ -166,12 +243,18 @@ class ShallowWaterMiniApp(object):
             preproc(self, pdg, w)
 
         def postprocess(pdg, w):
+            self._record_diagnostics()
             postproc(self, pdg, w)
+
+        # extend cfl array
+        self.cfl_series.resize(self.paradiag.total_windows + nwindows)
 
         self.paradiag.solve(nwindows,
                             preproc=preprocess,
                             postproc=postprocess,
                             verbose=verbose)
+
+        self.sync_diagnostics()
 
     def get_velocity(self, step, index_range='slice', uout=None, name='velocity', deepcopy=False):
         '''
@@ -209,12 +292,12 @@ class ShallowWaterMiniApp(object):
         :arg name: if hout is None, the returned depth function will have this name
         '''
         if hout is None:
-            h = self.get_depth(step, index_range=index_range, name=name)
+            h = self.get_depth(step, index_range=index_range, name=name, deepcopy=True)
             h.assign(h + self.topography_function - self.reference_depth)
             return h
         elif hout.function_space() == self.depth_function_space():
-            self.get_depth(step, index_range=index_range, hout=hout)
-            hout.assign(hout + self.topography_function - self.reference_depth)
+            h = self.get_depth(step, index_range=index_range)
+            hout.assign(h + self.topography_function - self.reference_depth)
             return
         else:
             raise ValueError("hout must be None or a Function from depth_function_space")
