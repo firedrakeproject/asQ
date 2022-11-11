@@ -3,23 +3,25 @@ from firedrake.petsc import PETSc
 from pyop2.mpi import MPI
 from functools import reduce
 from operator import mul
+from memory_profiler import profile
 
 
 class JacobianMatrix(object):
+    @profile
     def __init__(self, aaos):
         r"""
         Python matrix for the Jacobian of the all at once system
         :param aaos: The AllAtOnceSystem object
         """
         self.aaos = aaos
-        self.u = fd.Function(self.aaos.function_space_all)  # for the input function
-        self.F = fd.Function(self.aaos.function_space_all)  # for the output residual
-        self.F_prev = fd.Function(self.aaos.function_space_all)  # Where we compute the
+        self.u = fd.Function(self.aaos.function_space_all).assign(0)  # for the input function
+        self.F = fd.Function(self.aaos.function_space_all).assign(0)  # for the output residual
+        self.F_prev = fd.Function(self.aaos.function_space_all).assign(0)  # Where we compute the
         # part of the output residual from neighbouring contributions
-        self.u0 = fd.Function(self.aaos.function_space_all)  # Where we keep the state
+        self.u0 = fd.Function(self.aaos.function_space_all).assign(0)  # Where we keep the state
 
-        self.Fsingle = fd.Function(self.aaos.function_space)
-        self.urecv = fd.Function(self.aaos.function_space)  # will contain the previous time value i.e. 3*r-1
+        self.Fsingle = fd.Function(self.aaos.function_space).assign(0)
+        self.urecv = fd.Function(self.aaos.function_space).assign(0)  # will contain the previous time value i.e. 3*r-1
         self.ualls = self.u.split()
         # Jform missing contributions from the previous step
         # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
@@ -35,6 +37,7 @@ class JacobianMatrix(object):
         self.Jform_prev = fd.derivative(self.aaos.aao_form,
                                         self.aaos.w_recv)
 
+    @profile
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
 
@@ -71,6 +74,7 @@ class JacobianMatrix(object):
 
 
 class AllAtOnceSystem(object):
+    @profile
     def __init__(self,
                  ensemble, time_partition,
                  dt, theta,
@@ -124,7 +128,7 @@ class AllAtOnceSystem(object):
         self.function_space_all = reduce(mul, (self.function_space
                                                for _ in range(self.nlocal_timesteps)))
 
-        self.w_all = fd.Function(self.function_space_all)
+        self.w_all = fd.Function(self.function_space_all).assign(0)
         self.w_alls = self.w_all.split()
 
         for i in range(self.nlocal_timesteps):
@@ -136,13 +140,13 @@ class AllAtOnceSystem(object):
             bc.apply(self.w_all)
 
         # function to assemble the nonlinear residual
-        self.F_all = fd.Function(self.function_space_all)
+        self.F_all = fd.Function(self.function_space_all).assign(0)
 
         # functions containing the last and next steps for parallel
         # communication timestep
         # from the previous iteration
-        self.w_recv = fd.Function(self.function_space)
-        self.w_send = fd.Function(self.function_space)
+        self.w_recv = fd.Function(self.function_space).assign(0)
+        self.w_send = fd.Function(self.function_space).assign(0)
 
         self._set_aao_form()
         self.jacobian = JacobianMatrix(self)
@@ -450,6 +454,7 @@ class AllAtOnceSystem(object):
 
         return self.update_time_halos(wsend=wsend, wrecv=wrecv, walls=wall.split(), blocking=True)
 
+    @profile
     @PETSc.Log.EventDecorator()
     def _assemble_function(self, snes, X, Fvec):
         r"""
@@ -473,6 +478,7 @@ class AllAtOnceSystem(object):
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
 
+    @profile
     def _set_aao_form(self):
         """
         Constructs the bilinear form for the all at once system.
