@@ -2,6 +2,7 @@ import firedrake as fd
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
+from memory_profiler import profile
 
 from asQ.allatoncesystem import AllAtOnceSystem
 
@@ -15,6 +16,7 @@ def context_callback(pc, context):
 get_context = partial(context_callback, context=appctx)
 
 
+@profile
 def create_ensemble(time_partition, comm=fd.COMM_WORLD):
     '''
     Create an Ensemble for the given slice partition
@@ -35,6 +37,7 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
 
 
 class paradiag(object):
+    @profile
     def __init__(self, ensemble,
                  form_function, form_mass, w0, dt, theta,
                  alpha, time_partition, bcs=[],
