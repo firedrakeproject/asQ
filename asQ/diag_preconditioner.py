@@ -8,6 +8,7 @@ from operator import mul
 from functools import reduce
 import importlib
 from ufl.classes import MultiIndex, FixedIndex, Indexed
+from .profiling import profile
 
 
 class DiagFFTPC(object):
