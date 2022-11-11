@@ -3,7 +3,7 @@ from firedrake.petsc import PETSc
 from pyop2.mpi import MPI
 from functools import reduce
 from operator import mul
-from memory_profiler import profile
+from .profiling import profile
 
 
 class JacobianMatrix(object):

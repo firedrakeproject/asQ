@@ -2,7 +2,7 @@ import firedrake as fd
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
-from memory_profiler import profile
+from .profiling import profile
 
 from asQ.allatoncesystem import AllAtOnceSystem
 
