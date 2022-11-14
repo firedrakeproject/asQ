@@ -130,12 +130,12 @@ block_parameters = {
 
 paradiag_parameters = {
     'snes': {
+        'type': 'ksponly',
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-10,
         'atol': 1e-10,
         'stol': 1e-10,
-        'max_its': 2,
     },
     'ksp': {
         'type': 'preonly',
@@ -162,38 +162,28 @@ for i in range(window_length):
 
 # # # === --- Setup ParaDiag --- === # # #
 
+from memory_profiler import memory_usage
+
+
+def make_pdg(*args, **kwargs):
+    return memory_usage((asQ.paradiag, args, kwargs), retval=True, max_usage=True)
+
 
 # Give everything to asQ to create the paradiag object.
 # the circ parameter determines where the alpha-circulant
 # approximation is introduced. None means only in the preconditioner.
 # pdg = asQ.paradiag(ensemble=ensemble,
-#                   form_function=form_function,
-#                   form_mass=form_mass,
-#                   w0=q0, dt=dt, theta=args.theta,
-#                   alpha=args.alpha, time_partition=time_partition,
-#                   solver_parameters=paradiag_parameters,
-#                   circ=None)
+pdg_mem_usage, pdg = make_pdg(ensemble=ensemble,
+                              form_function=form_function,
+                              form_mass=form_mass,
+                              w0=q0, dt=dt, theta=args.theta,
+                              alpha=args.alpha, time_partition=time_partition,
+                              solver_parameters=paradiag_parameters,
+                              circ=None)
 
-from memory_profiler import memory_usage
-
-kwargs = {
-    'ensemble': ensemble,
-    'form_function': form_function,
-    'form_mass': form_mass,
-    'w0': q0,
-    'dt': dt,
-    'theta': args.theta,
-    'alpha': args.alpha,
-    'time_partition': time_partition,
-    'solver_parameters': paradiag_parameters,
-    'circ': None
-}
-
-pdg_mem_usage, pdg = memory_usage((asQ.paradiag, (), kwargs), retval=True, max_usage=True)
-# PETSc.Sys.Print(f"Memory usage: {pdg_mem_usage}")
 print(f"Rank {ensemble.global_comm.rank} pdg.__init__() memory usage: {pdg_mem_usage}")
 
 # Solve nwindows of the all-at-once system
-pdg.solve(args.nwindows)
+# pdg.solve(args.nwindows)
 solve_mem_usage = memory_usage((pdg.solve, (args.nwindows,), {}), max_usage=True)
 print(f"Rank {ensemble.global_comm.rank} pdg.solve() memory usage: {solve_mem_usage}")
