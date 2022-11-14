@@ -8,7 +8,7 @@ from operator import mul
 from functools import reduce
 import importlib
 from ufl.classes import MultiIndex, FixedIndex, Indexed
-from .profiling import profile
+from .profiling import memprofile
 
 
 class DiagFFTPC(object):
@@ -26,7 +26,7 @@ class DiagFFTPC(object):
             self.initialize(pc)
         self.update(pc)
 
-    @profile
+    @memprofile
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -304,6 +304,7 @@ class DiagFFTPC(object):
                 self.CblockV_bcs.append(all_bc)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def update(self, pc):
         '''
         we need to update u0 from w_all, containing state.
@@ -334,8 +335,8 @@ class DiagFFTPC(object):
             self.u0.assign(self.ureduceC)
             self.u0 /= sum(self.time_partition)
 
-    @profile
     @PETSc.Log.EventDecorator()
+    @memprofile
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
