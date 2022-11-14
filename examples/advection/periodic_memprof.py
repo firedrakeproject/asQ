@@ -1,6 +1,4 @@
 
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
 from math import pi, cos, sin
 
 import firedrake as fd
@@ -112,6 +110,7 @@ def form_function(q, phi):
 # blocks in step (b) of inverting the ParaDiag matrix.
 block_parameters = {
     'ksp_type': 'gmres',
+    'mat_type': 'matfree',
     'pc_type': 'bjacobi',
 }
 
@@ -131,12 +130,12 @@ block_parameters = {
 
 paradiag_parameters = {
     'snes': {
-        'type': 'ksponly',
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-10,
         'atol': 1e-12,
         'stol': 1e-12,
+        'max_its': 2,
     },
     'ksp': {
         'type': 'preonly',
@@ -148,7 +147,11 @@ paradiag_parameters = {
     },
     'mat_type': 'matfree',
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfft_mass': {
+        'ksp_type': 'cg',
+        'pc_type': 'bjacobi',
+    }
 }
 
 # We need to add a block solver parameters dictionary for each block.

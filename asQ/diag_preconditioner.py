@@ -210,7 +210,8 @@ class DiagFFTPC(object):
         self.xtemp = fd.Function(self.CblockV).assign(0)
         v = fd.TestFunction(self.CblockV)
         u = fd.TrialFunction(self.CblockV)
-        a = fd.assemble(fd.inner(u, v)*fd.dx)
+        # a = fd.assemble(fd.inner(u, v)*fd.dx)
+        a = fd.assemble(fd.inner(u, v)*fd.dx, mat_type='matfree')
         self.Proj = fd.LinearSolver(a, options_prefix=self.prefix+"mass_")
 
         # building the Jacobian of the nonlinear term
