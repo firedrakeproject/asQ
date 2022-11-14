@@ -3,11 +3,11 @@ from firedrake.petsc import PETSc
 from pyop2.mpi import MPI
 from functools import reduce
 from operator import mul
-from .profiling import profile
+from .profiling import memprofile
 
 
 class JacobianMatrix(object):
-    @profile
+    @memprofile
     def __init__(self, aaos):
         r"""
         Python matrix for the Jacobian of the all at once system
@@ -37,8 +37,8 @@ class JacobianMatrix(object):
         self.Jform_prev = fd.derivative(self.aaos.aao_form,
                                         self.aaos.w_recv)
 
-    @profile
     @PETSc.Log.EventDecorator()
+    @memprofile
     def mult(self, mat, X, Y):
 
         self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
@@ -74,7 +74,7 @@ class JacobianMatrix(object):
 
 
 class AllAtOnceSystem(object):
-    @profile
+    @memprofile
     def __init__(self,
                  ensemble, time_partition,
                  dt, theta,
@@ -249,6 +249,7 @@ class AllAtOnceSystem(object):
             return i*self.ncomponents + cpt
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def set_component(self, step, cpt, wnew, index_range='slice', f_alls=None):
         '''
         Set component of solution at a timestep to new value
@@ -268,6 +269,7 @@ class AllAtOnceSystem(object):
         f_alls[aao_index].assign(wnew)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def get_component(self, step, cpt, index_range='slice', wout=None, name=None, f_alls=None, deepcopy=False):
         '''
         Get component of solution at a timestep
@@ -315,6 +317,7 @@ class AllAtOnceSystem(object):
                      for cpt in range(self.ncomponents))
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def set_field(self, step, wnew, index_range='slice', f_alls=None):
         '''
         Set solution at a timestep to new value
@@ -329,6 +332,7 @@ class AllAtOnceSystem(object):
                                index_range=index_range, f_alls=f_alls)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def get_field(self, step, index_range='slice', wout=None, name=None, f_alls=None):
         '''
         Get solution at a timestep
@@ -368,6 +372,7 @@ class AllAtOnceSystem(object):
             callback(window_index, slice_index, w)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def next_window(self, w1=None):
         """
         Reset all-at-once-system ready for next time-window
@@ -395,6 +400,7 @@ class AllAtOnceSystem(object):
         return
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def update_time_halos(self, wsend=None, wrecv=None, walls=None, blocking=True):
         '''
         Update wrecv with the last step from the previous slice (periodic) of walls
@@ -435,6 +441,7 @@ class AllAtOnceSystem(object):
             return mpi_requests
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def update(self, X, wall=None, wsend=None, wrecv=None, blocking=True):
         '''
         Update self.w_alls and self.w_recv from PETSc Vec X.
@@ -454,8 +461,8 @@ class AllAtOnceSystem(object):
 
         return self.update_time_halos(wsend=wsend, wrecv=wrecv, walls=wall.split(), blocking=True)
 
-    @profile
     @PETSc.Log.EventDecorator()
+    @memprofile
     def _assemble_function(self, snes, X, Fvec):
         r"""
         This is the function we pass to the snes to assemble
@@ -478,7 +485,6 @@ class AllAtOnceSystem(object):
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
 
-    @profile
     def _set_aao_form(self):
         """
         Constructs the bilinear form for the all at once system.
