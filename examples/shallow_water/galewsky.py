@@ -103,11 +103,18 @@ sparameters_diag = {
         'converged_reason': None,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfft_mass': {
+        'mat_type': 'matfree',
+        'ksp_type': 'cg',
+        'pc_type': 'jacobi',
+    }
 }
 
-for i in range(sum(time_partition)):
-    sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
+# all blocks use the same options until PETSc changes their hard-coded limit
+sparameters_diag['diagfft_block_'] = sparameters
+# for i in range(sum(time_partition)):
+#     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
@@ -196,7 +203,6 @@ if args.nwindows == 0:
 miniapp.solve(nwindows=args.nwindows,
               preproc=window_preproc,
               postproc=window_postproc)
-
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
