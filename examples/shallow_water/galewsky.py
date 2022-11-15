@@ -67,7 +67,7 @@ sparameters = {
                 'pc_patch_save_operators': True,
                 'pc_patch_partition_of_unity': True,
                 'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_codim': 0,
+                'pc_patch_construct_dim': 0,
                 'pc_patch_construct_type': 'vanka',
                 'pc_patch_local_type': 'additive',
                 'pc_patch_precompute_element_tensors': True,
@@ -94,6 +94,7 @@ sparameters_diag = {
         'atol': 1e-0,
         'rtol': 1e-12,
         'stol': 1e-12,
+        'max_its': 1
     },
     'mat_type': 'matfree',
     'ksp_type': 'preonly',
@@ -102,15 +103,23 @@ sparameters_diag = {
         'converged_reason': None,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfft_mass': {
+        'mat_type': 'matfree',
+        'ksp_type': 'cg',
+        'pc_type': 'jacobi',
+    }
 }
 
-for i in range(sum(time_partition)):
-    sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
+# all blocks use the same options until PETSc changes their hard-coded limit
+sparameters_diag['diagfft_block_'] = sparameters
+# for i in range(sum(time_partition)):
+#     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
-    ref_level=args.ref_level)
+    ref_level=args.ref_level,
+    coords_degree=1)
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
@@ -194,7 +203,6 @@ if args.nwindows == 0:
 miniapp.solve(nwindows=args.nwindows,
               preproc=window_preproc,
               postproc=window_postproc)
-
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')

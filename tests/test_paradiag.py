@@ -70,7 +70,8 @@ def test_williamson5_timeseries():
         'ksp_type': 'gmres',
         'ksp_max_it': 10,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'}
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
 
     # list of serial timesteps
 
@@ -209,7 +210,8 @@ def test_steady_swe():
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'}
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
 
     M = [2, 2]
     for i in range(np.sum(M)):
@@ -679,7 +681,8 @@ def test_solve_para_form(bc_opt, extruded):
         'ksp_type': 'gmres',
         'ksp_monitor': None,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'}
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
 
     for i in range(np.sum(M)):
         solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
@@ -814,7 +817,8 @@ def test_solve_para_form_mixed(extruded):
         'ksp_type': 'gmres',
         'ksp_monitor': None,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'}
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
 
     for i in range(np.sum(M)):
         solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters

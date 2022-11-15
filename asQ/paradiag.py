@@ -2,6 +2,7 @@ import firedrake as fd
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
+from .profiling import memprofile
 
 from asQ.allatoncesystem import AllAtOnceSystem
 
@@ -35,6 +36,7 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
 
 
 class paradiag(object):
+    @memprofile
     def __init__(self, ensemble,
                  form_function, form_mass, w0, dt, theta,
                  alpha, time_partition, bcs=[],
@@ -135,6 +137,8 @@ class paradiag(object):
         # complete the snes setup
         self.opts.set_from_options(self.snes)
 
+    @PETSc.Log.EventDecorator()
+    @memprofile
     def solve(self,
               nwindows=1,
               preproc=lambda pdg, w: None,

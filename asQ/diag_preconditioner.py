@@ -8,6 +8,7 @@ from operator import mul
 from functools import reduce
 import importlib
 from ufl.classes import MultiIndex, FixedIndex, Indexed
+from .profiling import memprofile
 
 
 class DiagFFTPC(object):
@@ -19,12 +20,14 @@ class DiagFFTPC(object):
         """
         self.initialized = False
 
+    @memprofile
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
 
+    @memprofile
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -140,7 +143,6 @@ class DiagFFTPC(object):
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
             self.ureduce = fd.Function(self.blockV)
-            self.ubuf = fd.Function(self.blockV)
             self.ureduceC = fd.Function(self.CblockV)
 
         # extract the real and imaginary parts
@@ -209,8 +211,16 @@ class DiagFFTPC(object):
         self.xtemp = fd.Function(self.CblockV)
         v = fd.TestFunction(self.CblockV)
         u = fd.TrialFunction(self.CblockV)
-        a = fd.assemble(fd.inner(u, v)*fd.dx)
-        self.Proj = fd.LinearSolver(a, options_prefix=self.prefix+"mass_")
+        # a = fd.assemble(fd.inner(u, v)*fd.dx)
+        a = fd.assemble(fd.inner(u, v)*fd.dx, mat_type='matfree')
+        # default parameters for the mass solve
+        riesz_parameters = {
+            'mat_type': 'matfree',
+            'ksp_type': 'cg',
+            'pc_type': 'jacobi',
+        }
+        self.Proj = fd.LinearSolver(a, solver_parameters=riesz_parameters,
+                                    options_prefix=self.prefix+"mass_")
 
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system
@@ -265,7 +275,11 @@ class DiagFFTPC(object):
             v = fd.TestFunction(self.CblockV)
             L = fd.inner(v, self.Jprob_in)*fd.dx
 
-            block_prefix = self.prefix+str(ii)+'_'
+            # PETSc has hard-coded limit of 512 options per manager
+            # Having different options for each block can easily reach this limit
+            # Switched to using the same options for all blocks until this is fixed in PETSc
+            # block_prefix = self.prefix+str(ii)+'_'
+            block_prefix = self.prefix+'block_'
             jprob = fd.LinearVariationalProblem(A, L, self.Jprob_out,
                                                 bcs=self.CblockV_bcs)
             Jsolver = fd.LinearVariationalSolver(jprob,
@@ -303,6 +317,7 @@ class DiagFFTPC(object):
                 self.CblockV_bcs.append(all_bc)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def update(self, pc):
         '''
         we need to update u0 from w_all, containing state.
@@ -334,6 +349,7 @@ class DiagFFTPC(object):
             self.u0 /= sum(self.time_partition)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
