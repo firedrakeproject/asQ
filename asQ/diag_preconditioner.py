@@ -208,18 +208,21 @@ class DiagFFTPC(object):
 
         # setting up the Riesz map
         # input for the Riesz map
+        default_riesz_parameters = {
+            'mat_type': 'aij',
+            'ksp_type': 'cg',
+            'pc_type': 'pbjacobi',
+        }
+        riesz_mat_type = PETSc.Options().getString(
+            f"{prefix}{self.prefix}mass_mat_type",
+            default=default_riesz_parameters['mat_type'])
+
         self.xtemp = fd.Function(self.CblockV)
         v = fd.TestFunction(self.CblockV)
         u = fd.TrialFunction(self.CblockV)
-        # a = fd.assemble(fd.inner(u, v)*fd.dx)
-        a = fd.assemble(fd.inner(u, v)*fd.dx, mat_type='matfree')
-        # default parameters for the mass solve
-        riesz_parameters = {
-            'mat_type': 'matfree',
-            'ksp_type': 'cg',
-            'pc_type': 'jacobi',
-        }
-        self.Proj = fd.LinearSolver(a, solver_parameters=riesz_parameters,
+
+        a = fd.assemble(fd.inner(u, v)*fd.dx, mat_type=riesz_mat_type)
+        self.Proj = fd.LinearSolver(a, solver_parameters=default_riesz_parameters,
                                     options_prefix=self.prefix+"mass_")
 
         # building the Jacobian of the nonlinear term
