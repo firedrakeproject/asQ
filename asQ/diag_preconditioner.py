@@ -211,7 +211,14 @@ class DiagFFTPC(object):
         u = fd.TrialFunction(self.CblockV)
         # a = fd.assemble(fd.inner(u, v)*fd.dx)
         a = fd.assemble(fd.inner(u, v)*fd.dx, mat_type='matfree')
-        self.Proj = fd.LinearSolver(a, options_prefix=self.prefix+"mass_")
+        # default parameters for the mass solve
+        riesz_parameters = {
+            'mat_type': 'matfree',
+            'ksp_type': 'cg',
+            'pc_type': 'jacobi',
+        }
+        self.Proj = fd.LinearSolver(a, solver_parameters=riesz_parameters,
+                                    options_prefix=self.prefix+"mass_")
 
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system

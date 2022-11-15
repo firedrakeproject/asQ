@@ -71,11 +71,6 @@ def test_williamson5_timeseries():
         'ksp_max_it': 10,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft_mass': {
-            'mat_type': 'matfree',
-            'ksp_type': 'cg',
-            'pc_type': 'jacobi',
-        }
     }
 
     # list of serial timesteps
@@ -216,11 +211,6 @@ def test_steady_swe():
         'ksp_type': 'gmres',
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft_mass': {
-            'mat_type': 'matfree',
-            'ksp_type': 'cg',
-            'pc_type': 'jacobi',
-        }
     }
 
     M = [2, 2]
@@ -692,11 +682,6 @@ def test_solve_para_form(bc_opt, extruded):
         'ksp_monitor': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft_mass': {
-            'mat_type': 'matfree',
-            'ksp_type': 'cg',
-            'pc_type': 'jacobi',
-        }
     }
 
     for i in range(np.sum(M)):
@@ -833,11 +818,6 @@ def test_solve_para_form_mixed(extruded):
         'ksp_monitor': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft_mass': {
-            'mat_type': 'matfree',
-            'ksp_type': 'cg',
-            'pc_type': 'jacobi',
-        }
     }
 
     for i in range(np.sum(M)):
