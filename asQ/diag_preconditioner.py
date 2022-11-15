@@ -20,6 +20,7 @@ class DiagFFTPC(object):
         """
         self.initialized = False
 
+    @memprofile
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
@@ -83,8 +84,8 @@ class DiagFFTPC(object):
         assert (self.blockV.dim()*partition[time_rank] == W_all.dim())
 
         # Input/Output wrapper Functions
-        self.xf = fd.Function(W_all).assign(0)  # input
-        self.yf = fd.Function(W_all).assign(0)  # output
+        self.xf = fd.Function(W_all)  # input
+        self.yf = fd.Function(W_all)  # output
 
         # Gamma coefficients
         self.Nt = np.sum(partition)
@@ -136,13 +137,13 @@ class DiagFFTPC(object):
         # Now need to build the block solver
         vs = fd.TestFunctions(self.CblockV)
         uts = fd.TrialFunctions(self.CblockV)
-        self.u0 = fd.Function(self.CblockV).assign(0)  # we will create a linearisation
+        self.u0 = fd.Function(self.CblockV)  # we will create a linearisation
         us = fd.split(self.u0)
 
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
-            self.ureduce = fd.Function(self.blockV).assign(0)
-            self.ureduceC = fd.Function(self.CblockV).assign(0)
+            self.ureduce = fd.Function(self.blockV)
+            self.ureduceC = fd.Function(self.CblockV)
 
         # extract the real and imaginary parts
         vsr = []
@@ -176,12 +177,12 @@ class DiagFFTPC(object):
             utsi.append(uts[1])
 
         # input and output functions
-        self.Jprob_in = fd.Function(self.CblockV).assign(0)
-        self.Jprob_out = fd.Function(self.CblockV).assign(0)
+        self.Jprob_in = fd.Function(self.CblockV)
+        self.Jprob_out = fd.Function(self.CblockV)
 
         # A place to store all the inputs to the block problems
-        self.xfi = fd.Function(W_all).assign(0)
-        self.xfr = fd.Function(W_all).assign(0)
+        self.xfi = fd.Function(W_all)
+        self.xfr = fd.Function(W_all)
 
         #  Building the nonlinear operator
         self.Jsolvers = []
@@ -207,7 +208,7 @@ class DiagFFTPC(object):
 
         # setting up the Riesz map
         # input for the Riesz map
-        self.xtemp = fd.Function(self.CblockV).assign(0)
+        self.xtemp = fd.Function(self.CblockV)
         v = fd.TestFunction(self.CblockV)
         u = fd.TrialFunction(self.CblockV)
         a = fd.assemble(fd.inner(u, v)*fd.dx)

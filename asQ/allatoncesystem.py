@@ -14,14 +14,14 @@ class JacobianMatrix(object):
         :param aaos: The AllAtOnceSystem object
         """
         self.aaos = aaos
-        self.u = fd.Function(self.aaos.function_space_all).assign(0)  # for the input function
-        self.F = fd.Function(self.aaos.function_space_all).assign(0)  # for the output residual
-        self.F_prev = fd.Function(self.aaos.function_space_all).assign(0)  # Where we compute the
+        self.u = fd.Function(self.aaos.function_space_all)  # for the input function
+        self.F = fd.Function(self.aaos.function_space_all)  # for the output residual
+        self.F_prev = fd.Function(self.aaos.function_space_all)  # Where we compute the
         # part of the output residual from neighbouring contributions
-        self.u0 = fd.Function(self.aaos.function_space_all).assign(0)  # Where we keep the state
+        self.u0 = fd.Function(self.aaos.function_space_all)  # Where we keep the state
 
-        self.Fsingle = fd.Function(self.aaos.function_space).assign(0)
-        self.urecv = fd.Function(self.aaos.function_space).assign(0)  # will contain the previous time value i.e. 3*r-1
+        self.Fsingle = fd.Function(self.aaos.function_space)
+        self.urecv = fd.Function(self.aaos.function_space)  # will contain the previous time value i.e. 3*r-1
         self.ualls = self.u.split()
         # Jform missing contributions from the previous step
         # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
@@ -128,7 +128,7 @@ class AllAtOnceSystem(object):
         self.function_space_all = reduce(mul, (self.function_space
                                                for _ in range(self.nlocal_timesteps)))
 
-        self.w_all = fd.Function(self.function_space_all).assign(0)
+        self.w_all = fd.Function(self.function_space_all)
         self.w_alls = self.w_all.split()
 
         for i in range(self.nlocal_timesteps):
@@ -140,13 +140,13 @@ class AllAtOnceSystem(object):
             bc.apply(self.w_all)
 
         # function to assemble the nonlinear residual
-        self.F_all = fd.Function(self.function_space_all).assign(0)
+        self.F_all = fd.Function(self.function_space_all)
 
         # functions containing the last and next steps for parallel
         # communication timestep
         # from the previous iteration
-        self.w_recv = fd.Function(self.function_space).assign(0)
-        self.w_send = fd.Function(self.function_space).assign(0)
+        self.w_recv = fd.Function(self.function_space)
+        self.w_send = fd.Function(self.function_space)
 
         self._set_aao_form()
         self.jacobian = JacobianMatrix(self)
@@ -249,7 +249,6 @@ class AllAtOnceSystem(object):
             return i*self.ncomponents + cpt
 
     @PETSc.Log.EventDecorator()
-    @memprofile
     def set_component(self, step, cpt, wnew, index_range='slice', f_alls=None):
         '''
         Set component of solution at a timestep to new value
@@ -269,7 +268,6 @@ class AllAtOnceSystem(object):
         f_alls[aao_index].assign(wnew)
 
     @PETSc.Log.EventDecorator()
-    @memprofile
     def get_component(self, step, cpt, index_range='slice', wout=None, name=None, f_alls=None, deepcopy=False):
         '''
         Get component of solution at a timestep
@@ -317,7 +315,6 @@ class AllAtOnceSystem(object):
                      for cpt in range(self.ncomponents))
 
     @PETSc.Log.EventDecorator()
-    @memprofile
     def set_field(self, step, wnew, index_range='slice', f_alls=None):
         '''
         Set solution at a timestep to new value
@@ -332,7 +329,6 @@ class AllAtOnceSystem(object):
                                index_range=index_range, f_alls=f_alls)
 
     @PETSc.Log.EventDecorator()
-    @memprofile
     def get_field(self, step, index_range='slice', wout=None, name=None, f_alls=None):
         '''
         Get solution at a timestep
@@ -372,7 +368,6 @@ class AllAtOnceSystem(object):
             callback(window_index, slice_index, w)
 
     @PETSc.Log.EventDecorator()
-    @memprofile
     def next_window(self, w1=None):
         """
         Reset all-at-once-system ready for next time-window
@@ -400,7 +395,6 @@ class AllAtOnceSystem(object):
         return
 
     @PETSc.Log.EventDecorator()
-    @memprofile
     def update_time_halos(self, wsend=None, wrecv=None, walls=None, blocking=True):
         '''
         Update wrecv with the last step from the previous slice (periodic) of walls
@@ -441,7 +435,6 @@ class AllAtOnceSystem(object):
             return mpi_requests
 
     @PETSc.Log.EventDecorator()
-    @memprofile
     def update(self, X, wall=None, wsend=None, wrecv=None, blocking=True):
         '''
         Update self.w_alls and self.w_recv from PETSc Vec X.
