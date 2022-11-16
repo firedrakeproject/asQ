@@ -270,6 +270,7 @@ def parallel_solve(base_level=1,
 
     block_ctx['diag_transfer_managers'] = transfer_managers
 
+    PETSc.Sys.Print("setting up paradiag")
     PD = asQ.paradiag(ensemble=ensemble,
                       form_function=form_function,
                       form_mass=form_mass, w0=w0,
@@ -286,6 +287,7 @@ def parallel_solve(base_level=1,
     wp = fd.Function(W)
     up, hp = wp.split()
 
+    PETSc.Sys.Print("paradiag solve:")
     for w in range(nwindows):
         if verbose:
             PETSc.Sys.Print('')
