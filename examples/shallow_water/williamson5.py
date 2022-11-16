@@ -91,8 +91,10 @@ sparameters_diag = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
-for i in range(sum(time_partition)):
-    sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
+# all blocks use the same options until PETSc changes their hard-coded limit
+sparameters_diag['diagfft_block_'] = sparameters
+# for i in range(sum(time_partition)):
+#     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,

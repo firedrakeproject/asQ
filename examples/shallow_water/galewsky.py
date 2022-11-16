@@ -103,12 +103,7 @@ sparameters_diag = {
         'converged_reason': None,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_mass': {
-        'mat_type': 'matfree',
-        'ksp_type': 'cg',
-        'pc_type': 'jacobi',
-    }
+    'pc_python_type': 'asQ.DiagFFTPC'
 }
 
 # all blocks use the same options until PETSc changes their hard-coded limit

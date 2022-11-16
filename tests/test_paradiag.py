@@ -210,12 +210,14 @@ def test_steady_swe():
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.DiagFFTPC'
     }
 
     M = [2, 2]
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
+    # all blocks use the same options until PETSc changes their hard-coded limit
+    solver_parameters_diag['diagfft_block_'] = sparameters
+    # for i in range(np.sum(M)):
+    #     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
     dt = 0.2*units.hour
 
@@ -229,7 +231,7 @@ def test_steady_swe():
                       alpha=alpha,
                       time_partition=M, solver_parameters=solver_parameters_diag,
                       circ=None, tol=1.0e-6, maxits=None,
-                      ctx={}, block_mat_type="aij")
+                      ctx={})
     PD.solve()
 
     # check against initial conditions
@@ -684,8 +686,10 @@ def test_solve_para_form(bc_opt, extruded):
         'pc_python_type': 'asQ.DiagFFTPC',
     }
 
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
+    # all blocks use the same options until PETSc changes their hard-coded limit
+    solver_parameters_diag['diagfft_block_'] = sparameters
+    # for i in range(np.sum(M)):
+    #     solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
 
     def form_function(u, v):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
@@ -820,8 +824,10 @@ def test_solve_para_form_mixed(extruded):
         'pc_python_type': 'asQ.DiagFFTPC',
     }
 
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
+    # all blocks use the same options until PETSc changes their hard-coded limit
+    solver_parameters_diag['diagfft_block_'] = sparameters
+    # for i in range(np.sum(M)):
+    #     solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
 
     def form_function(uu, up, vu, vp):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
