@@ -207,9 +207,15 @@ class DiagFFTPC(object):
         # setting up the Riesz map
         # input for the Riesz map
         default_riesz_parameters = {
-            'mat_type': 'aij',
             'ksp_type': 'cg',
-            'pc_type': 'pbjacobi',
+            'mat_type': 'nest',
+            'pc_type': 'fieldsplit',
+            'pc_field_split_type': 'symmetric_multiplicative',
+            'fieldsplit': {
+                'ksp_type': 'cg',
+                'mat_type': 'matfree',
+                'pc_type': 'jacobi'
+            }
         }
         riesz_mat_type = PETSc.Options().getString(
             f"{prefix}{self.prefix}mass_mat_type",
