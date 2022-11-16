@@ -72,10 +72,6 @@ u_initial, h_initial = w_initial.split()
 u_initial.project(galewsky.velocity_expression(*x))
 h_initial.project(galewsky.depth_expression(*x))
 
-# current and next timestep
-w0 = fd.Function(W).assign(w_initial)
-w1 = fd.Function(W).assign(w_initial)
-
 
 # shallow water equation forms
 def form_function(u, h, v, q):
