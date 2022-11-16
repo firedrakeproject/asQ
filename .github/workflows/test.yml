@@ -33,6 +33,7 @@ jobs:
         run: |
           . /home/firedrake/firedrake/bin/activate
           python -m pip install pytest-timeout
+          python -m pip install pytest-cov
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
@@ -47,4 +48,4 @@ jobs:
         run: |
           . /home/firedrake/firedrake/bin/activate
           export OMP_NUM_THREADS=1
-          python -m pytest -vvv -s --durations=0 tests --timeout=300 -k "timeseries"
+          python -m pytest -vvv -s --durations=0 --timeout=300 --cov=asQ tests/ -k "timeseries"
