@@ -8,6 +8,7 @@ on:
   # And all pull requests
   pull_request:
 
+
 jobs:
   build:
     name: "Build and test asQ"
@@ -17,7 +18,7 @@ jobs:
     # The docker container to use.
     container:
       image: firedrakeproject/firedrake-vanilla:latest
-   env:
+    env:
       ASQ_CI_TESTS: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
