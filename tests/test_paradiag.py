@@ -214,8 +214,10 @@ def test_steady_swe():
     }
 
     M = [2, 2]
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
+    # all blocks use the same options until PETSc changes their hard-coded limit
+    sparameters_diag['diagfft_block_'] = sparameters
+    # for i in range(np.sum(M)):
+    #     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
     dt = 0.2*units.hour
 
@@ -684,8 +686,10 @@ def test_solve_para_form(bc_opt, extruded):
         'pc_python_type': 'asQ.DiagFFTPC',
     }
 
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
+    # all blocks use the same options until PETSc changes their hard-coded limit
+    sparameters_diag['diagfft_block_'] = sparameters
+    # for i in range(np.sum(M)):
+    #     solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
 
     def form_function(u, v):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
@@ -820,8 +824,10 @@ def test_solve_para_form_mixed(extruded):
         'pc_python_type': 'asQ.DiagFFTPC',
     }
 
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
+    # all blocks use the same options until PETSc changes their hard-coded limit
+    sparameters_diag['diagfft_block_'] = sparameters
+    # for i in range(np.sum(M)):
+    #     solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
 
     def form_function(uu, up, vu, vp):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)

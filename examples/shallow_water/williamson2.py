@@ -141,8 +141,10 @@ sparameters_diag = {
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 PETSc.Sys.Print('')
 
-for i in range(sum(time_partition)):
-    sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
+# all blocks use the same options until PETSc changes their hard-coded limit
+sparameters_diag['diagfft_block_'] = sparameters
+# for i in range(sum(time_partition)):
+#     sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
 
 # non-petsc information for block solve
 block_ctx = {}
