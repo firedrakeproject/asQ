@@ -207,28 +207,45 @@ class DiagFFTPC(object):
         self.transfer = self.p0.transfer(self.p1, complex)
 
         # setting up the Riesz map
-        # input for the Riesz map
-        default_riesz_parameters = {
-            'ksp_type': 'preonly',
-            'mat_type': 'nest',
-            'pc_type': 'fieldsplit',
-            'pc_field_split_type': 'additive',
-            'fieldsplit': {
-                'ksp_type': 'cg',
-                'mat_type': 'matfree',
-                'pc_type': 'icc',
-                'pc_factor_levels': 0
-            }
+        # pbjacobi solves for real and imaginary part of each DoF together
+        # because the block size for a 2-dim VectorElement is 2
+        default_riesz_method = {
+            'ksp_type': 'cg',
+            'mat_type': 'baij',
+            'pc_type': 'pbjacobi'
         }
+
+        # mixed mass matrices are decoupled so solve seperately
+        if isinstance(Ve, fd.MixedElement):
+            default_riesz_parameters = {
+                'ksp_type': 'preonly',
+                'mat_type': 'nest',
+                'pc_type': 'fieldsplit',
+                'pc_field_split_type': 'additive',
+                'fieldsplit': default_riesz_method
+            }
+        else:
+            default_riesz_parameters = default_riesz_method
+
+        # we need to pass the mat_types to assemble directly because
+        # it won't pick them up from Options
         riesz_mat_type = PETSc.Options().getString(
             f"{prefix}{self.prefix}mass_mat_type",
             default=default_riesz_parameters['mat_type'])
 
+        riesz_sub_mat_type = PETSc.Options().getString(
+            f"{prefix}{self.prefix}mass_fieldsplit_mat_type",
+            default=default_riesz_method['mat_type'])
+
+        # input for the Riesz map
         self.xtemp = fd.Function(self.CblockV)
         v = fd.TestFunction(self.CblockV)
         u = fd.TrialFunction(self.CblockV)
 
-        a = fd.assemble(fd.inner(u, v)*fd.dx, mat_type=riesz_mat_type)
+        a = fd.assemble(fd.inner(u, v)*fd.dx,
+                        mat_type=riesz_mat_type,
+                        sub_mat_type=riesz_sub_mat_type)
+
         self.Proj = fd.LinearSolver(a, solver_parameters=default_riesz_parameters,
                                     options_prefix=self.prefix+"mass_")
 

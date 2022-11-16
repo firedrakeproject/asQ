@@ -45,7 +45,7 @@ def test_williamson5_timeseries():
         "mg_levels_patch_pc_patch_save_operators": True,
         "mg_levels_patch_pc_patch_partition_of_unity": True,
         "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
-        "mg_levels_patch_pc_patch_construct_codim": 0,
+        "mg_levels_patch_pc_patch_construct_dim": 0,
         "mg_levels_patch_pc_patch_construct_type": "vanka",
         "mg_levels_patch_pc_patch_local_type": "additive",
         "mg_levels_patch_pc_patch_precompute_element_tensors": True,
@@ -210,12 +210,12 @@ def test_steady_swe():
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.DiagFFTPC'
     }
 
     M = [2, 2]
     # all blocks use the same options until PETSc changes their hard-coded limit
-    sparameters_diag['diagfft_block_'] = sparameters
+    solver_parameters_diag['diagfft_block_'] = sparameters
     # for i in range(np.sum(M)):
     #     solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
 
@@ -231,7 +231,7 @@ def test_steady_swe():
                       alpha=alpha,
                       time_partition=M, solver_parameters=solver_parameters_diag,
                       circ=None, tol=1.0e-6, maxits=None,
-                      ctx={}, block_mat_type="aij")
+                      ctx={})
     PD.solve()
 
     # check against initial conditions
@@ -687,7 +687,7 @@ def test_solve_para_form(bc_opt, extruded):
     }
 
     # all blocks use the same options until PETSc changes their hard-coded limit
-    sparameters_diag['diagfft_block_'] = sparameters
+    solver_parameters_diag['diagfft_block_'] = sparameters
     # for i in range(np.sum(M)):
     #     solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
 
@@ -825,7 +825,7 @@ def test_solve_para_form_mixed(extruded):
     }
 
     # all blocks use the same options until PETSc changes their hard-coded limit
-    sparameters_diag['diagfft_block_'] = sparameters
+    solver_parameters_diag['diagfft_block_'] = sparameters
     # for i in range(np.sum(M)):
     #     solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
 

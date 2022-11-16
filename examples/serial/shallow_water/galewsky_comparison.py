@@ -199,7 +199,7 @@ parallel_sparameters = {
 }
 
 # all blocks use the same options until PETSc changes their hard-coded limit
-sparameters_diag['diagfft_block_'] = sparameters
+parallel_sparameters['diagfft_block_'] = block_sparameters
 # for i in range(sum(time_partition)):
 #     parallel_sparameters['diagfft_'+str(i)+'_'] = block_sparameters
 
