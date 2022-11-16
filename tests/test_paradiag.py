@@ -15,6 +15,7 @@ def test_galewsky_timeseries():
     import utils.shallow_water as swe
     from utils.shallow_water import galewsky
     from utils.serial import ComparisonMiniapp
+    from copy import deepcopy
 
     ref_level = 2
     nwindows = 1
@@ -129,7 +130,7 @@ def test_galewsky_timeseries():
     serial_sparameters = {
         'snes': snes_sparameters
     }
-    serial_sparameters.update(block_sparameters)
+    serial_sparameters.update(deepcopy(block_sparameters))
     serial_sparameters['ksp']['monitor'] = None
     serial_sparameters['ksp']['converged_reason'] = None
 
@@ -137,7 +138,7 @@ def test_galewsky_timeseries():
     parallel_sparameters = {
         'snes': snes_sparameters,
         'mat_type': 'matfree',
-        'ksp_type': 'fgmres',
+        'ksp_type': 'preonly',
         'ksp': {
             'monitor': None,
             'converged_reason': None,
