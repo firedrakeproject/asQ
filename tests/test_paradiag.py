@@ -8,143 +8,195 @@ from operator import mul
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_williamson5_timeseries():
-    from utils.shallow_water.verifications.williamson5 import serial_solve, parallel_solve
+def test_galewsky_timeseries():
+    from utils import units
+    from utils import mg
+    from utils.planets import earth
+    import utils.shallow_water as swe
+    from utils.shallow_water import galewsky
+    from utils.serial import ComparisonMiniapp
+    from copy import deepcopy
 
-    # test parameters
-    M = [2, 2]
-    nsteps = sum(M)
-    nspatial_domains = 2
-
-    base_level = 1
     ref_level = 2
-    dt = 0.05
-    coords_degree = 1
-    degree = 1
+    nwindows = 1
+    nslices = 2
+    slice_length = 2
     alpha = 0.0001
+    dt = 0.5
+    theta = 0.5
+    degree = swe.default_degree()
 
-    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-    r = ensemble.ensemble_comm.rank
+    time_partition = [slice_length for _ in range(nslices)]
 
-    # block solver options
-    sparameters = {
-        'snes_monitor': None,
-        'ksp_monitor': None,
-        'snes_converged_reason': None,
-        'ksp_converged_reason': None,
-        "mat_type": "matfree",
-        "ksp_type": "fgmres",
-        "ksp_max_it": 400,
-        "pc_type": "mg",
-        "pc_mg_cycle_type": "v",
-        "pc_mg_type": "multiplicative",
-        "mg_levels_ksp_type": "gmres",
-        "mg_levels_ksp_max_it": 3,
-        "mg_levels_pc_type": "python",
-        "mg_levels_pc_python_type": "firedrake.PatchPC",
-        "mg_levels_patch_pc_patch_save_operators": True,
-        "mg_levels_patch_pc_patch_partition_of_unity": True,
-        "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
-        "mg_levels_patch_pc_patch_construct_dim": 0,
-        "mg_levels_patch_pc_patch_construct_type": "vanka",
-        "mg_levels_patch_pc_patch_local_type": "additive",
-        "mg_levels_patch_pc_patch_precompute_element_tensors": True,
-        "mg_levels_patch_pc_patch_symmetrise_sweep": False,
-        "mg_levels_patch_sub_ksp_type": "preonly",
-        "mg_levels_patch_sub_pc_type": "lu",
-        "mg_levels_patch_sub_pc_factor_shift_type": "nonzero",
-        "mg_coarse_pc_type": "python",
-        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-        "mg_coarse_assembled_pc_type": "lu",
-        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
+    dt = dt*units.hour
+
+    ensemble = asQ.create_ensemble(time_partition)
+
+    # icosahedral mg mesh
+    mesh = swe.create_mg_globe_mesh(ref_level=ref_level,
+                                    comm=ensemble.comm,
+                                    coords_degree=1)
+    x = fd.SpatialCoordinate(mesh)
+
+    # shallow water equation function spaces (velocity and depth)
+    W = swe.default_function_space(mesh, degree=degree)
+
+    # parameters
+    gravity = earth.Gravity
+
+    topography = galewsky.topography_expression(*x)
+    coriolis = swe.earth_coriolis_expression(*x)
+
+    # initial conditions
+    w_initial = fd.Function(W)
+    u_initial, h_initial = w_initial.split()
+
+    u_initial.project(galewsky.velocity_expression(*x))
+    h_initial.project(galewsky.depth_expression(*x))
+
+    # shallow water equation forms
+    def form_function(u, h, v, q):
+        return swe.nonlinear.form_function(mesh,
+                                           gravity,
+                                           topography,
+                                           coriolis,
+                                           u, h, v, q)
+
+    def form_mass(u, h, v, q):
+        return swe.nonlinear.form_mass(mesh, u, h, v, q)
+
+    # vanka patch smoother
+    patch_parameters = {
+        'pc_patch': {
+            'save_operators': True,
+            'partition_of_unity': True,
+            'sub_mat_type': 'seqdense',
+            'construct_dim': 0,
+            'construct_type': 'vanka',
+            'local_type': 'additive',
+            'precompute_element_tensors': True,
+            'symmetrise_sweep': False,
+        },
+        'sub': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor_shift_type': 'nonzero',
+        }
     }
 
-    # paradiag solver options
-    sparameters_diag = {
-        'snes_monitor': None,
-        'ksp_monitor': None,
-        'snes_converged_reason': None,
-        'ksp_converged_reason': None,
-        'snes_linesearch_type': 'basic',
+    # mg with patch smoother
+    mg_parameters = {
+        'levels': {
+            'ksp_type': 'gmres',
+            'ksp_max_it': 5,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.PatchPC',
+            'patch': patch_parameters
+        },
+        'coarse': {
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled_pc_type': 'lu',
+            'assembled_pc_factor_mat_solver_type': 'mumps',
+        }
+    }
+
+    # parameters for the implicit solves at:
+    #   each Newton iteration of serial method
+    #   each diagonal block solve in step-(b) of parallel method
+    block_sparameters = {
         'mat_type': 'matfree',
-        'ksp_type': 'gmres',
-        'ksp_max_it': 10,
+        'ksp_type': 'fgmres',
+        'ksp': {
+            'atol': 1e-5,
+            'rtol': 1e-5,
+        },
+        'pc_type': 'mg',
+        'pc_mg_cycle_type': 'v',
+        'pc_mg_type': 'multiplicative',
+        'mg': mg_parameters
+    }
+
+    # nonlinear solver options
+    snes_sparameters = {
+        'monitor': None,
+        'converged_reason': None,
+        'atol': 1e-0,
+        'rtol': 1e-12,
+        'stol': 1e-12,
+    }
+
+    # solver parameters for serial method
+    serial_sparameters = {
+        'snes': snes_sparameters
+    }
+    serial_sparameters.update(deepcopy(block_sparameters))
+    serial_sparameters['ksp']['monitor'] = None
+    serial_sparameters['ksp']['converged_reason'] = None
+
+    # solver parameters for parallel method
+    parallel_sparameters = {
+        'snes': snes_sparameters,
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'ksp': {
+            'monitor': None,
+            'converged_reason': None,
+        },
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
+        'diagfft_block': block_sparameters
     }
 
-    # list of serial timesteps
+    block_ctx = {}
+    transfer_managers = []
+    for _ in range(time_partition[ensemble.ensemble_comm.rank]):
+        tm = mg.manifold_transfer_manager(W)
+        transfer_managers.append(tm)
+    block_ctx['diag_transfer_managers'] = transfer_managers
 
-    PETSc.Sys.Print("serial solve")
-    wserial = serial_solve(base_level=base_level,
-                           ref_level=ref_level,
-                           tmax=nsteps,
-                           dumpt=1,
-                           dt=dt,
-                           coords_degree=coords_degree,
-                           degree=degree,
-                           sparameters=sparameters,
-                           comm=ensemble.comm,
-                           verbose=False)
+    miniapp = ComparisonMiniapp(ensemble, time_partition,
+                                form_mass,
+                                form_function,
+                                w_initial,
+                                dt, theta, alpha,
+                                serial_sparameters,
+                                parallel_sparameters,
+                                circ=None, block_ctx=block_ctx)
 
-    # only keep the timesteps on the current time-slice
-    timestep_start = sum(M[:r])
-    timestep_end = timestep_start + M[r]
+    miniapp.serial_app.nlsolver.set_transfer_manager(
+        mg.manifold_transfer_manager(W))
 
-    wserial = wserial[timestep_start:timestep_end]
+    norm0 = fd.norm(w_initial)
 
-    # list of parallel timesteps
+    def preproc(serial_app, paradiag, wndw):
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print(f'### === --- Time window {wndw} --- === ###')
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print('=== --- Parallel solve --- ===')
+        PETSc.Sys.Print('')
 
-    # block solve is linear for parallel solution
-    sparameters['ksp_type'] = 'preonly'
-    del sparameters['snes_monitor']
-    del sparameters['ksp_monitor']
-    del sparameters['snes_converged_reason']
-    del sparameters['ksp_converged_reason']
+    def parallel_postproc(pdg, wndw):
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print('=== --- Serial solve --- ===')
+        PETSc.Sys.Print('')
+        return
 
-    PETSc.Sys.Print("parallel solve")
-    wparallel = parallel_solve(base_level=base_level,
-                               ref_level=ref_level,
-                               M=M,
-                               dumpt=1,
-                               dt=dt,
-                               coords_degree=coords_degree,
-                               degree=degree,
-                               sparameters=sparameters,
-                               sparameters_diag=sparameters_diag,
-                               ensemble=ensemble,
-                               alpha=alpha,
-                               verbose=False)
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-    # # only one window
-    wparallel = wparallel[0]
+    errors = miniapp.solve(nwindows=nwindows,
+                           preproc=preproc,
+                           parallel_postproc=parallel_postproc)
 
-    # compare the solutions
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('### === --- Errors --- === ###')
 
-    W = wserial[0].function_space()
+    for it, err in enumerate(errors):
+        PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
 
-    ws = fd.Function(W)
-    wp = fd.Function(W)
-
-    us, hs = ws.split()
-    up, hp = wp.split()
-
-    for i in range(M[r]):
-
-        us.assign(wserial[i].split()[0])
-        hs.assign(wserial[i].split()[1])
-
-        up.assign(wparallel[i].split()[0])
-        hp.assign(wparallel[i].split()[1])
-
-        herror = fd.errornorm(hs, hp)/fd.norm(hs)
-        uerror = fd.errornorm(us, up)/fd.norm(us)
-
-        htol = 1e-3
-        utol = 1e-3
-
-        assert (uerror < utol)
-        assert (herror < htol)
+    for err in errors:
+        assert err/norm0 < 1e-5
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -634,12 +686,15 @@ def test_jacobian_mixed_parallel():
         assert (fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
 
 
-bc_opts = ["none", "homogeneous", "inhomogeneous"]
+bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
+
+extruded = [pytest.param(False, id="standard_mesh"),
+            pytest.param(True, id="extruded_mesh")]
 
 
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("bc_opt", bc_opts)
-@pytest.mark.parametrize("extruded", [True, False])
+@pytest.mark.parametrize("extruded", extruded)
 def test_solve_para_form(bc_opt, extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR heat equation as an example by
@@ -697,9 +752,9 @@ def test_solve_para_form(bc_opt, extruded):
     def form_mass(u, v):
         return u*v*fd.dx
 
-    if bc_opt == "inhomogeneous":
+    if bc_opt == "inhomogeneous_bcs":
         bcs = [fd.DirichletBC(V, fd.sin(2*fd.pi*x), "on_boundary")]
-    elif bc_opt == "homogeneous":
+    elif bc_opt == "homogeneous_bcs":
         bcs = [fd.DirichletBC(V, 0., "on_boundary")]
     else:
         bcs = []
@@ -751,7 +806,7 @@ def test_solve_para_form(bc_opt, extruded):
 
 
 @pytest.mark.parallel(nprocs=6)
-@pytest.mark.parametrize("extruded", [True, False])
+@pytest.mark.parametrize("extruded", extruded)
 def test_solve_para_form_mixed(extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR mixed wave equation as an
