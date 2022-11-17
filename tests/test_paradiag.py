@@ -683,12 +683,15 @@ def test_jacobian_mixed_parallel():
         assert (fd.errornorm(jacout.sub(ind2), PD_J.sub(2*i+1)) < 1.0e-11)
 
 
-bc_opts = ["none", "homogeneous", "inhomogeneous"]
+bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
+
+extruded = [pytest.param(False, id="standard_mesh"),
+            pytest.param(True, id="extruded_mesh")]
 
 
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("bc_opt", bc_opts)
-@pytest.mark.parametrize("extruded", [True, False])
+@pytest.mark.parametrize("extruded", extruded)
 def test_solve_para_form(bc_opt, extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR heat equation as an example by
@@ -743,9 +746,9 @@ def test_solve_para_form(bc_opt, extruded):
     def form_mass(u, v):
         return u*v*fd.dx
 
-    if bc_opt == "inhomogeneous":
+    if bc_opt == "inhomogeneous_bcs":
         bcs = [fd.DirichletBC(V, fd.sin(2*fd.pi*x), "on_boundary")]
-    elif bc_opt == "homogeneous":
+    elif bc_opt == "homogeneous_bcs":
         bcs = [fd.DirichletBC(V, 0., "on_boundary")]
     else:
         bcs = []
@@ -797,7 +800,7 @@ def test_solve_para_form(bc_opt, extruded):
 
 
 @pytest.mark.parallel(nprocs=6)
-@pytest.mark.parametrize("extruded", [True, False])
+@pytest.mark.parametrize("extruded", extruded)
 def test_solve_para_form_mixed(extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR mixed wave equation as an
