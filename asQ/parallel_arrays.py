@@ -209,3 +209,12 @@ class OwnedArray(object):
         Until this method is called, array elements on any rank but root are not guaranteed to be valid
         """
         self.comm.Bcast(self._data, root=self.owner)
+
+    def resize(self, size):
+        '''
+        Resize array to size
+        '''
+        if not isinstance(size, int):
+            raise ValueError("Array size must be of type int. OwnedArray only supports 1D arrays")
+        self._data.resize(size, refcheck=False)
+        self.size = size
