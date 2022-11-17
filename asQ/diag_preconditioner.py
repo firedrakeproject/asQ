@@ -210,7 +210,7 @@ class DiagFFTPC(object):
         v = fd.TestFunction(self.CblockV)
         u = fd.TrialFunction(self.CblockV)
         a = fd.assemble(fd.inner(u, v)*fd.dx)
-        self.Proj = fd.LinearSolver(a, options_prefix=self.prefix+"mass_")
+        self.Proj = fd.LinearSolver(a, options_prefix=f"{prefix}{self.prefix}mass_")
 
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system
@@ -265,11 +265,15 @@ class DiagFFTPC(object):
             v = fd.TestFunction(self.CblockV)
             L = fd.inner(v, self.Jprob_in)*fd.dx
 
-            # PETSc has hard-coded limit of 512 options per manager
-            # Having different options for each block can easily reach this limit
-            # Switched to using the same options for all blocks until this is fixed in PETSc
-            # block_prefix = self.prefix+str(ii)+'_'
-            block_prefix = self.prefix+'block_'
+            # Options with prefix 'diagfft_block_' apply to all blocks by default
+            # If any options with prefix 'diagfft_block_{i}' exist, where i is the
+            # block number, then this prefix is used instead (like pc fieldsplit)
+
+            block_prefix = f"{prefix}{self.prefix}block_"
+            for k, v in PETSc.Options().getAll().items():
+                if k.startswith(f"{block_prefix}{str(ii)}_"):
+                    block_prefix = f"{block_prefix}{str(ii)}_"
+                    break
 
             jprob = fd.LinearVariationalProblem(A, L, self.Jprob_out,
                                                 bcs=self.CblockV_bcs)
