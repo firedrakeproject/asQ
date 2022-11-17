@@ -105,16 +105,16 @@ def test_check_index(ensemble, W,
             assert False, f"{err}"
 
         # check outside +ve range
-        with pytest.raises(ValueError):
+        with pytest.raises(IndexError):
             aaos.check_index(outside_range, index_type)
 
         # check outside -ve range
-        with pytest.raises(ValueError):
+        with pytest.raises(IndexError):
             aaos.check_index(-outside_range, index_type)
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_shift_index(ensemble, V,
+def test_shift_index(ensemble, W,
                      form_function, form_mass):
     # prep aaos setup
     slice_length = 3
@@ -123,17 +123,21 @@ def test_shift_index(ensemble, V,
     time_partition = [slice_length for _ in range(nslices)]
     time_rank = ensemble.ensemble_comm.rank
 
+    ncpts = len(W.split())
+
     window_length = sum(time_partition)
 
     dt = 1
     theta = 0.5
 
-    v0 = fd.Function(V).assign(0)
+    w0 = fd.Function(W)
+    for v in w0.split():
+        v.assign(0)
 
     aaos = asQ.AllAtOnceSystem(ensemble, time_partition,
                                dt, theta,
                                form_function, form_mass,
-                               w0=v0)
+                               w0=w0)
 
     max_indices = {
         'slice': slice_length,
@@ -169,11 +173,11 @@ def test_shift_index(ensemble, V,
     slice_index = slice_length + 1
 
     # +ve index out of slice range
-    with pytest.raises(ValueError):
+    with pytest.raises(IndexError):
         window_index = aaos.shift_index(slice_index, from_range='slice', to_range='window')
 
     # -ve index out of slice range
-    with pytest.raises(ValueError):
+    with pytest.raises(IndexError):
         window_index = aaos.shift_index(-slice_index, from_range='slice', to_range='window')
 
     # window_range -> slice_range
@@ -193,7 +197,7 @@ def test_shift_index(ensemble, V,
     # for some reason pytest.raises doesn't work with this call
     try:
         slice_index = aaos.shift_index(window_index, from_range='window', to_range='slice')
-    except ValueError:
+    except IndexError:
         pass
 
     # -ve index out of slice range
@@ -201,14 +205,31 @@ def test_shift_index(ensemble, V,
     # for some reason pytest.raises doesn't work with this call
     try:
         slice_index = aaos.shift_index(-window_index, from_range='window', to_range='slice')
-    except ValueError:
+    except IndexError:
         pass
 
-    # reject component indices
-    with pytest.raises(ValueError):
-        aaos.shift_index(0, from_range='slice', to_range='component')
-    with pytest.raises(ValueError):
-        aaos.shift_index(0, from_range='component', to_range='slice')
+    # component indices
+
+    # +ve slice and +ve component indices
+    slice_index = 1
+    cpt_index = ncpts-1
+    aao_index = aaos.shift_index(slice_index, cpt_index, from_range='slice')
+    check_index = ncpts*slice_index + cpt_index
+    assert (aao_index == check_index)
+
+    # +ve window and -ve component indices
+    window_index = time_rank*slice_length + 1
+    slice_index = aaos.shift_index(window_index, from_range='window', to_range='slice')
+    cpt_index = -1
+    aao_index = aaos.shift_index(window_index, cpt_index, from_range='window')
+    check_index = ncpts*(slice_index+1) + cpt_index
+
+    # reject component index out of range
+    with pytest.raises(IndexError):
+        aaos.shift_index(0, 100, from_range='slice')
+    with pytest.raises(IndexError):
+        window_index = aaos.shift_index(0, from_range='slice', to_range='window')
+        aaos.shift_index(window_index, -100, from_range='window')
 
 
 @pytest.mark.parallel(nprocs=4)

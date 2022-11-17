@@ -2,7 +2,8 @@ import numpy as np
 import firedrake as fd
 from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc
-from mpi4py_fft.pencil import Pencil, Subcomm
+# from mpi4py_fft.pencil import Pencil, Subcomm
+from asQ.pencil import Pencil, Subcomm
 from operator import mul
 from functools import reduce
 import importlib
@@ -48,6 +49,8 @@ class DiagFFTPC(object):
         self.paradiag = paradiag
         aaos = paradiag.aaos
         self.aaos = paradiag.aaos
+
+        paradiag.diagfftpc = self
 
         # option for whether to use slice or window average for block jacobian
         self.jac_average = PETSc.Options().getString(
@@ -371,16 +374,13 @@ class DiagFFTPC(object):
         for i in range(self.aaos.nlocal_timesteps):
             # copy the data into solver input
             self.xtemp.assign(0.)
-            if self.ncpts > 1:
-                Jins = self.xtemp.split()
-                for cpt in range(self.ncpts):
-                    Jins[cpt].sub(0).assign(
-                        self.xfr.split()[self.ncpts*i+cpt])
-                    Jins[cpt].sub(1).assign(
-                        self.xfi.split()[self.ncpts*i+cpt])
-            else:
-                self.xtemp.sub(0).assign(self.xfr.split()[i])
-                self.xtemp.sub(1).assign(self.xfi.split()[i])
+
+            Jins = self.xtemp.split()
+            for cpt in range(self.ncpts):
+
+                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
+                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())
+
             # Do a project for Riesz map, to be superceded
             # when we get Cofunction
             self.Proj.solve(self.Jprob_in, self.xtemp)
@@ -390,17 +390,11 @@ class DiagFFTPC(object):
             self.Jsolvers[i].solve()
 
             # copy the data from solver output
-            if self.ncpts > 1:
-                Jpouts = self.Jprob_out.split()
-                for cpt in range(self.ncpts):
-                    self.xfr.split()[self.ncpts*i+cpt].assign(
-                        Jpouts[cpt].sub(0))
-                    self.xfi.split()[self.ncpts*i+cpt].assign(
-                        Jpouts[cpt].sub(1))
-            else:
-                Jpouts = self.Jprob_out
-                self.xfr.split()[i].assign(Jpouts.sub(0))
-                self.xfi.split()[i].assign(Jpouts.sub(1))
+            Jpouts = self.Jprob_out.split()
+            for cpt in range(self.ncpts):
+
+                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.split())
+                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.split())
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
