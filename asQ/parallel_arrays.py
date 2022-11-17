@@ -219,5 +219,5 @@ class OwnedArray(object):
         '''
         if not isinstance(size, int):
             raise ValueError("Array size must be of type int. OwnedArray only supports 1D arrays")
-        self._data.resize(size)
+        self._data.resize(size, refcheck=False)
         self.size = size

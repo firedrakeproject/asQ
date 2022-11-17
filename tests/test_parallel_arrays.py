@@ -141,6 +141,8 @@ def test_shared_array(partition):
     comm = MPI.COMM_WORLD
     rank = comm.rank
 
+    if isinstance(partition, int):
+        partition = tuple(partition for _ in range(comm.size))
     array = SharedArray(partition=partition, dtype=int, comm=comm)
 
     if isinstance(partition, int):
