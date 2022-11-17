@@ -210,7 +210,9 @@ class DiagFFTPC(object):
         default_riesz_method = {
             'ksp_type': 'cg',
             'mat_type': 'baij',
-            'pc_type': 'pbjacobi'
+            'pc_type': 'bjacobi',
+            'sub_pc_type': 'icc',
+            'sub_pc_factor_levels': 0
         }
 
         # mixed mass matrices are decoupled so solve seperately
@@ -224,19 +226,6 @@ class DiagFFTPC(object):
             }
         else:
             default_riesz_parameters = default_riesz_method
-
-        # default_riesz_parameters = {
-        #     'ksp_type': 'preonly',
-        #     'mat_type': 'nest',
-        #     'pc_type': 'fieldsplit',
-        #     'pc_field_split_type': 'additive',
-        #     'fieldsplit': {
-        #         'ksp_type': 'cg',
-        #         'mat_type': 'matfree',
-        #         'pc_type': 'icc',
-        #         'pc_factor_levels': 0
-        #     }
-        # }
 
         # we need to pass the mat_types to assemble directly because
         # it won't pick them up from Options

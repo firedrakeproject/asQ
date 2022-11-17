@@ -110,7 +110,8 @@ for i in range(sum(time_partition)):
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
-    ref_level=args.ref_level)
+    ref_level=args.ref_level,
+    coords_degree=1)
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
