@@ -91,8 +91,7 @@ sparameters_diag = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'}
 
-for i in range(sum(time_partition)):
-    sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
+sparameters_diag['diagfft_block_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,

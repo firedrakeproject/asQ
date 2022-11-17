@@ -194,8 +194,7 @@ parallel_sparameters = {
     'pc_python_type': 'asQ.DiagFFTPC'
 }
 
-for i in range(sum(time_partition)):
-    parallel_sparameters['diagfft_'+str(i)+'_'] = block_sparameters
+parallel_sparameters['diagfft_block_'] = block_sparameters
 
 block_ctx = {}
 transfer_managers = []
