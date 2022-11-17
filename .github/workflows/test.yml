@@ -52,4 +52,4 @@ jobs:
       - name: Test
         run: |
           . /home/firedrake/firedrake/bin/activate
-          python -m pytest -vvv -s --durations=0 --timeout=600 --cov=asQ tests/ -k "timeseries"
+          python -m pytest -vvv -s --durations=0 --timeout=600 --cov=asQ tests/
