@@ -190,24 +190,13 @@ def test_galewsky_timeseries():
                            parallel_postproc=parallel_postproc)
 
     PETSc.Sys.Print('')
-    PETSc.Sys.Print('ensemble.global_comm.Barrier() after solve')
-    ensemble.global_comm.Barrier()
-    PETSc.Sys.Print('')
     PETSc.Sys.Print('### === --- Errors --- === ###')
 
     for it, err in enumerate(errors):
         PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
 
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print('ensemble.global_comm.Barrier() before assertions')
-    ensemble.global_comm.Barrier()
-
     for err in errors:
         assert err/norm0 < 1e-5
-
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print('ensemble.global_comm.Barrier() after assertions')
-    ensemble.global_comm.Barrier()
 
 
 @pytest.mark.parallel(nprocs=4)
