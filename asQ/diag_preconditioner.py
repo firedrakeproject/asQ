@@ -265,7 +265,12 @@ class DiagFFTPC(object):
             v = fd.TestFunction(self.CblockV)
             L = fd.inner(v, self.Jprob_in)*fd.dx
 
-            block_prefix = self.prefix+str(ii)+'_'
+            # PETSc has hard-coded limit of 512 options per manager
+            # Having different options for each block can easily reach this limit
+            # Switched to using the same options for all blocks until this is fixed in PETSc
+            # block_prefix = self.prefix+str(ii)+'_'
+            block_prefix = self.prefix+'block_'
+
             jprob = fd.LinearVariationalProblem(A, L, self.Jprob_out,
                                                 bcs=self.CblockV_bcs)
             Jsolver = fd.LinearVariationalSolver(jprob,
