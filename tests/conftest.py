@@ -5,7 +5,6 @@ import os
 import pytest
 
 from subprocess import check_call
-import pytest
 
 
 @pytest.fixture(autouse=True)
