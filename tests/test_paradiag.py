@@ -265,8 +265,8 @@ def test_steady_swe():
         'pc_python_type': 'asQ.DiagFFTPC'}
 
     M = [2, 2]
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
+    solver_parameters_diag["diagfft_block_"] = sparameters
+    solver_parameters_diag["diagfft_block_0_"] = sparameters
 
     dt = 0.2*units.hour
 
@@ -737,8 +737,8 @@ def test_solve_para_form(bc_opt, extruded):
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC'}
 
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
+    for i in range(sum(M)):
+        solver_parameters_diag[f"diagfft_block_{i}_"] = sparameters
 
     def form_function(u, v):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
@@ -872,8 +872,7 @@ def test_solve_para_form_mixed(extruded):
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC'}
 
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
+    solver_parameters_diag["diagfft_block_"] = sparameters
 
     def form_function(uu, up, vu, vp):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
