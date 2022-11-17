@@ -8,7 +8,6 @@ on:
   # And all pull requests
   pull_request:
 
-
 jobs:
   build:
     name: "Build and test asQ"
@@ -38,10 +37,10 @@ jobs:
         run: |
           . /home/firedrake/firedrake/bin/activate
           python -m pip install pytest-timeout
+          python -m pip install pytest-cov
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
-          echo firedrake-status
           firedrake-status
           FFTW_INCLUDE_DIR=/home/firedrake/firedrake/src/petsc/default/include FFTW_LIBRARY_DIR=/home/firedrake/firedrake/src/petsc/default/lib python -m pip install mpi4py-fft 
           python -m pip install --upgrade scipy
@@ -53,4 +52,4 @@ jobs:
       - name: Test
         run: |
           . /home/firedrake/firedrake/bin/activate
-          python -m pytest -v -s --durations=0 tests --timeout=1200
+          python -m pytest -vvv -s --durations=0 --timeout=600 --cov=asQ tests/
