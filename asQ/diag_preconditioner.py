@@ -205,8 +205,10 @@ class DiagFFTPC(object):
         self.transfer = self.p0.transfer(self.p1, complex)
 
         # setting up the Riesz map
-        # pbjacobi solves for real and imaginary part of each DoF together
-        # because the block size for a 2-dim VectorElement is 2
+
+        # icc not implemented in parallel so apply on each rank with bjacobi
+        # icc will solve decouled mass matrixes eg DG in one shot so can use
+        # 'ksp_type':'preonly' or 'fieldsplit_i_ksp_type':'preonly' if mixed
         default_riesz_method = {
             'ksp_type': 'cg',
             'mat_type': 'baij',
