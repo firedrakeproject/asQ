@@ -40,6 +40,7 @@ class DistributedDataLayout1D(object):
         self.global_size = sum(partition)
         self.offset = sum(partition[:self.rank])
 
+    # TODO shift_index -> transform_index
     def shift_index(self, i, itype='l', rtype='l'):
         '''
         Shift index between local and global addressing, and transform negative indices to their positive equivalent.
