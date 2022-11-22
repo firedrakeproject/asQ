@@ -323,16 +323,10 @@ class DiagFFTPC(object):
         self.u0.assign(0)
         for i in range(self.aaos.nlocal_timesteps):
             # copy the data into solver input
-            if self.ncpts > 1:
-                u0s = self.u0.split()
-            for r in range(2):
-                if self.ncpts > 1:
-                    for cpt in range(self.ncpts):
-                        u0s[cpt].sub(r).assign(u0s[cpt].sub(r)
-                                               + self.w_all.split()[self.ncpts*i+cpt])
-                else:
-                    self.u0.sub(r).assign(self.u0.sub(r)
-                                          + self.w_all.split()[i])
+            u0s = self.u0.split()
+            for cpt in range(self.ncpts):
+                wcpt = self.w_all.split()[self.ncpts*i+cpt]
+                u0s[cpt].interpolate(u0s[cpt] + fd.as_vector([wcpt, wcpt]))
 
         # average only over current time-slice
         if self.jac_average == 'slice':
@@ -340,7 +334,7 @@ class DiagFFTPC(object):
         else:  # implies self.jac_average == 'window':
             self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
             self.u0.assign(self.ureduceC)
-            self.u0 /= sum(self.time_partition)
+            self.u0 /= fd.Constant(sum(self.time_partition))
 
     @PETSc.Log.EventDecorator()
     def apply(self, pc, x, y):
@@ -385,10 +379,12 @@ class DiagFFTPC(object):
             self.xtemp.assign(0.)
 
             Jins = self.xtemp.split()
-            for cpt in range(self.ncpts):
 
-                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
-                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())
+            for cpt in range(self.ncpts):
+                xr = self.aaos.get_component(i, cpt, f_alls=self.xfr.split())
+                xi = self.aaos.get_component(i, cpt, f_alls=self.xfi.split())
+
+                Jins[cpt].interpolate(fd.as_vector([xr, xi]))
 
             # Do a project for Riesz map, to be superceded
             # when we get Cofunction
@@ -401,9 +397,11 @@ class DiagFFTPC(object):
             # copy the data from solver output
             Jpouts = self.Jprob_out.split()
             for cpt in range(self.ncpts):
+                xr = self.aaos.get_component(i, cpt, f_alls=self.xfr.split())
+                xi = self.aaos.get_component(i, cpt, f_alls=self.xfi.split())
 
-                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.split())
-                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.split())
+                xr.interpolate(Jpouts[cpt].sub(0))
+                xi.interpolate(Jpouts[cpt].sub(1))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
