@@ -241,7 +241,7 @@ def parallel_postproc(pdg, wndw):
     if args.print_norms:
         aaos = miniapp.paradiag.aaos
         for step in range(aaos.nlocal_timesteps):
-            it = aaos.shift_index(step, from_range='slice', to_range='window')
+            it = aaos.transform_index(step, from_range='slice', to_range='window')
             w = aaos.get_field(step)
             PETSc.Sys.Print(f'Rank {rank}: Parallel timestep {it} norm {fd.norm(w)/norm0}', comm=ensemble.comm)
     PETSc.Sys.Print('')

@@ -85,7 +85,7 @@ class DiagFFTPC(object):
         exponents = np.arange(self.ntimesteps)/self.ntimesteps
         self.Gam = paradiag.alpha**exponents
 
-        slice_begin = self.aaos.shift_index(0, from_range='slice', to_range='window')
+        slice_begin = self.aaos.transform_index(0, from_range='slice', to_range='window')
         slice_end = slice_begin + self.nlocal_timesteps
         self.Gam_slice = self.Gam[slice_begin:slice_end]
 
@@ -227,7 +227,7 @@ class DiagFFTPC(object):
 
         # building the block problem solvers
         for i in range(self.nlocal_timesteps):
-            ii = self.aaos.shift_index(i, from_range='slice', to_range='window')
+            ii = self.aaos.transform_index(i, from_range='slice', to_range='window')
             D1i = fd.Constant(np.imag(self.D1[ii]))
             D1r = fd.Constant(np.real(self.D1[ii]))
             D2i = fd.Constant(np.imag(self.D2[ii]))

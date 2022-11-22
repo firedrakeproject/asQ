@@ -159,7 +159,7 @@ class AllAtOnceSystem(object):
                     cpt = bc.function_space().index
                 else:
                     cpt = 0
-                index = self.shift_index(step, cpt)
+                index = self.transform_index(step, cpt)
                 bc_all = fd.DirichletBC(self.function_space_all.sub(index),
                                         bc.function_arg,
                                         bc.sub_domain)
@@ -167,7 +167,7 @@ class AllAtOnceSystem(object):
 
         return bcs_all
 
-    def shift_index(self, i, cpt=None, from_range='slice', to_range='slice'):
+    def transform_index(self, i, cpt=None, from_range='slice', to_range='slice'):
         '''
         Shift timestep or component index from one range to another, and accounts for -ve indices.
 
@@ -192,7 +192,7 @@ class AllAtOnceSystem(object):
 
         idxtypes = {'slice': 'l', 'window': 'g'}
 
-        i = self.layout.shift_index(i, itype=idxtypes[from_range], rtype=idxtypes[to_range])
+        i = self.layout.transform_index(i, itype=idxtypes[from_range], rtype=idxtypes[to_range])
 
         if cpt is None:
             return i
@@ -213,7 +213,7 @@ class AllAtOnceSystem(object):
         :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
         '''
         # index of component in all at once function
-        aao_index = self.shift_index(step, cpt, from_range=index_range, to_range='slice')
+        aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
 
         if f_alls is None:
             f_alls = self.w_alls
@@ -234,7 +234,7 @@ class AllAtOnceSystem(object):
         :arg deepcopy: if True, new function is returned. If false, handle to component of f_alls is returned. Ignored if wout is not None
         '''
         # index of component in all at once function
-        aao_index = self.shift_index(step, cpt, from_range=index_range, to_range='slice')
+        aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
 
         if f_alls is None:
             f_alls = self.w_alls
@@ -314,9 +314,9 @@ class AllAtOnceSystem(object):
 
         w = fd.Function(self.function_space)
         for slice_index in range(self.nlocal_timesteps):
-            window_index = self.shift_index(slice_index,
-                                            from_range='slice',
-                                            to_range='window')
+            window_index = self.transform_index(slice_index,
+                                                from_range='slice',
+                                                to_range='window')
             self.get_field(slice_index, wout=w, index_range='slice')
             callback(window_index, slice_index, w)
 
