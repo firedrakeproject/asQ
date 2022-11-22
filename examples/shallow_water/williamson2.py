@@ -148,7 +148,8 @@ block_ctx = {}
 
 # mesh transfer operators
 transfer_managers = []
-for _ in range(time_partition[ensemble.ensemble_comm.rank]):
+nlocal_timesteps = time_partition[ensemble.ensemble_comm.rank]
+for _ in range(nlocal_timesteps):
     tm = mg.manifold_transfer_manager(W)
     transfer_managers.append(tm)
 

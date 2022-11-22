@@ -79,8 +79,11 @@ class paradiag(object):
                                     circ, alpha)
 
         self.ensemble = ensemble
+        self.layout = self.aaos.layout
         self.time_partition = self.aaos.time_partition
         self.time_rank = self.aaos.time_rank
+        self.nlocal_timesteps = self.aaos.nlocal_timesteps
+        self.ntimesteps = self.aaos.ntimesteps
         self.alpha = self.aaos.alpha
         self.tol = tol
         self.maxits = maxits
@@ -91,8 +94,8 @@ class paradiag(object):
         # set up the PETSc Vecs (X for coeffs and F for residuals)
         W = self.aaos.function_space
 
-        nlocal = time_partition[self.time_rank]*W.node_set.size  # local times x local space
-        nglobal = sum(time_partition)*W.dim()  # global times x global space
+        nlocal = self.nlocal_timesteps*W.node_set.size  # local times x local space
+        nglobal = self.ntimesteps*W.dim()  # global times x global space
 
         self.X = PETSc.Vec().create(comm=fd.COMM_WORLD)
         self.X.setSizes((nlocal, nglobal))
