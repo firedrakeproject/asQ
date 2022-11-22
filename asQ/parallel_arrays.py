@@ -163,7 +163,7 @@ class SharedArray(object):
 
 
 class OwnedArray(object):
-    def __init__(self, size, dtype=None, comm=MPI.COMM_WORLD, owner=0):
+    def __init__(self, size, owner=0, comm=MPI.COMM_WORLD, dtype=None):
         '''
         Array owned by one rank but viewed over an MPI comm.
 
@@ -175,6 +175,9 @@ class OwnedArray(object):
         :arg comm: MPI communicator the array is synchronised over.
         :arg owner: owning rank.
         '''
+        if not isinstance(size, int):
+            raise ValueError("Array size must be of type int. OwnedArray only supports 1D arrays")
+
         self.size = size
         self.comm = comm
         self.owner = owner
@@ -203,11 +206,11 @@ class OwnedArray(object):
         self._data[i] = val
 
     def synchronise(self):
-        """
+        '''
         Synchronise the array over the comm
 
         Until this method is called, array elements on any rank but root are not guaranteed to be valid
-        """
+        '''
         self.comm.Bcast(self._data, root=self.owner)
 
     def resize(self, size):

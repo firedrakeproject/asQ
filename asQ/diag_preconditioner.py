@@ -308,6 +308,16 @@ class DiagFFTPC(object):
                                             bc.sub_domain)
                 self.CblockV_bcs.append(all_bc)
 
+    def _record_diagnostics(self):
+        """
+        Update diagnostic information from block linear solvers.
+
+        Must be called exactly once at the end of each apply()
+        """
+        for i in range(self.aaos.nlocal_timesteps):
+            its = self.Jsolvers[i].snes.getLinearSolveIterations()
+            self.paradiag.block_iterations.dlocal[i] += its
+
     @PETSc.Log.EventDecorator()
     def update(self, pc):
         '''
@@ -383,7 +393,6 @@ class DiagFFTPC(object):
 
             Jins = self.xtemp.split()
             for cpt in range(self.ncpts):
-
                 self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
                 self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())
 
@@ -398,7 +407,6 @@ class DiagFFTPC(object):
             # copy the data from solver output
             Jpouts = self.Jprob_out.split()
             for cpt in range(self.ncpts):
-
                 self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.split())
                 self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.split())
 
@@ -427,6 +435,8 @@ class DiagFFTPC(object):
         with self.yf.dat.vec_ro as v:
             v.copy(y)
         ################
+
+        self._record_diagnostics()
 
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError

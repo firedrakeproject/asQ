@@ -155,3 +155,182 @@ def write_timeseries(pdg,
         # if time-rank 0: write to file
         if pdg.rT == 0:
             outfile.write(*functions, time=time_scale*timestep*pdg.dt)
+
+
+def write_solver_parameters(sparams, directory=""):
+    """
+    Write the solver options dictionary sparams to file, formatted so that it can be parsed as python code
+
+    :arg sparams: the solver options dictionary
+    :arg directory: the directory to write the file into
+    """
+    from json import dumps
+
+    if not isinstance(sparams, dict):
+        raise ValueError("sparams must be dictionary")
+    if not isinstance(directory, str):
+        raise ValueError("directory must be string")
+
+    if (directory != "") and (directory[-1] != "/"):
+        directory += "/"
+    file_name = directory + "solver_parameters.txt"
+
+    with open(file_name, "w") as f:
+        f.write(dumps(sparams, indent=4))
+
+    return
+
+
+def write_paradiag_setup(pdg, directory=""):
+    """
+    Write various parameters for the paradiag object to file e.g. dt, alpha
+
+    :arg pdg: paradiag object
+    :arg directory: the directory to write the files into
+    """
+    if not isinstance(directory, str):
+        raise ValueError("directory must be string")
+
+    is_root = (pdg.ensemble.global_comm.rank == 0)
+
+    if is_root:
+        if (directory != "") and (directory[-1] != "/"):
+            directory += "/"
+        file_name = directory + "paradiag_setup.txt"
+
+        with open(file_name, "w") as f:
+            info = \
+                f"dt = {pdg.aaos.dt}\n" + \
+                f"theta = {pdg.aaos.theta}\n" + \
+                f"time_partition = {pdg.time_partition}\n" + \
+                f"comm.size = {pdg.ensemble.comm.size}\n" + \
+                f"ensemble_comm.size = {pdg.ensemble.ensemble_comm.size}\n" + \
+                f"global_comm.size = {pdg.ensemble.global_comm.size}\n" + \
+                f"alpha = {pdg.alpha}\n" + \
+                f"circ = {pdg.circ}"
+            f.write(info)
+    return
+
+
+def write_aaos_solve_metrics(pdg, directory=""):
+    """
+    Write various metrics for the all-at-once solve from the paradiag object to file e.g. number of windows, number of iterations etc
+
+    :arg pdg: paradiag object
+    :arg directory: the directory to write the files into
+    """
+    if not isinstance(directory, str):
+        raise ValueError("directory must be string")
+
+    pdg.sync_diagnostics()
+
+    is_root = (pdg.ensemble.global_comm.rank == 0)
+
+    if is_root:
+        if (directory != "") and (directory[-1] != "/"):
+            directory += "/"
+        file_name = directory + "aaos_metrics.txt"
+
+        with open(file_name, "w") as f:
+            nt = pdg.total_timesteps
+            nw = pdg.total_windows
+            nlits = pdg.nonlinear_iterations
+            lits = pdg.linear_iterations
+            blits = max(pdg.block_iterations._data)
+            info = \
+                f"total timesteps = {nt}\n" + \
+                f"total windows = {nw}\n" + \
+                f"total nonlinear iterations = {nlits}\n" + \
+                f"total linear iterations = {lits}\n" + \
+                f"nonlinear iterations per window = {nlits/nw}\n" + \
+                f"linear iterations per window = {lits/nw}\n" + \
+                f"linear iterations per nonlinear iteration = {lits/nlits}\n" + \
+                f"max iterations per block solve = {blits/lits}"
+            f.write(info)
+    return
+
+
+def write_block_solve_metrics(pdg, directory=""):
+    """
+    Write various metrics for the block solves from the paradiag object to file e.g. number of linear iterations, eigenvalues etc
+
+    :arg pdg: paradiag object
+    :arg directory: the directory to write the files into
+    """
+    from numpy import real, imag, abs
+    from numpy import angle as arg
+
+    if not isinstance(directory, str):
+        raise ValueError("directory must be string")
+
+    pdg.sync_diagnostics()
+
+    is_root = (pdg.ensemble.global_comm.rank == 0)
+
+    if is_root:
+        if (directory != "") and (directory[-1] != "/"):
+            directory += "/"
+        file_name = directory + "block_metrics.txt"
+
+        with open(file_name, "w") as f:
+            lits = pdg.linear_iterations
+            blits = pdg.block_iterations._data/lits
+            l1 = pdg.diagfftpc.D1
+            l2 = pdg.diagfftpc.D2
+            l12 = l1/l2
+
+            # header
+            info = \
+                f"# iterations per block solve = {blits}\n" + \
+                f"# max iterations per block solve = {max(blits)}\n" + \
+                f"# min iterations per block solve = {min(blits)}\n" + \
+                "# n     " + \
+                "R(l1)        I(l1)        abs(l1)      arg(l1)      " + \
+                "R(l2)        I(l2)        abs(l2)      arg(l2)      " + \
+                "R(l1/l2)     I(l1/l2)     abs(l1/l2)   arg(l1/l2)   " + \
+                "its\n"
+
+            # row for each block
+            for i, (d1, d2, d12, n) in enumerate(zip(l1, l2, l12, blits)):
+                line = "{:3d}"
+                for _ in range(3*4 + 1):  # 4 values for each l1, l2, l1/l2, and iteration count
+                    line += "   {:10.6f}"
+                line += "\n"
+                line = line.format(i,
+                                   real(d1), imag(d1), abs(d1), arg(d1),
+                                   real(d2), imag(d2), abs(d2), arg(d2),
+                                   real(d12), imag(d12), abs(d12), arg(d12),
+                                   n)
+                info += line
+
+            f.write(info)
+    return
+
+
+def write_paradiag_metrics(pdg, directory=""):
+    """
+    Write various information for the paradiag object to files in the specified directory
+
+    Information written:
+    - solver parameters dictionary
+    - parameters for paradiag setup (dt, alpha etc)
+    - metrics for all-at-once solver
+    - metrics for each block solver
+
+    :arg pdg: paradiag object
+    :arg directory: the directory to write the files into
+    """
+    is_root = (pdg.ensemble.global_comm.rank == 0)
+
+    if is_root:
+        # write solver parameters
+        write_solver_parameters(pdg.solver_parameters, directory)
+
+    # write paradiag setup
+    write_paradiag_setup(pdg, directory)
+
+    # write aaos solve metrics
+    write_aaos_solve_metrics(pdg, directory)
+
+    # write block solve metrics
+    write_block_solve_metrics(pdg, directory)

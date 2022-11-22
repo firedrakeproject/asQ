@@ -4,6 +4,7 @@ from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
 
 from asQ.allatoncesystem import AllAtOnceSystem
+from asQ.parallel_arrays import SharedArray
 
 appctx = {}
 
@@ -110,11 +111,12 @@ class paradiag(object):
             if solver_parameters["pc_python_type"] == "asQ.DiagFFTPC":
                 appctx["paradiag"] = self
                 solver_parameters["diagfft_context"] = "asQ.paradiag.get_context"
-        solver_parameters = flatten_parameters(solver_parameters)
+        self.solver_parameters = solver_parameters
+        flat_solver_parameters = flatten_parameters(solver_parameters)
 
         # set up the snes
         self.snes = PETSc.SNES().create(comm=fd.COMM_WORLD)
-        self.opts = OptionsManager(solver_parameters, '')
+        self.opts = OptionsManager(flat_solver_parameters, '')
         self.snes.setOptionsPrefix('')
         self.snes.setFunction(self.aaos._assemble_function, self.F)
 
@@ -138,6 +140,41 @@ class paradiag(object):
         # complete the snes setup
         self.opts.set_from_options(self.snes)
 
+        # iteration counts
+        self.reset_diagnostics()
+
+    def reset_diagnostics(self):
+        """
+        Set all diagnostic information to initial values, e.g. iteration counts to zero
+        """
+        self.linear_iterations = 0
+        self.nonlinear_iterations = 0
+        self.total_timesteps = 0
+        self.total_windows = 0
+        self.block_iterations = SharedArray(self.time_partition,
+                                            dtype=int,
+                                            comm=self.ensemble.ensemble_comm)
+
+    def _record_diagnostics(self):
+        """
+        Update diagnostic information from snes.
+
+        Must be called exactly once after each snes solve.
+        """
+        self.linear_iterations += self.snes.getLinearSolveIterations()
+        self.nonlinear_iterations += self.snes.getIterationNumber()
+        self.total_timesteps += sum(self.time_partition)
+        self.total_windows += 1
+
+    def sync_diagnostics(self):
+        """
+        Synchronise diagnostic information over all time-ranks.
+
+        Until this method is called, diagnostic information is not guaranteed to be valid.
+        """
+        self.block_iterations.synchronise()
+
+    @PETSc.Log.EventDecorator()
     def solve(self,
               nwindows=1,
               preproc=lambda pdg, w: None,
@@ -160,11 +197,16 @@ class paradiag(object):
                 self.snes.solve(None, self.X)
             self.aaos.update(self.X)
 
+            self._record_diagnostics()
+
             postproc(self, wndw)
 
             if not (1 < self.snes.getConvergedReason() < 5):
                 PETSc.Sys.Print(f'SNES diverged with error code {self.snes.getConvergedReason()}. Cancelling paradiag time integration.')
                 return
 
+            # don't wipe all-at-once function at last window
             if wndw != nwindows-1:
                 self.aaos.next_window()
+
+        self.sync_diagnostics()
