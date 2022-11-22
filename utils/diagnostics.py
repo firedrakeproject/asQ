@@ -43,7 +43,7 @@ def convective_cfl_calculator(mesh,
         fd.assemble(cell_flux_form, tensor=cell_flux)
 
         dT = fd.Constant(dt)
-        cfl.assign(dT*cell_flux/cell_volume)
+        cfl.interpolate(dT*cell_flux/cell_volume)
         return cfl
 
     return cfl_calc
