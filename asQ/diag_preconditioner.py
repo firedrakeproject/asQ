@@ -330,7 +330,7 @@ class DiagFFTPC(object):
 
         # average only over current time-slice
         if self.jac_average == 'slice':
-            self.u0 /= self.nlocal_timesteps
+            self.u0 /= fd.Constant(self.nlocal_timesteps)
         else:  # implies self.jac_average == 'window':
             self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
             self.u0.assign(self.ureduceC)
