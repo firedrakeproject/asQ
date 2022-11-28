@@ -388,12 +388,6 @@ class DiagFFTPC(object):
 
             Jins = self.xtemp.split()
 
-            # for cpt in range(self.ncpts):
-            #     xr = self.aaos.get_component(i, cpt, f_alls=self.xfr.split())
-            #     xi = self.aaos.get_component(i, cpt, f_alls=self.xfi.split())
-
-            #     Jins[cpt].sub(0).assign(xr)
-            #     Jins[cpt].sub(1).assign(xi)
             for cpt in range(self.ncpts):
                 self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
                 self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())
@@ -409,12 +403,6 @@ class DiagFFTPC(object):
             # copy the data from solver output
             Jpouts = self.Jprob_out.split()
             for cpt in range(self.ncpts):
-                # xr = self.aaos.get_component(i, cpt, f_alls=self.xfr.split())
-                # xi = self.aaos.get_component(i, cpt, f_alls=self.xfi.split())
-
-                # xr.assign(Jpouts[cpt].sub(0))
-                # xi.assign(Jpouts[cpt].sub(1))
-
                 self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.split())
                 self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.split())
 
