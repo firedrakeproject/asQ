@@ -326,7 +326,8 @@ class DiagFFTPC(object):
             u0s = self.u0.split()
             for cpt in range(self.ncpts):
                 wcpt = self.w_all.split()[self.ncpts*i+cpt]
-                u0s[cpt].interpolate(u0s[cpt] + fd.as_vector([wcpt, wcpt]))
+                for r in range(2):  # real and imaginary parts
+                    u0s[cpt].sub(r).assign(u0s[cpt].sub(r) + wcpt)
 
         # average only over current time-slice
         if self.jac_average == 'slice':
@@ -384,7 +385,8 @@ class DiagFFTPC(object):
                 xr = self.aaos.get_component(i, cpt, f_alls=self.xfr.split())
                 xi = self.aaos.get_component(i, cpt, f_alls=self.xfi.split())
 
-                Jins[cpt].interpolate(fd.as_vector([xr, xi]))
+                Jins[cpt].sub(0).assign(xr)
+                Jins[cpt].sub(1).assign(xi)
 
             # Do a project for Riesz map, to be superceded
             # when we get Cofunction
@@ -400,8 +402,8 @@ class DiagFFTPC(object):
                 xr = self.aaos.get_component(i, cpt, f_alls=self.xfr.split())
                 xi = self.aaos.get_component(i, cpt, f_alls=self.xfi.split())
 
-                xr.interpolate(Jpouts[cpt].sub(0))
-                xi.interpolate(Jpouts[cpt].sub(1))
+                xr.assign(Jpouts[cpt].sub(0))
+                xi.assign(Jpouts[cpt].sub(1))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
