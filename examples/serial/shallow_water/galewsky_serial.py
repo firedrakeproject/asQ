@@ -38,7 +38,7 @@ PETSc.Sys.Print('### === --- Setting up --- === ###')
 PETSc.Sys.Print('')
 
 # icosahedral mg mesh
-mesh = swe.create_mg_globe_mesh(ref_level=args.ref_level)
+mesh = swe.create_mg_globe_mesh(ref_level=args.ref_level, coords_degree=1)
 x = fd.SpatialCoordinate(mesh)
 
 # time step

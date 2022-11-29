@@ -188,7 +188,7 @@ def test_convective_cfl():
     dt = fd.Constant(0.5)
 
     # test zero velocity case
-    vel = fd.as_vector([zero, zero])
+    vel = fd.Constant(fd.as_vector([zero, zero]))
     cfl_check = fd.Constant(zero*dt/dx)
 
     u.assign(vel)
@@ -197,7 +197,7 @@ def test_convective_cfl():
     assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity x case
-    vel = fd.as_vector([one, zero])
+    vel = fd.Constant(fd.as_vector([one, zero]))
     cfl_check = fd.Constant(one*dt/dx)
 
     u.assign(vel)
@@ -206,7 +206,7 @@ def test_convective_cfl():
     assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity y case
-    vel = fd.as_vector([zero, one])
+    vel = fd.Constant(fd.as_vector([zero, one]))
     cfl_check = fd.Constant(one*dt/dx)
 
     u.assign(vel)
@@ -215,7 +215,7 @@ def test_convective_cfl():
     assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity xy case
-    vel = fd.as_vector([one, one])
+    vel = fd.Constant(fd.as_vector([one, one]))
     cfl_check = fd.Constant(2*dt/dx)
 
     u.assign(vel)
@@ -228,10 +228,10 @@ def test_convective_cfl():
 
     nrng = 10
     for i in range(nrng):
-        dt.assign(np.random.rand())
+        dt.assign(fd.Constant(np.random.rand()))
         vx = np.random.rand()
         vy = np.random.rand()
-        vel = fd.as_vector([vx, vy])
+        vel = fd.Constant(fd.as_vector([vx, vy]))
         cfl_check = fd.Constant((vx+vy)*dt/dx)
 
         u.assign(vel)
@@ -263,7 +263,7 @@ def test_get_cfl_calculator():
     cfl_calculator = diagnostics.convective_cfl_calculator(mesh)
 
     # test zero velocity case
-    vel = fd.as_vector([zero, zero])
+    vel = fd.Constant(fd.as_vector([zero, zero]))
     cfl_check = fd.Constant(zero*dt/dx)
 
     u.assign(vel)
@@ -272,7 +272,7 @@ def test_get_cfl_calculator():
     assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity x case
-    vel = fd.as_vector([one, zero])
+    vel = fd.Constant(fd.as_vector([one, zero]))
     cfl_check = fd.Constant(one*dt/dx)
 
     u.assign(vel)
@@ -281,7 +281,7 @@ def test_get_cfl_calculator():
     assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity y case
-    vel = fd.as_vector([zero, one])
+    vel = fd.Constant(fd.as_vector([zero, one]))
     cfl_check = fd.Constant(one*dt/dx)
 
     u.assign(vel)
@@ -290,7 +290,7 @@ def test_get_cfl_calculator():
     assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity xy case
-    vel = fd.as_vector([one, one])
+    vel = fd.Constant(fd.as_vector([one, one]))
     cfl_check = fd.Constant(2*dt/dx)
 
     u.assign(vel)
@@ -303,10 +303,10 @@ def test_get_cfl_calculator():
 
     nrng = 10
     for i in range(nrng):
-        dt.assign(np.random.rand())
+        dt.assign(fd.Constant(np.random.rand()))
         vx = np.random.rand()
         vy = np.random.rand()
-        vel = fd.as_vector([vx, vy])
+        vel = fd.Constant(fd.as_vector([vx, vy]))
         cfl_check = fd.Constant((vx+vy)*dt/dx)
 
         u.assign(vel)
@@ -339,7 +339,7 @@ def test_get_cfl_calculator_extruded():
     cfl_calculator = diagnostics.convective_cfl_calculator(mesh)
 
     # test zero velocity case
-    vel = fd.as_vector([zero, zero])
+    vel = fd.Constant(fd.as_vector([zero, zero]))
     cfl_check = fd.Constant(zero*dt/dx)
 
     u.assign(vel)
@@ -348,7 +348,7 @@ def test_get_cfl_calculator_extruded():
     assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity x case
-    vel = fd.as_vector([one, zero])
+    vel = fd.Constant(fd.as_vector([one, zero]))
     cfl_check = fd.Constant(one*dt/dx)
 
     u.assign(vel)
@@ -357,7 +357,7 @@ def test_get_cfl_calculator_extruded():
     assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity y case
-    vel = fd.as_vector([zero, one])
+    vel = fd.Constant(fd.as_vector([zero, one]))
     cfl_check = fd.Constant(one*dt/dx)
 
     u.assign(vel)
@@ -366,7 +366,7 @@ def test_get_cfl_calculator_extruded():
     assert (fd.errornorm(cfl_check, cfl) < 1e-12)
 
     # test unit velocity xy case
-    vel = fd.as_vector([one, one])
+    vel = fd.Constant(fd.as_vector([one, one]))
     cfl_check = fd.Constant(2*dt/dx)
 
     u.assign(vel)
@@ -379,10 +379,10 @@ def test_get_cfl_calculator_extruded():
 
     nrng = 10
     for i in range(nrng):
-        dt.assign(np.random.rand())
+        dt.assign(fd.Constant(np.random.rand()))
         vx = np.random.rand()
         vy = np.random.rand()
-        vel = fd.as_vector([vx, vy])
+        vel = fd.Constant(fd.as_vector([vx, vy]))
         cfl_check = fd.Constant((vx+vy)*dt/dx)
 
         u.assign(vel)
