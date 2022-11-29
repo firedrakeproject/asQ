@@ -162,22 +162,15 @@ class ComparisonMiniapp(object):
         :arg nwindows: the number of time-windows to solve
         '''
 
-        window_length = sum(self.time_partition)
+        window_length = self.paradiag.ntimesteps
         errors = np.zeros(nwindows*window_length)
 
         # set up function to calculate errornorm after each timestep
 
-        rank = self.ensemble.ensemble_comm.rank
-
-        def step_on_slice(it):
-            min_step = sum(self.time_partition[:rank])
-            max_step = sum(self.time_partition[:rank+1])
-            return min_step <= it < max_step
-
         def serial_error_postproc(app, it, t, wndw):
 
             # only calculate error if timestep it is on this parallel time-slice
-            if step_on_slice(it):
+            if self.paradiag.layout.is_local(it):
                 # get serial and parallel solutions
                 self.paradiag.aaos.get_field(it, wout=self.wparallel, index_range='window')
 

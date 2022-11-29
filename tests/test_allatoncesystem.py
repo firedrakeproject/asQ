@@ -61,61 +61,8 @@ def form_mass():
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_check_index(ensemble, W,
-                     form_function, form_mass):
-    # prep aaos setup
-    slice_length = 3
-    assert (fd.COMM_WORLD.size % 2 == 0)
-    nslices = fd.COMM_WORLD.size//2
-    time_partition = [slice_length for _ in range(nslices)]
-
-    window_length = sum(time_partition)
-
-    dt = 1
-    theta = 0.5
-
-    v0 = fd.Function(W).assign(0)
-
-    aaos = asQ.AllAtOnceSystem(ensemble, time_partition,
-                               dt, theta,
-                               form_function, form_mass,
-                               w0=v0)
-
-    max_indices = {
-        'component': len(W.split()),
-        'slice': slice_length,
-        'window': window_length
-    }
-
-    for index_type in max_indices.keys():
-
-        inside_range = max_indices[index_type] - 1
-        outside_range = max_indices[index_type] + 1
-
-        # check inside +ve range
-        try:
-            aaos.check_index(inside_range, index_type)
-        except ValueError as err:
-            assert False, f"{err}"
-
-        # check inside -ve range
-        try:
-            aaos.check_index(-inside_range, index_type)
-        except ValueError as err:
-            assert False, f"{err}"
-
-        # check outside +ve range
-        with pytest.raises(IndexError):
-            aaos.check_index(outside_range, index_type)
-
-        # check outside -ve range
-        with pytest.raises(IndexError):
-            aaos.check_index(-outside_range, index_type)
-
-
-@pytest.mark.parallel(nprocs=4)
-def test_shift_index(ensemble, W,
-                     form_function, form_mass):
+def test_transform_index(ensemble, W,
+                         form_function, form_mass):
     # prep aaos setup
     slice_length = 3
     assert (fd.COMM_WORLD.size % 2 == 0)
@@ -151,11 +98,11 @@ def test_shift_index(ensemble, W,
         index = max_index - 1
 
         # +ve index unchanged
-        pos_shift = aaos.shift_index(index, from_range=index_type, to_range=index_type)
+        pos_shift = aaos.transform_index(index, from_range=index_type, to_range=index_type)
         assert (pos_shift == index)
 
         # -ve index changed to +ve
-        neg_shift = aaos.shift_index(-index, from_range=index_type, to_range=index_type)
+        neg_shift = aaos.transform_index(-index, from_range=index_type, to_range=index_type)
         assert (neg_shift == max_index - index)
 
     # slice_range -> window_range
@@ -163,40 +110,40 @@ def test_shift_index(ensemble, W,
     slice_index = 1
 
     # +ve index in slice range
-    window_index = aaos.shift_index(slice_index, from_range='slice', to_range='window')
+    window_index = aaos.transform_index(slice_index, from_range='slice', to_range='window')
     assert (window_index == time_rank*slice_length + slice_index)
 
     # -ve index in slice range
-    window_index = aaos.shift_index(-slice_index, from_range='slice', to_range='window')
+    window_index = aaos.transform_index(-slice_index, from_range='slice', to_range='window')
     assert (window_index == (time_rank+1)*slice_length - slice_index)
 
     slice_index = slice_length + 1
 
     # +ve index out of slice range
     with pytest.raises(IndexError):
-        window_index = aaos.shift_index(slice_index, from_range='slice', to_range='window')
+        window_index = aaos.transform_index(slice_index, from_range='slice', to_range='window')
 
     # -ve index out of slice range
     with pytest.raises(IndexError):
-        window_index = aaos.shift_index(-slice_index, from_range='slice', to_range='window')
+        window_index = aaos.transform_index(-slice_index, from_range='slice', to_range='window')
 
     # window_range -> slice_range
 
     # +ve index in range
     window_index = time_rank*slice_length + 1
-    slice_index = aaos.shift_index(window_index, from_range='window', to_range='slice')
+    slice_index = aaos.transform_index(window_index, from_range='window', to_range='slice')
     assert (slice_index == 1)
 
     # -ve index in range
     window_index = -window_length + time_rank*slice_length + 1
-    slice_index = aaos.shift_index(window_index, from_range='window', to_range='slice')
+    slice_index = aaos.transform_index(window_index, from_range='window', to_range='slice')
     assert (slice_index == 1)
 
     # +ve index out of slice range
     window_index = ((time_rank + 1) % nslices)*slice_length + 1
     # for some reason pytest.raises doesn't work with this call
     try:
-        slice_index = aaos.shift_index(window_index, from_range='window', to_range='slice')
+        slice_index = aaos.transform_index(window_index, from_range='window', to_range='slice')
     except IndexError:
         pass
 
@@ -204,7 +151,7 @@ def test_shift_index(ensemble, W,
     window_index = -window_index
     # for some reason pytest.raises doesn't work with this call
     try:
-        slice_index = aaos.shift_index(-window_index, from_range='window', to_range='slice')
+        slice_index = aaos.transform_index(-window_index, from_range='window', to_range='slice')
     except IndexError:
         pass
 
@@ -213,23 +160,23 @@ def test_shift_index(ensemble, W,
     # +ve slice and +ve component indices
     slice_index = 1
     cpt_index = ncpts-1
-    aao_index = aaos.shift_index(slice_index, cpt_index, from_range='slice')
+    aao_index = aaos.transform_index(slice_index, cpt_index, from_range='slice')
     check_index = ncpts*slice_index + cpt_index
     assert (aao_index == check_index)
 
     # +ve window and -ve component indices
     window_index = time_rank*slice_length + 1
-    slice_index = aaos.shift_index(window_index, from_range='window', to_range='slice')
+    slice_index = aaos.transform_index(window_index, from_range='window', to_range='slice')
     cpt_index = -1
-    aao_index = aaos.shift_index(window_index, cpt_index, from_range='window')
+    aao_index = aaos.transform_index(window_index, cpt_index, from_range='window')
     check_index = ncpts*(slice_index+1) + cpt_index
 
     # reject component index out of range
     with pytest.raises(IndexError):
-        aaos.shift_index(0, 100, from_range='slice')
+        aaos.transform_index(0, 100, from_range='slice')
     with pytest.raises(IndexError):
-        window_index = aaos.shift_index(0, from_range='slice', to_range='window')
-        aaos.shift_index(window_index, -100, from_range='window')
+        window_index = aaos.transform_index(0, from_range='slice', to_range='window')
+        aaos.transform_index(window_index, -100, from_range='window')
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -264,7 +211,7 @@ def test_set_component(ensemble, mesh, W,
     ncpts = aaos.ncomponents
 
     for slice_index in range(aaos.time_partition[rank]):
-        window_index = aaos.shift_index(slice_index, from_range='slice', to_range='window')
+        window_index = aaos.transform_index(slice_index, from_range='slice', to_range='window')
 
         for cpt in range(ncpts):
             vcheck = aaos.w_alls[ncpts*slice_index + cpt]
@@ -332,7 +279,7 @@ def test_get_component(ensemble, mesh, W,
     for slice_index in range(aaos.time_partition[rank]):
         aaos.set_field(slice_index, v1, index_range='slice')
 
-        window_index = aaos.shift_index(slice_index, from_range='slice', to_range='window')
+        window_index = aaos.transform_index(slice_index, from_range='slice', to_range='window')
 
         for cpt in range(ncpts):
             aaos.get_component(window_index, cpt, index_range='window', wout=vcheck.sub(cpt))
@@ -383,9 +330,9 @@ def test_set_field(ensemble, mesh, W,
     ncpt = aaos.ncomponents
 
     for slice_index in range(aaos.time_partition[rank]):
-        window_index = aaos.shift_index(slice_index,
-                                        from_range='slice',
-                                        to_range='window')
+        window_index = aaos.transform_index(slice_index,
+                                            from_range='slice',
+                                            to_range='window')
         aaos.set_field(window_index, v1, index_range='window')
         for i in range(ncpt):
             vchecks[i].assign(aaos.w_alls[ncpt*slice_index+i])
@@ -448,9 +395,9 @@ def test_get_field(ensemble, mesh, W,
 
     # get each step using window index
     for slice_index in range(aaos.time_partition[rank]):
-        window_index = aaos.shift_index(slice_index,
-                                        from_range='slice',
-                                        to_range='window')
+        window_index = aaos.transform_index(slice_index,
+                                            from_range='slice',
+                                            to_range='window')
 
         aaos.set_field(window_index, v1, index_range='window')
 
@@ -495,7 +442,7 @@ def test_for_each_timestep(ensemble, V,
 
     # set each timestep as window timestep index
     for step in range(aaos.time_partition[aaos.time_rank]):
-        v0.assign(aaos.shift_index(step, from_range='slice', to_range='window'))
+        v0.assign(aaos.transform_index(step, from_range='slice', to_range='window'))
         aaos.set_field(step, v0, index_range='slice')
 
     aaos.for_each_timestep(

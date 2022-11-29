@@ -141,15 +141,15 @@ sparameters_diag = {
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 PETSc.Sys.Print('')
 
-for i in range(sum(time_partition)):
-    sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
+sparameters_diag['diagfft_block_'] = sparameters
 
 # non-petsc information for block solve
 block_ctx = {}
 
 # mesh transfer operators
 transfer_managers = []
-for _ in range(time_partition[ensemble.ensemble_comm.rank]):
+nlocal_timesteps = time_partition[ensemble.ensemble_comm.rank]
+for _ in range(nlocal_timesteps):
     tm = mg.manifold_transfer_manager(W)
     transfer_managers.append(tm)
 
