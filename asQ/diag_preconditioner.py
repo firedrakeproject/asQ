@@ -8,6 +8,7 @@ from operator import mul
 from functools import reduce
 import importlib
 from ufl.classes import MultiIndex, FixedIndex, Indexed
+from .profiling import memprofile
 
 
 class DiagFFTPC(object):
@@ -19,12 +20,14 @@ class DiagFFTPC(object):
         """
         self.initialized = False
 
+    @memprofile
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
 
+    @memprofile
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -354,6 +357,7 @@ class DiagFFTPC(object):
             self.paradiag.block_iterations.dlocal[i] += its
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def update(self, pc):
         '''
         we need to update u0 from w_all, containing state.
@@ -380,6 +384,7 @@ class DiagFFTPC(object):
             self.u0 /= fd.Constant(sum(self.time_partition))
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
