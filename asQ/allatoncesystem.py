@@ -3,11 +3,13 @@ from firedrake.petsc import PETSc
 from pyop2.mpi import MPI
 from functools import reduce
 from operator import mul
+from .profiling import memprofile
 
 from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
 class JacobianMatrix(object):
+    @memprofile
     def __init__(self, aaos):
         r"""
         Python matrix for the Jacobian of the all at once system
@@ -38,6 +40,7 @@ class JacobianMatrix(object):
                                         self.aaos.w_recv)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def mult(self, mat, X, Y):
 
         self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
@@ -73,6 +76,7 @@ class JacobianMatrix(object):
 
 
 class AllAtOnceSystem(object):
+    @memprofile
     def __init__(self,
                  ensemble, time_partition,
                  dt, theta,
@@ -159,7 +163,7 @@ class AllAtOnceSystem(object):
                     cpt = bc.function_space().index
                 else:
                     cpt = 0
-                index = self.shift_index(step, cpt)
+                index = self.transform_index(step, cpt)
                 bc_all = fd.DirichletBC(self.function_space_all.sub(index),
                                         bc.function_arg,
                                         bc.sub_domain)
@@ -167,7 +171,7 @@ class AllAtOnceSystem(object):
 
         return bcs_all
 
-    def shift_index(self, i, cpt=None, from_range='slice', to_range='slice'):
+    def transform_index(self, i, cpt=None, from_range='slice', to_range='slice'):
         '''
         Shift timestep or component index from one range to another, and accounts for -ve indices.
 
@@ -192,7 +196,7 @@ class AllAtOnceSystem(object):
 
         idxtypes = {'slice': 'l', 'window': 'g'}
 
-        i = self.layout.shift_index(i, itype=idxtypes[from_range], rtype=idxtypes[to_range])
+        i = self.layout.transform_index(i, itype=idxtypes[from_range], rtype=idxtypes[to_range])
 
         if cpt is None:
             return i
@@ -213,7 +217,7 @@ class AllAtOnceSystem(object):
         :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
         '''
         # index of component in all at once function
-        aao_index = self.shift_index(step, cpt, from_range=index_range, to_range='slice')
+        aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
 
         if f_alls is None:
             f_alls = self.w_alls
@@ -234,7 +238,7 @@ class AllAtOnceSystem(object):
         :arg deepcopy: if True, new function is returned. If false, handle to component of f_alls is returned. Ignored if wout is not None
         '''
         # index of component in all at once function
-        aao_index = self.shift_index(step, cpt, from_range=index_range, to_range='slice')
+        aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
 
         if f_alls is None:
             f_alls = self.w_alls
@@ -314,9 +318,9 @@ class AllAtOnceSystem(object):
 
         w = fd.Function(self.function_space)
         for slice_index in range(self.nlocal_timesteps):
-            window_index = self.shift_index(slice_index,
-                                            from_range='slice',
-                                            to_range='window')
+            window_index = self.transform_index(slice_index,
+                                                from_range='slice',
+                                                to_range='window')
             self.get_field(slice_index, wout=w, index_range='slice')
             callback(window_index, slice_index, w)
 
@@ -408,6 +412,7 @@ class AllAtOnceSystem(object):
         return self.update_time_halos(wsend=wsend, wrecv=wrecv, walls=wall.split(), blocking=True)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def _assemble_function(self, snes, X, Fvec):
         r"""
         This is the function we pass to the snes to assemble

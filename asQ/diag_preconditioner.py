@@ -8,6 +8,7 @@ from operator import mul
 from functools import reduce
 import importlib
 from ufl.classes import MultiIndex, FixedIndex, Indexed
+from .profiling import memprofile
 
 
 class DiagFFTPC(object):
@@ -19,12 +20,14 @@ class DiagFFTPC(object):
         """
         self.initialized = False
 
+    @memprofile
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
 
+    @memprofile
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -85,7 +88,7 @@ class DiagFFTPC(object):
         exponents = np.arange(self.ntimesteps)/self.ntimesteps
         self.Gam = paradiag.alpha**exponents
 
-        slice_begin = self.aaos.shift_index(0, from_range='slice', to_range='window')
+        slice_begin = self.aaos.transform_index(0, from_range='slice', to_range='window')
         slice_end = slice_begin + self.nlocal_timesteps
         self.Gam_slice = self.Gam[slice_begin:slice_end]
 
@@ -207,7 +210,7 @@ class DiagFFTPC(object):
         v = fd.TestFunction(self.CblockV)
         u = fd.TrialFunction(self.CblockV)
         a = fd.assemble(fd.inner(u, v)*fd.dx)
-        self.Proj = fd.LinearSolver(a, options_prefix=self.prefix+"mass_")
+        self.Proj = fd.LinearSolver(a, options_prefix=f"{prefix}{self.prefix}mass_")
 
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system
@@ -227,7 +230,7 @@ class DiagFFTPC(object):
 
         # building the block problem solvers
         for i in range(self.nlocal_timesteps):
-            ii = self.aaos.shift_index(i, from_range='slice', to_range='window')
+            ii = self.aaos.transform_index(i, from_range='slice', to_range='window')
             D1i = fd.Constant(np.imag(self.D1[ii]))
             D1r = fd.Constant(np.real(self.D1[ii]))
             D2i = fd.Constant(np.imag(self.D2[ii]))
@@ -262,7 +265,16 @@ class DiagFFTPC(object):
             v = fd.TestFunction(self.CblockV)
             L = fd.inner(v, self.Jprob_in)*fd.dx
 
-            block_prefix = self.prefix+str(ii)+'_'
+            # Options with prefix 'diagfft_block_' apply to all blocks by default
+            # If any options with prefix 'diagfft_block_{i}' exist, where i is the
+            # block number, then this prefix is used instead (like pc fieldsplit)
+
+            block_prefix = f"{prefix}{self.prefix}block_"
+            for k, v in PETSc.Options().getAll().items():
+                if k.startswith(f"{block_prefix}{str(ii)}_"):
+                    block_prefix = f"{block_prefix}{str(ii)}_"
+                    break
+
             jprob = fd.LinearVariationalProblem(A, L, self.Jprob_out,
                                                 bcs=self.CblockV_bcs)
             Jsolver = fd.LinearVariationalSolver(jprob,
@@ -310,6 +322,7 @@ class DiagFFTPC(object):
             self.paradiag.block_iterations.dlocal[i] += its
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def update(self, pc):
         '''
         we need to update u0 from w_all, containing state.
@@ -321,26 +334,22 @@ class DiagFFTPC(object):
         self.u0.assign(0)
         for i in range(self.nlocal_timesteps):
             # copy the data into solver input
-            if self.ncpts > 1:
-                u0s = self.u0.split()
-            for r in range(2):
-                if self.ncpts > 1:
-                    for cpt in range(self.ncpts):
-                        u0s[cpt].sub(r).assign(u0s[cpt].sub(r)
-                                               + self.w_all.split()[self.ncpts*i+cpt])
-                else:
-                    self.u0.sub(r).assign(self.u0.sub(r)
-                                          + self.w_all.split()[i])
+            u0s = self.u0.split()
+            for cpt in range(self.ncpts):
+                wcpt = self.w_all.split()[self.ncpts*i+cpt]
+                for r in range(2):  # real and imaginary parts
+                    u0s[cpt].sub(r).assign(u0s[cpt].sub(r) + wcpt)
 
         # average only over current time-slice
         if self.jac_average == 'slice':
-            self.u0 /= self.nlocal_timesteps
+            self.u0 /= fd.Constant(self.nlocal_timesteps)
         else:  # implies self.jac_average == 'window':
             self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
             self.u0.assign(self.ureduceC)
-            self.u0 /= sum(self.time_partition)
+            self.u0 /= fd.Constant(sum(self.time_partition))
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
@@ -383,6 +392,7 @@ class DiagFFTPC(object):
             self.xtemp.assign(0.)
 
             Jins = self.xtemp.split()
+
             for cpt in range(self.ncpts):
                 self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
                 self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())

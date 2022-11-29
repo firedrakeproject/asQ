@@ -128,7 +128,7 @@ class ShallowWaterMiniApp(object):
 
         # set up swe diagnostics
         self.record_diagnostics = record_diagnostics
-        self.save_step = self.aaos.shift_index(save_step, from_range='window', to_range='window')
+        self.save_step = self.aaos.transform_index(save_step, from_range='window', to_range='window')
 
         # cfl
         self.cfl = diagnostics.convective_cfl_calculator(self.mesh)

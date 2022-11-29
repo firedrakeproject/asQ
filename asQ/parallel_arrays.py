@@ -40,7 +40,7 @@ class DistributedDataLayout1D(object):
         self.global_size = sum(partition)
         self.offset = sum(partition[:self.rank])
 
-    def shift_index(self, i, itype='l', rtype='l'):
+    def transform_index(self, i, itype='l', rtype='l'):
         '''
         Shift index between local and global addressing, and transform negative indices to their positive equivalent.
 
@@ -88,7 +88,7 @@ class DistributedDataLayout1D(object):
         :arg throws: if True, raises IndexError if i is outside the global address range
         '''
         try:
-            self.shift_index(i, itype='g', rtype='l')
+            self.transform_index(i, itype='g', rtype='l')
             return True
         except IndexError:
             if throws:
@@ -146,11 +146,11 @@ class SharedArray(object):
             self._data = data
 
         def __getitem__(self, i):
-            i = self.layout.shift_index(i, itype='l', rtype='g')
+            i = self.layout.transform_index(i, itype='l', rtype='g')
             return self._data[i]
 
         def __setitem__(self, i, val):
-            i = self.layout.shift_index(i, itype='l', rtype='g')
+            i = self.layout.transform_index(i, itype='l', rtype='g')
             self._data[i] = val
 
     def synchronise(self):
@@ -219,5 +219,5 @@ class OwnedArray(object):
         '''
         if not isinstance(size, int):
             raise ValueError("Array size must be of type int. OwnedArray only supports 1D arrays")
-        self._data.resize(size)
+        self._data.resize(size, refcheck=False)
         self.size = size

@@ -69,11 +69,11 @@ def test_distributed_data_layout(partition):
         i = imax - 1
 
         # +ve index unchanged
-        pos_shift = layout.shift_index(i, itype=itype, rtype=itype)
+        pos_shift = layout.transform_index(i, itype=itype, rtype=itype)
         assert (pos_shift == i)
 
         # -ve index changed to +ve
-        neg_shift = layout.shift_index(-i, itype=itype, rtype=itype)
+        neg_shift = layout.transform_index(-i, itype=itype, rtype=itype)
         assert (neg_shift == imax - i)
 
     # local address -> global address
@@ -81,35 +81,35 @@ def test_distributed_data_layout(partition):
     ilocal = 1
 
     # +ve index in local range
-    iglobal = layout.shift_index(ilocal, itype='l', rtype='g')
+    iglobal = layout.transform_index(ilocal, itype='l', rtype='g')
     assert (iglobal == offset + ilocal)
 
     # -ve index in local range
-    iglobal = layout.shift_index(-ilocal, itype='l', rtype='g')
+    iglobal = layout.transform_index(-ilocal, itype='l', rtype='g')
     assert (iglobal == offset + nlocal - ilocal)
 
     ilocal = nlocal + 1
 
     # +ve index out of local range
     with pytest.raises(IndexError):
-        iglobal = layout.shift_index(ilocal, itype='l', rtype='g')
+        iglobal = layout.transform_index(ilocal, itype='l', rtype='g')
 
     # -ve index out of local range
     with pytest.raises(IndexError):
-        iglobal = layout.shift_index(-ilocal, itype='l', rtype='g')
+        iglobal = layout.transform_index(-ilocal, itype='l', rtype='g')
 
     # global address -> local address
 
     # +ve index in range
     iglobal = offset + 1
-    ilocal = layout.shift_index(iglobal, itype='g', rtype='l')
+    ilocal = layout.transform_index(iglobal, itype='g', rtype='l')
     assert (ilocal == 1)
 
     assert layout.is_local(iglobal)
 
     # -ve index in range
     iglobal = -sum(partition) + offset + 1
-    ilocal = layout.shift_index(iglobal, itype='g', rtype='l')
+    ilocal = layout.transform_index(iglobal, itype='g', rtype='l')
     assert (ilocal == 1)
 
     assert layout.is_local(iglobal)
@@ -117,7 +117,7 @@ def test_distributed_data_layout(partition):
     # +ve index out of local range
     iglobal = (offset + nlocal + 1) % nglobal
     with pytest.raises(IndexError):
-        ilocal = layout.shift_index(iglobal, itype='g', rtype='l')
+        ilocal = layout.transform_index(iglobal, itype='g', rtype='l')
 
     assert not layout.is_local(iglobal)
 
@@ -127,7 +127,7 @@ def test_distributed_data_layout(partition):
     # -ve index out of local range
     iglobal = -(nglobal - (offset + nlocal))
     with pytest.raises(IndexError):
-        ilocal = layout.shift_index(iglobal, itype='g', rtype='l')
+        ilocal = layout.transform_index(iglobal, itype='g', rtype='l')
 
     assert not layout.is_local(iglobal)
 
@@ -141,6 +141,8 @@ def test_shared_array(partition):
     comm = MPI.COMM_WORLD
     rank = comm.rank
 
+    if isinstance(partition, int):
+        partition = tuple(partition for _ in range(comm.size))
     array = SharedArray(partition=partition, dtype=int, comm=comm)
 
     if isinstance(partition, int):
