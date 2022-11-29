@@ -145,8 +145,10 @@ def test_galewsky_timeseries():
         },
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft_block': block_sparameters
     }
+
+    for i in range(sum(time_partition)):
+        parallel_sparameters['diagfft_'+str(i)] = block_sparameters
 
     block_ctx = {}
     transfer_managers = []
@@ -262,7 +264,8 @@ def test_steady_swe():
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'}
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
 
     M = [2, 2]
     solver_parameters_diag["diagfft_block_"] = sparameters
@@ -735,7 +738,8 @@ def test_solve_para_form(bc_opt, extruded):
         'ksp_type': 'gmres',
         'ksp_monitor': None,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'}
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
 
     for i in range(sum(M)):
         solver_parameters_diag[f"diagfft_block_{i}_"] = sparameters
@@ -870,7 +874,8 @@ def test_solve_para_form_mixed(extruded):
         'ksp_type': 'gmres',
         'ksp_monitor': None,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'}
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
 
     solver_parameters_diag["diagfft_block_"] = sparameters
 
