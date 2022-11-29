@@ -3,11 +3,13 @@ from firedrake.petsc import PETSc
 from pyop2.mpi import MPI
 from functools import reduce
 from operator import mul
+from .profiling import memprofile
 
 from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
 class JacobianMatrix(object):
+    @memprofile
     def __init__(self, aaos):
         r"""
         Python matrix for the Jacobian of the all at once system
@@ -38,6 +40,7 @@ class JacobianMatrix(object):
                                         self.aaos.w_recv)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def mult(self, mat, X, Y):
 
         self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
@@ -73,6 +76,7 @@ class JacobianMatrix(object):
 
 
 class AllAtOnceSystem(object):
+    @memprofile
     def __init__(self,
                  ensemble, time_partition,
                  dt, theta,
@@ -408,6 +412,7 @@ class AllAtOnceSystem(object):
         return self.update_time_halos(wsend=wsend, wrecv=wrecv, walls=wall.split(), blocking=True)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def _assemble_function(self, snes, X, Fvec):
         r"""
         This is the function we pass to the snes to assemble

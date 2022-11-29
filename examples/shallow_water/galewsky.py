@@ -93,6 +93,7 @@ sparameters_diag = {
         'atol': 1e-0,
         'rtol': 1e-8,
         'stol': 1e-12,
+        'max_its': 1
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
