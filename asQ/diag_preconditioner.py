@@ -202,16 +202,11 @@ class DiagFFTPC(object):
         self.transfer = self.p0.transfer(self.p1, complex)
 
         # setting up the Riesz map
-
-        # icc not implemented in parallel so apply on each rank with bjacobi
-        # icc will solve decouled mass matrixes eg DG in one shot so can use
-        # 'ksp_type':'preonly' or 'fieldsplit_i_ksp_type':'preonly' if mixed
         default_riesz_method = {
-            'ksp_type': 'cg',
-            'mat_type': 'baij',
-            'pc_type': 'bjacobi',
-            'sub_pc_type': 'icc',
-            'sub_pc_factor_levels': 0
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor_mat_solver_type': 'mumps',
+            'mat_type': 'baij'
         }
 
         # mixed mass matrices are decoupled so solve seperately
