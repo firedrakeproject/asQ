@@ -330,24 +330,19 @@ class DiagFFTPC(object):
         self.u0.assign(0)
         for i in range(self.nlocal_timesteps):
             # copy the data into solver input
-            if self.ncpts > 1:
-                u0s = self.u0.split()
-            for r in range(2):
-                if self.ncpts > 1:
-                    for cpt in range(self.ncpts):
-                        u0s[cpt].sub(r).assign(u0s[cpt].sub(r)
-                                               + self.w_all.split()[self.ncpts*i+cpt])
-                else:
-                    self.u0.sub(r).assign(self.u0.sub(r)
-                                          + self.w_all.split()[i])
+            u0s = self.u0.split()
+            for cpt in range(self.ncpts):
+                wcpt = self.w_all.split()[self.ncpts*i+cpt]
+                for r in range(2):  # real and imaginary parts
+                    u0s[cpt].sub(r).assign(u0s[cpt].sub(r) + wcpt)
 
         # average only over current time-slice
         if self.jac_average == 'slice':
-            self.u0 /= self.nlocal_timesteps
+            self.u0 /= fd.Constant(self.nlocal_timesteps)
         else:  # implies self.jac_average == 'window':
             self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
             self.u0.assign(self.ureduceC)
-            self.u0 /= sum(self.time_partition)
+            self.u0 /= fd.Constant(sum(self.time_partition))
 
     @PETSc.Log.EventDecorator()
     def apply(self, pc, x, y):
@@ -392,6 +387,7 @@ class DiagFFTPC(object):
             self.xtemp.assign(0.)
 
             Jins = self.xtemp.split()
+
             for cpt in range(self.ncpts):
                 self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
                 self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())
