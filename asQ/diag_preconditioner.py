@@ -8,6 +8,7 @@ from operator import mul
 from functools import reduce
 import importlib
 from ufl.classes import MultiIndex, FixedIndex, Indexed
+from .profiling import memprofile
 
 
 class DiagFFTPC(object):
@@ -19,12 +20,14 @@ class DiagFFTPC(object):
         """
         self.initialized = False
 
+    @memprofile
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
 
+    @memprofile
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -202,12 +205,47 @@ class DiagFFTPC(object):
         self.transfer = self.p0.transfer(self.p1, complex)
 
         # setting up the Riesz map
+        default_riesz_method = {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor_mat_solver_type': 'mumps',
+            'mat_type': 'baij'
+        }
+
+        # mixed mass matrices are decoupled so solve seperately
+        if isinstance(Ve, fd.MixedElement):
+            default_riesz_parameters = {
+                'ksp_type': 'preonly',
+                'mat_type': 'nest',
+                'pc_type': 'fieldsplit',
+                'pc_field_split_type': 'additive',
+                'fieldsplit': default_riesz_method
+            }
+        else:
+            default_riesz_parameters = default_riesz_method
+
+        # we need to pass the mat_types to assemble directly because
+        # it won't pick them up from Options
+
+        riesz_mat_type = PETSc.Options().getString(
+            f"{prefix}{self.prefix}mass_mat_type",
+            default=default_riesz_parameters['mat_type'])
+
+        riesz_sub_mat_type = PETSc.Options().getString(
+            f"{prefix}{self.prefix}mass_fieldsplit_mat_type",
+            default=default_riesz_method['mat_type'])
+
         # input for the Riesz map
         self.xtemp = fd.Function(self.CblockV)
         v = fd.TestFunction(self.CblockV)
         u = fd.TrialFunction(self.CblockV)
-        a = fd.assemble(fd.inner(u, v)*fd.dx)
-        self.Proj = fd.LinearSolver(a, options_prefix=f"{prefix}{self.prefix}mass_")
+
+        a = fd.assemble(fd.inner(u, v)*fd.dx,
+                        mat_type=riesz_mat_type,
+                        sub_mat_type=riesz_sub_mat_type)
+
+        self.Proj = fd.LinearSolver(a, solver_parameters=default_riesz_parameters,
+                                    options_prefix=f"{prefix}{self.prefix}mass_")
 
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system
@@ -319,6 +357,7 @@ class DiagFFTPC(object):
             self.paradiag.block_iterations.dlocal[i] += its
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def update(self, pc):
         '''
         we need to update u0 from w_all, containing state.
@@ -345,6 +384,7 @@ class DiagFFTPC(object):
             self.u0 /= fd.Constant(sum(self.time_partition))
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
