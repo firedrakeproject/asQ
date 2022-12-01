@@ -142,7 +142,7 @@ def high_order_icosahedral_mesh_hierarchy(mh, degree, R0):
         new_coords = fd.interpolate(m.coordinates, X)
         x, y, z = new_coords
         r = (x**2 + y**2 + z**2)**0.5
-        new_coords.assign(R0*new_coords/r)
+        new_coords.interpolate(R0*new_coords/r)
         new_mesh = fd.Mesh(new_coords)
         meshes.append(new_mesh)
 

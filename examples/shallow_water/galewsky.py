@@ -66,7 +66,7 @@ sparameters = {
                 'pc_patch_save_operators': True,
                 'pc_patch_partition_of_unity': True,
                 'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_codim': 0,
+                'pc_patch_construct_dim': 0,
                 'pc_patch_construct_type': 'vanka',
                 'pc_patch_local_type': 'additive',
                 'pc_patch_precompute_element_tensors': True,
@@ -93,6 +93,7 @@ sparameters_diag = {
         'atol': 1e-0,
         'rtol': 1e-8,
         'stol': 1e-12,
+        'max_its': 1
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
@@ -104,8 +105,7 @@ sparameters_diag = {
     'pc_python_type': 'asQ.DiagFFTPC'
 }
 
-for i in range(window_length):
-    sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
+sparameters_diag['diagfft_block_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
