@@ -100,7 +100,7 @@ class paradiag(object):
         nlocal = self.nlocal_timesteps*W.node_set.size  # local times x local space
         nglobal = self.ntimesteps*W.dim()  # global times x global space
 
-        self.X = PETSc.Vec().create(comm=fd.COMM_WORLD)
+        self.X = PETSc.Vec().create(comm=ensemble.global_comm)
         self.X.setSizes((nlocal, nglobal))
         self.X.setFromOptions()
         # copy initial data into the PETSc vec
@@ -117,13 +117,13 @@ class paradiag(object):
         flat_solver_parameters = flatten_parameters(solver_parameters)
 
         # set up the snes
-        self.snes = PETSc.SNES().create(comm=fd.COMM_WORLD)
+        self.snes = PETSc.SNES().create(comm=ensemble.global_comm)
         self.opts = OptionsManager(flat_solver_parameters, '')
         self.snes.setOptionsPrefix('')
         self.snes.setFunction(self.aaos._assemble_function, self.F)
 
         # set up the Jacobian
-        Jacmat = PETSc.Mat().create(comm=fd.COMM_WORLD)
+        Jacmat = PETSc.Mat().create(comm=ensemble.global_comm)
         Jacmat.setType("python")
         Jacmat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
         Jacmat.setPythonContext(self.aaos.jacobian)
