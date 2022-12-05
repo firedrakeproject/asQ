@@ -332,18 +332,17 @@ class AllAtOnceSystem(object):
         :arg w1: initial solution for next time-window.If None,
                  will use the final timestep from previous window
         """
-        rank = self.time_rank
-        ncomm = self.ensemble.ensemble_comm.size
-
         if w1 is not None:  # use given function
             self.initial_condition.assign(w1)
-        else:  # last rank broadcasts final timestep
-            if rank == ncomm-1:
-                # index of start of final timestep
-                self.get_field(-1, wout=self.initial_condition, index_range='slice')
 
-            with self.initial_condition.dat.vec as vec:
-                self.ensemble.ensemble_comm.Bcast(vec.array, root=ncomm-1)
+        else:  # last rank broadcasts final timestep
+
+            end_rank = self.ensemble.ensemble_comm.size - 1
+
+            if self.time_rank == end_rank:
+                self.get_field(-1, wout=self.initial_condition, index_range='window')
+
+            self.ensemble.bcast(self.initial_condition, root=end_rank)
 
         # persistence forecast
         for i in range(self.nlocal_timesteps):
