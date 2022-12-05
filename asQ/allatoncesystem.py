@@ -1,6 +1,5 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
-from pyop2.mpi import MPI
 from functools import reduce
 from operator import mul
 from .profiling import memprofile
@@ -20,11 +19,8 @@ class JacobianMatrix(object):
         self.F = fd.Function(self.aaos.function_space_all)  # for the output residual
         self.F_prev = fd.Function(self.aaos.function_space_all)  # Where we compute the
         # part of the output residual from neighbouring contributions
-        self.u0 = fd.Function(self.aaos.function_space_all)  # Where we keep the state
 
-        self.Fsingle = fd.Function(self.aaos.function_space)
         self.urecv = fd.Function(self.aaos.function_space)  # will contain the previous time value i.e. 3*r-1
-        self.ualls = self.u.split()
         # Jform missing contributions from the previous step
         # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
         # definition:
@@ -360,8 +356,6 @@ class AllAtOnceSystem(object):
         :arg walls: all at once function list to update wrecv from. if None self.w_alls is used
         :arg blocking: Whether to blocking until MPI communications have finished. If false then a list of MPI requests is returned
         '''
-        n = self.ensemble.ensemble_comm.size
-        r = self.time_rank
 
         if wsend is None:
             wsend = self.w_send
@@ -370,25 +364,22 @@ class AllAtOnceSystem(object):
         if walls is None:
             walls = self.w_alls
 
-        # Communication stage
-        mpi_requests = []
+        if blocking:
+            sendrecv = self.ensemble.sendrecv
+        else:
+            sendrecv = self.ensemble.isendrecv
 
+        # send last timestep on current slice to next slice
         self.get_field(-1, wout=wsend, index_range='slice', f_alls=walls)
 
-        # these should be replaced with isendrecv once ensemble updates are pushed to Firedrake
-        request_send = self.ensemble.isend(wsend, dest=((r+1) % n), tag=r)
-        mpi_requests.extend(request_send)
+        size = self.ensemble.ensemble_comm.size
+        rank = self.ensemble.ensemble_comm.rank
 
-        request_recv = self.ensemble.irecv(wrecv, source=((r-1) % n), tag=r-1)
-        mpi_requests.extend(request_recv)
+        dst = (rank+1) % size
+        src = (rank-1) % size
 
-        if blocking:
-            # wait for the data [we should really do this after internal
-            # assembly but have avoided that for now]
-            MPI.Request.Waitall(mpi_requests)
-            return
-        else:
-            return mpi_requests
+        return sendrecv(fsend=wsend, dest=dst, sendtag=rank,
+                        frecv=wrecv, source=src, recvtag=src)
 
     @PETSc.Log.EventDecorator()
     def update(self, X, wall=None, wsend=None, wrecv=None, blocking=True):
@@ -408,7 +399,10 @@ class AllAtOnceSystem(object):
         with wall.dat.vec_wo as v:
             v.array[:] = X.array_r
 
-        return self.update_time_halos(wsend=wsend, wrecv=wrecv, walls=wall.split(), blocking=True)
+        return self.update_time_halos(wsend=wsend,
+                                      wrecv=wrecv,
+                                      walls=wall.split(),
+                                      blocking=blocking)
 
     @PETSc.Log.EventDecorator()
     @memprofile
