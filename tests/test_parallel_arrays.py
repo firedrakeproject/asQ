@@ -188,6 +188,15 @@ def test_shared_array(partition):
             j = offset + i
             assert array.dglobal[j] == check
 
+    copy = array.data()
+    assert copy is not array._data
+
+    for i in range(array.global_size):
+        assert copy[i] == array.dglobal[i]
+
+    dat = array.data(deepcopy=False)
+    assert dat is array._data
+
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize("partition", partitions)
