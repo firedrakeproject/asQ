@@ -161,6 +161,17 @@ class SharedArray(object):
         """
         self.comm.Allgatherv(MPI.IN_PLACE, [self._data, list(self.partition)])
 
+    def data(self, deepcopy=True):
+        """
+        Return numpy array of the underlying data.
+
+        :arg deepcopy: If True, a copy of the data is returned
+        """
+        if deepcopy:
+            return self._data.copy()
+        else:
+            return self._data
+
 
 class OwnedArray(object):
     def __init__(self, size, owner=0, comm=MPI.COMM_WORLD, dtype=None):
