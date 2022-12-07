@@ -145,7 +145,7 @@ def window_preproc(swe_app, pdg, wndw):
 
 def window_postproc(swe_app, pdg, wndw):
     if miniapp.aaos.layout.is_local(miniapp.save_step):
-        nt = pdg.total_windows*pdg.ntimesteps + miniapp.save_step + 1
+        nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
         time = nt*miniapp.aaos.dt
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)

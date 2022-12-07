@@ -215,7 +215,7 @@ class ShallowWaterMiniApp(object):
                 # global timestep over all windows
                 window_length = self.paradiag.ntimesteps
 
-                nt = window*window_length + self.save_step + 1
+                nt = (window - 1)*window_length + (self.save_step + 1)
                 dt = self.aaos.dt
                 t = nt*dt
 
