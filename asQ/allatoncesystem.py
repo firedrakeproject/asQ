@@ -354,7 +354,7 @@ class AllAtOnceSystem(object):
         :arg wsend: Function to send last step of current slice to next slice. if None self.w_send is used
         :arg wrecv: Function to receive last step of previous slice. if None self.w_recv is used
         :arg walls: all at once function list to update wrecv from. if None self.w_alls is used
-        :arg blocking: Whether to blocking until MPI communications have finished. If false then a list of MPI requests is returned
+        :arg blocking: Whether to use blocking MPI communications. If False then a list of MPI requests is returned
         '''
 
         if wsend is None:
@@ -375,6 +375,7 @@ class AllAtOnceSystem(object):
         size = self.ensemble.ensemble_comm.size
         rank = self.ensemble.ensemble_comm.rank
 
+        # ring communication
         dst = (rank+1) % size
         src = (rank-1) % size
 
