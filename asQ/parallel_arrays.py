@@ -249,3 +249,14 @@ class OwnedArray(object):
             raise ValueError("Array size must be of type int. OwnedArray only supports 1D arrays")
         self._data.resize(size, refcheck=False)
         self.size = size
+
+    def data(self, deepcopy=True):
+        """
+        Return numpy array of the underlying data.
+
+        :arg deepcopy: If True, a copy of the data is returned
+        """
+        if deepcopy:
+            return self._data.copy()
+        else:
+            return self._data

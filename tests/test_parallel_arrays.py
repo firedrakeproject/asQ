@@ -189,6 +189,7 @@ def test_shared_array(partition):
             j = offset + i
             assert array.dglobal[j] == check
 
+    # test copying data
     copy = array.data()
     assert copy is not array._data
 
@@ -304,3 +305,13 @@ def test_owned_array():
     # check new data
     for i in range(new_size):
         assert array[i] == 10*(i-5)
+
+    # test copying data
+    copy = array.data()
+    assert copy is not array._data
+
+    for i in range(array.size):
+        assert copy[i] == array[i]
+
+    dat = array.data(deepcopy=False)
+    assert dat is array._data
