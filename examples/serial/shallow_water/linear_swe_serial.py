@@ -103,6 +103,7 @@ mg_parameters = {
 
 # solver parameters for the implicit solve
 sparameters = {
+    'snes_type': 'ksponly',
     'snes': {
         'monitor': None,
         'converged_reason': None,
