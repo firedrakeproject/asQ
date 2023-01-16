@@ -1,5 +1,4 @@
 
-import numpy as np
 import firedrake as fd
 from petsc4py import PETSc
 import asQ
@@ -97,6 +96,7 @@ def form_function_asq(u, h, v, q):
 def form_mass_asq(u, h, v, q):
     return swe.nonlinear.form_mass(mesh, u, h, v, q)
 
+
 # gusto method
 
 swe_parameters = gusto.ShallowWaterParameters(H=H,
@@ -111,6 +111,7 @@ eqn = gusto.ShallowWaterEquations(domain,
 
 from gusto.labels import replace_subject, replace_test_function, time_derivative
 from gusto.fml.form_manipulation_labelling import all_terms, drop
+
 
 def extract_form_mass(u, h, v, q, residual=None):
     M = residual.label_map(lambda t: t.has_label(time_derivative),
@@ -128,12 +129,13 @@ def extract_form_function(u, h, v, q, residual=None):
     K = residual.label_map(lambda t: t.has_label(time_derivative),
                            map_if_true=drop)
 
-    K = M.label_map(all_terms, replace_subject(u, idx=0))
-    K = M.label_map(all_terms, replace_subject(h, idx=1))
+    K = K.label_map(all_terms, replace_subject(u, idx=0))
+    K = K.label_map(all_terms, replace_subject(h, idx=1))
 
     K = K.label_map(all_terms, replace_test_function(v))
-    K = M.label_map(all_terms, replace_test_function(q))
+    K = K.label_map(all_terms, replace_test_function(q))
     return K.form
+
 
 form_mass_gusto = partial(extract_form_mass, residual=eqn.residual)
 form_function_gusto = partial(extract_form_function, residual=eqn.residual)
@@ -282,14 +284,15 @@ def window_postproc(pdg, wndw):
         herr = errors[window_index, 1]
         PETSc.Sys.Print(f"timestep={timestep}, uerr={uerr}, herr={herr}")
 
+
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 PETSc.Sys.Print('')
 
 PETSc.Sys.Print("Solving with the old forms")
 
 pdg.solve(nwindows=args.nwindows,
-         preproc=window_preproc,
-         postproc=window_postproc)
+          preproc=window_preproc,
+          postproc=window_postproc)
 
 PETSc.Sys.Print("Solving with gusto forms")
 
