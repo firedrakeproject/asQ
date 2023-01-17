@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser(
     description='ParaDiag timestepping for the Heat equation with time coefficient.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
-parser.add_argument('--nx', type=int, default=64, help='Number of cells along each square side.')
+parser.add_argument('--nx', type=int, default=16, help='Number of cells along each square side.')
 parser.add_argument('--cfl', type=float, default=1.0, help='Convective CFL number.')
 parser.add_argument('--angle', type=float, default=pi/6, help='Angle of the convective velocity.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
