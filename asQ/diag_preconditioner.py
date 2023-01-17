@@ -253,14 +253,8 @@ class DiagFFTPC(object):
         # parts and then linearising.
 
 
-        self.KK = np.zeros(self.aaos.ntimesteps)
 
-        for r in range(self.aaos.nlocal_timesteps):
-            self.k = self.aaos.transform_index(r, from_range='slice', to_range='window')
-            self.KK[self.k] = self.aaos.time[r]
-
-        self.t = sum(self.KK)/self.aaos.ntimesteps
-        print(self.KK)
+        self.t = fd.Constant(3/16)
 
         Nrr = form_function(*usr, *vsr, self.t)
         Nri = form_function(*usr, *vsi, self.t)
