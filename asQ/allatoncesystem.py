@@ -109,7 +109,6 @@ class AllAtOnceSystem(object):
         self.circ = circ
         self.alpha = alpha
         self.Circ = fd.Constant(0.0)
-
         self.max_indices = {
             'component': self.ncomponents,
             'slice': self.nlocal_timesteps,

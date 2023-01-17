@@ -93,7 +93,6 @@ class paradiag(object):
         self.circ = self.aaos.circ
         self.ctx = ctx
         self.block_ctx = block_ctx
-
         # set up the PETSc Vecs (X for coeffs and F for residuals)
         W = self.aaos.function_space
 

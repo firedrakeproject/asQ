@@ -60,7 +60,7 @@ class DiagFFTPC(object):
         self.nlocal_timesteps = paradiag.nlocal_timesteps
 
         paradiag.diagfftpc = self
-
+        self.total_windows = 0
         # option for whether to use slice or window average for block jacobian
         self.jac_average = PETSc.Options().getString(
             f"{prefix}{self.prefix}jac_average", default='window')
@@ -87,15 +87,14 @@ class DiagFFTPC(object):
         # Gamma coefficients
         exponents = np.arange(self.ntimesteps)/self.ntimesteps
         self.Gam = paradiag.alpha**exponents
-
         slice_begin = self.aaos.transform_index(0, from_range='slice', to_range='window')
         slice_end = slice_begin + self.nlocal_timesteps
         self.Gam_slice = self.Gam[slice_begin:slice_end]
-
+#        self.t = fd.Constant(4/64)
+#        self.t = self.aaos.dt*sum(self.time_partition)/2 + j*self.aaos.dt*self.aaos.ntimesteps
         # circulant eigenvalues
         C1col = np.zeros(self.ntimesteps)
         C2col = np.zeros(self.ntimesteps)
-
         dt = self.aaos.dt
         theta = self.aaos.theta
         C1col[:2] = np.array([1, -1])/dt
@@ -103,7 +102,6 @@ class DiagFFTPC(object):
 
         self.D1 = np.sqrt(self.ntimesteps)*fft(self.Gam*C1col)
         self.D2 = np.sqrt(self.ntimesteps)*fft(self.Gam*C2col)
-        self.t = fd.Constant(1/2)
         # Block system setup
         # First need to build the vector function space version of
         # blockV
@@ -253,6 +251,16 @@ class DiagFFTPC(object):
         # We achieve this by copying w_all into both components of u0
         # building the nonlinearity separately for the real and imaginary
         # parts and then linearising.
+
+
+        self.KK = np.zeros(self.aaos.ntimesteps)
+
+        for r in range(self.aaos.nlocal_timesteps):
+            self.k = self.aaos.transform_index(r, from_range='slice', to_range='window')
+            self.KK[self.k] = self.aaos.time[r]
+
+        self.t = sum(self.KK)/self.aaos.ntimesteps
+        print(self.KK)
 
         Nrr = form_function(*usr, *vsr, self.t)
         Nri = form_function(*usr, *vsi, self.t)

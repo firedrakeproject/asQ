@@ -1,0 +1,8 @@
+total timesteps = 4
+total windows = 1
+total nonlinear iterations = 11
+total linear iterations = 11
+nonlinear iterations per window = 11.0
+linear iterations per window = 11.0
+linear iterations per nonlinear iteration = 1.0
+max iterations per block solve = 1.0
