@@ -5,12 +5,13 @@ from math import pi, cos, sin
 
 import firedrake as fd
 from firedrake.petsc import PETSc
+import numpy as np
 import asQ
 
 import argparse
 
 parser = argparse.ArgumentParser(
-    description='ParaDiag timestepping for scalar advection of a Gaussian bump in a periodic square with DG in space and implicit-theta in time. Based on the Firedrake DG advection example https://www.firedrakeproject.org/demos/DG_advection.py.html',
+    description='ParaDiag timestepping for the Heat equation with time coefficient.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 parser.add_argument('--nx', type=int, default=64, help='Number of cells along each square side.')
@@ -43,67 +44,47 @@ nsteps = args.nwindows*window_length
 umax = 1.
 dx = 1./args.nx
 dt = args.cfl*dx/umax
-
 # The Ensemble with the spatial and time communicators
 ensemble = asQ.create_ensemble(time_partition)
 
 # # # === --- domain --- === # # #
 
 # The mesh needs to be created with the spatial communicator
-mesh = fd.PeriodicUnitSquareMesh(args.nx, args.nx, quadrilateral=True, comm=ensemble.comm)
+mesh = fd.UnitSquareMesh(args.nx, args.nx, quadrilateral=False, comm=ensemble.comm)
 
-# We use a discontinuous Galerkin space for the advected scalar
-# and a continuous Galerkin space for the advecting velocity field
-V = fd.FunctionSpace(mesh, "DQ", args.degree)
-W = fd.VectorFunctionSpace(mesh, "CG", args.degree)
+V = fd.FunctionSpace(mesh, "CG", args.degree)
 
 # # # === --- initial conditions --- === # # #
 
 x, y = fd.SpatialCoordinate(mesh)
 
+# Solving u_t - (1+2t) \Delta u = f
 
-def radius(x, y):
-    return fd.sqrt(pow(x-0.5, 2) + pow(y-0.5, 2))
+# u_exact = sin(pi*x)*cos(pi*y)
 
-
-def gaussian(x, y):
-    return fd.exp(-0.5*pow(radius(x, y)/args.width, 2))
+# f = (u_exact)_t - (1+2*t)\Delta u_exact
 
 
 # The scalar initial conditions are a Gaussian bump centred at (0.5, 0.5)
 q0 = fd.Function(V, name="scalar_initial")
-q0.interpolate(1 + gaussian(x, y))
-
-# The advecting velocity field is constant and directed at an angle to the x-axis
-u = fd.Function(W, name='velocity')
-u.interpolate(fd.as_vector((umax*cos(args.angle), umax*sin(args.angle))))
+q0.interpolate(fd.sin(pi*x)*fd.cos(pi*y))
 
 
 # # # === --- finite element forms --- === # # #
 
 
-# The time-derivative mass form for the scalar advection equation.
 # asQ assumes that the mass form is linear so here
 # q is a TrialFunction and phi is a TestFunction
 def form_mass(q, phi):
     return phi*q*fd.dx
 
+DBc = [fd.DirichletBC(V, fd.Constant(0.0), 'on_boundary')]
 
-# The DG advection form for the scalar advection equation.
-# asQ assumes that the function form is nonlinear so here
+
 # q is a Function and phi is a TestFunction
-def form_function(q, phi):
-    # upwind switch
-    n = fd.FacetNormal(mesh)
-    un = 0.5*(fd.dot(u, n) + abs(fd.dot(u, n)))
+def form_function(q, phi, t):
 
-    # integration over element volume
-    int_cell = q*fd.div(phi*u)*fd.dx
-
-    # integration over internal facets
-    int_facet = (phi('+')-phi('-'))*(un('+')*q('+')-un('-')*q('-'))*fd.dS
-
-    return int_facet - int_cell
+    return (1+2*t)*fd.inner(fd.grad(q), fd.grad(phi))*fd.dx + fd.inner(2*pi**2*(1+2*t)*fd.sin(pi*x)*fd.sin(pi*y), phi)*fd.dx
 
 
 # # # === --- PETSc solver parameters --- === # # #
@@ -112,8 +93,8 @@ def form_function(q, phi):
 # The PETSc solver parameters used to solve the
 # blocks in step (b) of inverting the ParaDiag matrix.
 block_parameters = {
-    'ksp_type': 'gmres',
-    'pc_type': 'bjacobi',
+    'ksp_type': 'preonly',
+    'pc_type': 'lu',
 }
 
 # The PETSc solver parameters for solving the all-at-once system.
@@ -164,6 +145,7 @@ for i in range(window_length):
 # Give everything to asQ to create the paradiag object.
 # the circ parameter determines where the alpha-circulant
 # approximation is introduced. None means only in the preconditioner.
+
 pdg = asQ.paradiag(ensemble=ensemble,
                    form_function=form_function,
                    form_mass=form_mass,
@@ -246,5 +228,3 @@ if is_last_slice:
 
     interval = 1e2
     animation = FuncAnimation(fig, animate, frames=timeseries, interval=interval)
-
-    animation.save("periodic.mp4", writer="ffmpeg")

@@ -3,7 +3,7 @@ from firedrake.petsc import PETSc
 from functools import reduce
 from operator import mul
 from .profiling import memprofile
-
+import numpy as np
 from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
@@ -115,7 +115,7 @@ class AllAtOnceSystem(object):
             'slice': self.nlocal_timesteps,
             'window': self.ntimesteps
         }
-
+        self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
         # function pace for the slice of the all-at-once system on this process
         self.function_space_all = reduce(mul, (self.function_space
                                                for _ in range(self.nlocal_timesteps)))
@@ -343,7 +343,7 @@ class AllAtOnceSystem(object):
         # persistence forecast
         for i in range(self.nlocal_timesteps):
             self.set_field(i, self.initial_condition, index_range='slice')
-
+            self.time[i].assign(self.time[i] + self.dt*self.ntimesteps)
         return
 
     @PETSc.Log.EventDecorator()
@@ -434,14 +434,12 @@ class AllAtOnceSystem(object):
         Constructs the bilinear form for the all at once system.
         Specific to the theta-centred Crank-Nicholson method
         """
-
         w_alls = fd.split(self.w_all)
         test_fns = fd.TestFunctions(self.function_space_all)
 
         dt = fd.Constant(self.dt)
         theta = fd.Constant(self.theta)
         alpha = fd.Constant(self.alpha)
-
         def get_step(i):
             return self.get_field_components(i, f_alls=w_alls)
 
@@ -449,7 +447,7 @@ class AllAtOnceSystem(object):
             return self.get_field_components(i, f_alls=test_fns)
 
         for n in range(self.nlocal_timesteps):
-
+            self.time[n].assign(self.time[n] + dt*(self.layout.transform_index(n, 'l', 'g') + 1))
             # previous time level
             if n == 0:
                 if self.time_rank == 0:
@@ -479,7 +477,7 @@ class AllAtOnceSystem(object):
             aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
 
             # vector field
-            aao_form += theta*self.form_function(*w1s, *dws)
-            aao_form += (1-theta)*self.form_function(*w0s, *dws)
-
+            aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
+            aao_form += (1-theta)*self.form_function(*w0s, *dws, self.time[n])
+#        print(self.time)
         self.aao_form = aao_form

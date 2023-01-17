@@ -84,7 +84,7 @@ hn.assign(H + etan - b)
 
 # nonlinear swe forms
 
-def form_function(u, h, v, q):
+def form_function(u, h, v, q, t):
     return swe.nonlinear.form_function(mesh, earth.Gravity, b, f, u, h, v, q)
 
 
@@ -192,7 +192,7 @@ def steady_state_test(w):
 def window_postproc(pdg, wndw):
     errors = np.zeros((window_length, 2))
     local_errors = np.zeros_like(errors)
-
+    print(local_errors)
     # collect errors for this slice
     def for_each_callback(window_index, slice_index, w):
         nonlocal local_errors

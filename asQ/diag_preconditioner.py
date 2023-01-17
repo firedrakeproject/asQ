@@ -103,7 +103,7 @@ class DiagFFTPC(object):
 
         self.D1 = np.sqrt(self.ntimesteps)*fft(self.Gam*C1col)
         self.D2 = np.sqrt(self.ntimesteps)*fft(self.Gam*C2col)
-
+        self.t = fd.Constant(1/2)
         # Block system setup
         # First need to build the vector function space version of
         # blockV
@@ -254,10 +254,10 @@ class DiagFFTPC(object):
         # building the nonlinearity separately for the real and imaginary
         # parts and then linearising.
 
-        Nrr = form_function(*usr, *vsr)
-        Nri = form_function(*usr, *vsi)
-        Nir = form_function(*usi, *vsr)
-        Nii = form_function(*usi, *vsi)
+        Nrr = form_function(*usr, *vsr, self.t)
+        Nri = form_function(*usr, *vsi, self.t)
+        Nir = form_function(*usi, *vsr, self.t)
+        Nii = form_function(*usi, *vsi, self.t)
         Jrr = fd.derivative(Nrr, self.u0)
         Jri = fd.derivative(Nri, self.u0)
         Jir = fd.derivative(Nir, self.u0)
