@@ -82,7 +82,7 @@ DBc = [fd.DirichletBC(V, fd.Constant(0), 'on_boundary')]
 # q is a Function and phi is a TestFunction
 def form_function(q, phi, t):
 
-    return (2+sin(pi*t))*fd.inner(fd.grad(q), fd.grad(phi))*fd.dx
+    return (2+sin(2*pi*t))*fd.inner(fd.grad(q), fd.grad(phi))*fd.dx
 
 # - fd.inner(2*pi**2*(2+sin(10*pi*t))*u_exact, phi)*fd.dx
 
