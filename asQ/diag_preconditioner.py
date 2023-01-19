@@ -129,11 +129,11 @@ class DiagFFTPC(object):
         vs = fd.TestFunctions(self.CblockV)
         uts = fd.TrialFunctions(self.CblockV)
         self.u0 = fd.Function(self.CblockV)  # we will create a linearisation
+        self.t = fd.Constant(dt)
         us = fd.split(self.u0)
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
             self.ureduceC = fd.Function(self.CblockV)
-            self.t = 0
         # extract the real and imaginary parts
         vsr = []
         vsi = []
@@ -244,7 +244,6 @@ class DiagFFTPC(object):
         # We achieve this by copying w_all into both components of u0
         # building the nonlinearity separately for the real and imaginary
         # parts and then linearising.
-
 
 
         Nrr = form_function(*usr, *vsr, self.t)
@@ -375,11 +374,10 @@ class DiagFFTPC(object):
             self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
             self.u0.assign(self.ureduceC)
             self.u0 /= fd.Constant(sum(self.time_partition))
-            self.t += 1/16
+            self.t.assign(self.paradiag.t)
     @PETSc.Log.EventDecorator()
     @memprofile
     def apply(self, pc, x, y):
-
         # copy petsc vec into Function
         # hopefully this works
         with self.xf.dat.vec_wo as v:
@@ -466,6 +464,5 @@ class DiagFFTPC(object):
         ################
 
         self._record_diagnostics()
-
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError
