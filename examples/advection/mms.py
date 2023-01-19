@@ -1,4 +1,3 @@
-
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from math import pi, cos, sin
@@ -14,7 +13,7 @@ parser = argparse.ArgumentParser(
     description='ParaDiag timestepping for the Heat equation with time coefficient.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
-parser.add_argument('--nx', type=int, default=16, help='Number of cells along each square side.')
+parser.add_argument('--nx', type=int, default=64, help='Number of cells along each square side.')
 parser.add_argument('--cfl', type=float, default=1.0, help='Convective CFL number.')
 parser.add_argument('--angle', type=float, default=pi/6, help='Angle of the convective velocity.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
@@ -77,13 +76,15 @@ w0.interpolate(fd.sin(pi*x)*fd.cos(pi*y))
 def form_mass(q, phi):
     return phi*q*fd.dx
 
-DBc = [fd.DirichletBC(V, u_exact, 'on_boundary')]
+DBc = [fd.DirichletBC(V, fd.Constant(0), 'on_boundary')]
 
 
 # q is a Function and phi is a TestFunction
 def form_function(q, phi, t):
 
-    return (1+2*t)*fd.inner(fd.grad(q), fd.grad(phi))*fd.dx - fd.inner(2*pi**2*(1+2*t)*u_exact, phi)*fd.dx
+    return (2+sin(pi*t))*fd.inner(fd.grad(q), fd.grad(phi))*fd.dx
+
+# - fd.inner(2*pi**2*(2+sin(10*pi*t))*u_exact, phi)*fd.dx
 
 
 # # # === --- PETSc solver parameters --- === # # #

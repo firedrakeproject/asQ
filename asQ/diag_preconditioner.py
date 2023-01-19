@@ -19,14 +19,12 @@ class DiagFFTPC(object):
         block diagonal structure, using FFT.
         """
         self.initialized = False
-
     @memprofile
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
-
     @memprofile
     def initialize(self, pc):
         if pc.getType() != "python":
@@ -58,9 +56,7 @@ class DiagFFTPC(object):
         self.time_rank = paradiag.time_rank
         self.ntimesteps = paradiag.ntimesteps
         self.nlocal_timesteps = paradiag.nlocal_timesteps
-
         paradiag.diagfftpc = self
-        self.total_windows = 0
         # option for whether to use slice or window average for block jacobian
         self.jac_average = PETSc.Options().getString(
             f"{prefix}{self.prefix}jac_average", default='window')
@@ -90,9 +86,7 @@ class DiagFFTPC(object):
         slice_begin = self.aaos.transform_index(0, from_range='slice', to_range='window')
         slice_end = slice_begin + self.nlocal_timesteps
         self.Gam_slice = self.Gam[slice_begin:slice_end]
-#        self.t = fd.Constant(4/64)
-#        self.t = self.aaos.dt*sum(self.time_partition)/2 + j*self.aaos.dt*self.aaos.ntimesteps
-        # circulant eigenvalues
+         # circulant eigenvalues
         C1col = np.zeros(self.ntimesteps)
         C2col = np.zeros(self.ntimesteps)
         dt = self.aaos.dt
@@ -136,11 +130,10 @@ class DiagFFTPC(object):
         uts = fd.TrialFunctions(self.CblockV)
         self.u0 = fd.Function(self.CblockV)  # we will create a linearisation
         us = fd.split(self.u0)
-
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
             self.ureduceC = fd.Function(self.CblockV)
-
+            self.t = 0
         # extract the real and imaginary parts
         vsr = []
         vsi = []
@@ -253,8 +246,6 @@ class DiagFFTPC(object):
         # parts and then linearising.
 
 
-
-        self.t = fd.Constant(3/16)
 
         Nrr = form_function(*usr, *vsr, self.t)
         Nri = form_function(*usr, *vsi, self.t)
@@ -384,7 +375,7 @@ class DiagFFTPC(object):
             self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
             self.u0.assign(self.ureduceC)
             self.u0 /= fd.Constant(sum(self.time_partition))
-
+            self.t += 1/16
     @PETSc.Log.EventDecorator()
     @memprofile
     def apply(self, pc, x, y):
