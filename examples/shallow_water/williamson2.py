@@ -109,7 +109,7 @@ sparameters = {
     'mg_levels_patch_pc_patch_save_operators': True,
     'mg_levels_patch_pc_patch_partition_of_unity': True,
     'mg_levels_patch_pc_patch_sub_mat_type': 'seqdense',
-    'mg_levels_patch_pc_patch_construct_codim': 0,
+    'mg_levels_patch_pc_patch_construct_dim': 0,
     'mg_levels_patch_pc_patch_construct_type': 'vanka',
     'mg_levels_patch_pc_patch_local_type': 'additive',
     'mg_levels_patch_pc_patch_precompute_element_tensors': True,

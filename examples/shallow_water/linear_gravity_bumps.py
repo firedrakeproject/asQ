@@ -98,9 +98,8 @@ sparameters_diag = {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-0,
         'rtol': 1e-10,
-        'stol': 1e-12,
+        'atol': 1e-0,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
@@ -115,7 +114,7 @@ sparameters_diag = {
 }
 
 for i in range(window_length):
-    sparameters_diag['diagfft_'+str(i)+'_'] = sparameters
+    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
