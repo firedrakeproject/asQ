@@ -31,7 +31,7 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
     if nranks % nslices != 0:
         raise ValueError("Number of time slices must be exact factor of number of MPI ranks")
 
-    nspatial_domains = nranks/nslices
+    nspatial_domains = nranks//nslices
 
     return fd.Ensemble(comm, nspatial_domains)
 
