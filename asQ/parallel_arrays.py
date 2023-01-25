@@ -1,5 +1,6 @@
 from pyop2.mpi import MPI
 from numpy import zeros as zero_array
+from numpy import asarray
 
 
 def in_range(i, length, allow_negative=True, throws=False):
@@ -153,13 +154,40 @@ class SharedArray(object):
             i = self.layout.transform_index(i, itype='l', rtype='g')
             self._data[i] = val
 
-    def synchronise(self):
+    def synchronise(self, root=None):
         """
         Synchronise the array over the comm.
 
         Until this method is called, array elements not owned by the current rank are not guaranteed to be valid.
+        If root=None, array is synchronised on all ranks. If root is a rank, then the array is synchronised on only that rank. Array elements on other ranks remain unsynchronised.
+
+        :arg root: The rank to synchronise the array onto. None for synchronise on all ranks.
         """
-        self.comm.Allgatherv(MPI.IN_PLACE, [self._data, list(self.partition)])
+        if root is None:
+            sendbuf = MPI.IN_PLACE
+            recvbuf = [self._data, list(self.partition)]
+            self.comm.Allgatherv(sendbuf, recvbuf)
+        else:
+            if self.rank == root:
+                sendbuf = MPI.IN_PLACE
+                recvbuf = [self._data, list(self.partition)]
+            else:
+                begin = self.offset
+                end = begin + self.local_size
+                sendbuf = asarray(self._data[begin:end])
+                recvbuf = None
+            self.comm.Gatherv(sendbuf, recvbuf, root=root)
+
+    def data(self, deepcopy=True):
+        """
+        Return numpy array of the underlying data.
+
+        :arg deepcopy: If True, a copy of the data is returned
+        """
+        if deepcopy:
+            return self._data.copy()
+        else:
+            return self._data
 
 
 class OwnedArray(object):
@@ -221,3 +249,14 @@ class OwnedArray(object):
             raise ValueError("Array size must be of type int. OwnedArray only supports 1D arrays")
         self._data.resize(size, refcheck=False)
         self.size = size
+
+    def data(self, deepcopy=True):
+        """
+        Return numpy array of the underlying data.
+
+        :arg deepcopy: If True, a copy of the data is returned
+        """
+        if deepcopy:
+            return self._data.copy()
+        else:
+            return self._data

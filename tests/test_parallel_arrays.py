@@ -2,6 +2,7 @@ import pytest
 from pyop2.mpi import MPI
 from asQ.parallel_arrays import in_range
 from asQ import DistributedDataLayout1D, SharedArray, OwnedArray
+from numpy import allclose
 
 partitions = [3, (2, 3, 4, 2)]
 
@@ -188,6 +189,35 @@ def test_shared_array(partition):
             j = offset + i
             assert array.dglobal[j] == check
 
+    # test copying data
+    copy = array.data()
+    assert copy is not array._data
+
+    for i in range(array.global_size):
+        assert copy[i] == array.dglobal[i]
+
+    dat = array.data(deepcopy=False)
+    assert dat is array._data
+
+    # test synchronise to one rank
+    for i in range(local_size):
+        array.dlocal[i] = array.rank + 1
+
+    root = 1
+    before = array.data()
+    array.synchronise(root=root)
+    after = array.data()
+
+    if array.rank == root:
+        for rank in range(array.comm.size):
+            check = rank + 1
+            offset = sum(partition[:rank])
+            for i in range(partition[rank]):
+                j = offset + i
+                assert array.dglobal[j] == check
+    else:
+        assert allclose(before, after)
+
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize("partition", partitions)
@@ -275,3 +305,13 @@ def test_owned_array():
     # check new data
     for i in range(new_size):
         assert array[i] == 10*(i-5)
+
+    # test copying data
+    copy = array.data()
+    assert copy is not array._data
+
+    for i in range(array.size):
+        assert copy[i] == array[i]
+
+    dat = array.data(deepcopy=False)
+    assert dat is array._data
