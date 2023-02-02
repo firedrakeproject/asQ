@@ -145,8 +145,10 @@ def test_galewsky_timeseries():
         },
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft_block': block_sparameters
     }
+
+    for i in range(sum(time_partition)):
+        parallel_sparameters['diagfft_'+str(i)] = block_sparameters
 
     block_ctx = {}
     transfer_managers = []
@@ -262,11 +264,12 @@ def test_steady_swe():
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'}
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
 
     M = [2, 2]
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_"+str(i)+"_"] = sparameters
+    solver_parameters_diag["diagfft_block_"] = sparameters
+    solver_parameters_diag["diagfft_block_0_"] = sparameters
 
     dt = 0.2*units.hour
 
@@ -735,10 +738,11 @@ def test_solve_para_form(bc_opt, extruded):
         'ksp_type': 'gmres',
         'ksp_monitor': None,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'}
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
 
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
+    for i in range(sum(M)):
+        solver_parameters_diag[f"diagfft_block_{i}_"] = sparameters
 
     def form_function(u, v):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
@@ -870,10 +874,10 @@ def test_solve_para_form_mixed(extruded):
         'ksp_type': 'gmres',
         'ksp_monitor': None,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'}
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
 
-    for i in range(np.sum(M)):
-        solver_parameters_diag["diagfft_" + str(i) + "_"] = sparameters
+    solver_parameters_diag["diagfft_block_"] = sparameters
 
     def form_function(uu, up, vu, vp):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
@@ -935,3 +939,77 @@ def test_solve_para_form_mixed(extruded):
         ind2 = 2*left + 2*i + 1
         assert (fd.errornorm(vfull_list[ind1], PD.aaos.w_all.sub(2*i)) < 1.0e-9)
         assert (fd.errornorm(vfull_list[ind2], PD.aaos.w_all.sub(2*i+1)) < 1.0e-9)
+
+
+@pytest.mark.parallel(nprocs=6)
+def test_diagnostics():
+    # tests that the diagnostics recording is accurate
+    ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    V = fd.FunctionSpace(mesh, "CG", 1)
+
+    x, y = fd.SpatialCoordinate(mesh)
+    u0 = fd.Function(V).interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
+    dt = 0.01
+    theta = 0.5
+    alpha = 0.001
+    M = [2, 2, 2]
+
+    block_sparameters = {
+        "ksp_type": "preonly",
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'
+    }
+
+    diag_sparameters = {
+        'snes_converged_reason': None,
+        'ksp_converged_reason': None,
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC'
+    }
+
+    for i in range(np.sum(M)):
+        diag_sparameters["diagfft_" + str(i) + "_"] = block_sparameters
+
+    def form_function(u, v):
+        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    pdg = asQ.paradiag(ensemble=ensemble,
+                       form_function=form_function,
+                       form_mass=form_mass, w0=u0,
+                       dt=dt, theta=theta,
+                       alpha=alpha,
+                       time_partition=M,
+                       solver_parameters=diag_sparameters,
+                       circ=None)
+
+    pdg.solve(nwindows=1)
+
+    pdg.sync_diagnostics()
+
+    assert pdg.total_timesteps == sum(M)
+    assert pdg.total_windows == 1
+    assert pdg.linear_iterations == pdg.snes.getLinearSolveIterations()
+    assert pdg.nonlinear_iterations == pdg.snes.getIterationNumber()
+
+    # direct block solve
+    for i in range(sum(M)):
+        assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations
+
+    linear_iterations0 = pdg.linear_iterations
+    nonlinear_iterations0 = pdg.nonlinear_iterations
+
+    pdg.solve(nwindows=1)
+
+    assert pdg.total_timesteps == 2*sum(M)
+    assert pdg.total_windows == 2
+    assert pdg.linear_iterations == linear_iterations0 + pdg.snes.getLinearSolveIterations()
+    assert pdg.nonlinear_iterations == nonlinear_iterations0 + pdg.snes.getIterationNumber()
+
+    for i in range(sum(M)):
+        assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations

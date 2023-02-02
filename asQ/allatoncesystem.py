@@ -1,11 +1,14 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
-from pyop2.mpi import MPI
 from functools import reduce
 from operator import mul
+from .profiling import memprofile
+
+from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
 class JacobianMatrix(object):
+    @memprofile
     def __init__(self, aaos):
         r"""
         Python matrix for the Jacobian of the all at once system
@@ -16,11 +19,8 @@ class JacobianMatrix(object):
         self.F = fd.Function(self.aaos.function_space_all)  # for the output residual
         self.F_prev = fd.Function(self.aaos.function_space_all)  # Where we compute the
         # part of the output residual from neighbouring contributions
-        self.u0 = fd.Function(self.aaos.function_space_all)  # Where we keep the state
 
-        self.Fsingle = fd.Function(self.aaos.function_space)
         self.urecv = fd.Function(self.aaos.function_space)  # will contain the previous time value i.e. 3*r-1
-        self.ualls = self.u.split()
         # Jform missing contributions from the previous step
         # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
         # definition:
@@ -36,6 +36,7 @@ class JacobianMatrix(object):
                                         self.aaos.w_recv)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def mult(self, mat, X, Y):
 
         self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
@@ -71,6 +72,7 @@ class JacobianMatrix(object):
 
 
 class AllAtOnceSystem(object):
+    @memprofile
     def __init__(self,
                  ensemble, time_partition,
                  dt, theta,
@@ -85,19 +87,13 @@ class AllAtOnceSystem(object):
         :arg w0: a Function containing the initial data.
         :arg bcs: a list of DirichletBC boundary conditions on w0.function_space.
         """
-
-        # check that the ensemble communicator is set up correctly
-        if isinstance(time_partition, int):
-            time_partition = [time_partition]
-        nsteps = len(time_partition)
-        ensemble_size = ensemble.ensemble_comm.size
-        if nsteps != ensemble_size:
-            raise ValueError(f"Number of timesteps {nsteps} must equal size of ensemble communicator {ensemble_size}")
+        self.layout = DistributedDataLayout1D(time_partition, ensemble.ensemble_comm)
 
         self.ensemble = ensemble
-        self.time_partition = time_partition
+        self.time_partition = self.layout.partition
         self.time_rank = ensemble.ensemble_comm.rank
-        self.nlocal_timesteps = self.time_partition[self.time_rank]
+        self.nlocal_timesteps = self.layout.local_size
+        self.ntimesteps = self.layout.global_size
 
         self.initial_condition = w0
         self.function_space = w0.function_space()
@@ -117,7 +113,7 @@ class AllAtOnceSystem(object):
         self.max_indices = {
             'component': self.ncomponents,
             'slice': self.nlocal_timesteps,
-            'window': sum(self.time_partition)
+            'window': self.ntimesteps
         }
 
         # function pace for the slice of the all-at-once system on this process
@@ -163,7 +159,7 @@ class AllAtOnceSystem(object):
                     cpt = bc.function_space().index
                 else:
                     cpt = 0
-                index = self.shift_index(step, cpt)
+                index = self.transform_index(step, cpt)
                 bc_all = fd.DirichletBC(self.function_space_all.sub(index),
                                         bc.function_arg,
                                         bc.sub_domain)
@@ -171,25 +167,7 @@ class AllAtOnceSystem(object):
 
         return bcs_all
 
-    def check_index(self, i, index_range='slice'):
-        '''
-        Check that timestep index is in range
-        :arg i: timestep index to check
-        :arg index_range: range that index is in. Either slice or window or component
-        '''
-        # set valid range
-        if index_range not in self.max_indices.keys():
-            raise IndexError("index_range must be one of "+" or ".join(self.max_indices.keys()))
-
-        maxidx = self.max_indices[index_range]
-
-        # allow for pythonic negative indices
-        minidx = -maxidx
-
-        if not (minidx <= i < maxidx):
-            raise IndexError(f"index {i} outside {index_range} range {maxidx}")
-
-    def shift_index(self, i, cpt=None, from_range='slice', to_range='slice'):
+    def transform_index(self, i, cpt=None, from_range='slice', to_range='slice'):
         '''
         Shift timestep or component index from one range to another, and accounts for -ve indices.
 
@@ -212,35 +190,14 @@ class AllAtOnceSystem(object):
         if from_range == 'component' or to_range == 'component':
             raise ValueError("from_range and to_range apply to the timestep index and cannot be 'component'")
 
-        self.check_index(i, index_range=from_range)
+        idxtypes = {'slice': 'l', 'window': 'g'}
 
-        # deal with -ve indices
-        i = i % self.max_indices[from_range]
-
-        # no shift needed
-        if (to_range == from_range):
-            if cpt is None:
-                return i
-
-        else:  # shift to other timestep range
-
-            # index of first timestep in slice
-            index0 = sum(self.time_partition[:self.time_rank])
-
-            if to_range == 'slice':  # 'from_range' == 'window'
-                i -= index0
-
-            if to_range == 'window':  # 'from_range' == 'slice'
-                i += index0
-
-        self.check_index(i, index_range=to_range)
+        i = self.layout.transform_index(i, itype=idxtypes[from_range], rtype=idxtypes[to_range])
 
         if cpt is None:
             return i
-
         else:  # cpt is not None:
-
-            self.check_index(cpt, index_range='component')
+            in_range(cpt, self.max_indices['component'], throws=True)
             cpt = cpt % self.max_indices['component']
             return i*self.ncomponents + cpt
 
@@ -256,7 +213,7 @@ class AllAtOnceSystem(object):
         :arg f_alls: an all-at-once function to set timestep in. If None, self.w_alls is used
         '''
         # index of component in all at once function
-        aao_index = self.shift_index(step, cpt, from_range=index_range, to_range='slice')
+        aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
 
         if f_alls is None:
             f_alls = self.w_alls
@@ -277,7 +234,7 @@ class AllAtOnceSystem(object):
         :arg deepcopy: if True, new function is returned. If false, handle to component of f_alls is returned. Ignored if wout is not None
         '''
         # index of component in all at once function
-        aao_index = self.shift_index(step, cpt, from_range=index_range, to_range='slice')
+        aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
 
         if f_alls is None:
             f_alls = self.w_alls
@@ -357,9 +314,9 @@ class AllAtOnceSystem(object):
 
         w = fd.Function(self.function_space)
         for slice_index in range(self.nlocal_timesteps):
-            window_index = self.shift_index(slice_index,
-                                            from_range='slice',
-                                            to_range='window')
+            window_index = self.transform_index(slice_index,
+                                                from_range='slice',
+                                                to_range='window')
             self.get_field(slice_index, wout=w, index_range='slice')
             callback(window_index, slice_index, w)
 
@@ -371,18 +328,17 @@ class AllAtOnceSystem(object):
         :arg w1: initial solution for next time-window.If None,
                  will use the final timestep from previous window
         """
-        rank = self.time_rank
-        ncomm = self.ensemble.ensemble_comm.size
-
         if w1 is not None:  # use given function
             self.initial_condition.assign(w1)
-        else:  # last rank broadcasts final timestep
-            if rank == ncomm-1:
-                # index of start of final timestep
-                self.get_field(-1, wout=self.initial_condition, index_range='slice')
 
-            with self.initial_condition.dat.vec as vec:
-                self.ensemble.ensemble_comm.Bcast(vec.array, root=ncomm-1)
+        else:  # last rank broadcasts final timestep
+
+            end_rank = self.ensemble.ensemble_comm.size - 1
+
+            if self.time_rank == end_rank:
+                self.get_field(-1, wout=self.initial_condition, index_range='window')
+
+            self.ensemble.bcast(self.initial_condition, root=end_rank)
 
         # persistence forecast
         for i in range(self.nlocal_timesteps):
@@ -398,10 +354,8 @@ class AllAtOnceSystem(object):
         :arg wsend: Function to send last step of current slice to next slice. if None self.w_send is used
         :arg wrecv: Function to receive last step of previous slice. if None self.w_recv is used
         :arg walls: all at once function list to update wrecv from. if None self.w_alls is used
-        :arg blocking: Whether to blocking until MPI communications have finished. If false then a list of MPI requests is returned
+        :arg blocking: Whether to use blocking MPI communications. If False then a list of MPI requests is returned
         '''
-        n = self.ensemble.ensemble_comm.size
-        r = self.time_rank
 
         if wsend is None:
             wsend = self.w_send
@@ -410,25 +364,23 @@ class AllAtOnceSystem(object):
         if walls is None:
             walls = self.w_alls
 
-        # Communication stage
-        mpi_requests = []
+        if blocking:
+            sendrecv = self.ensemble.sendrecv
+        else:
+            sendrecv = self.ensemble.isendrecv
 
+        # send last timestep on current slice to next slice
         self.get_field(-1, wout=wsend, index_range='slice', f_alls=walls)
 
-        # these should be replaced with isendrecv once ensemble updates are pushed to Firedrake
-        request_send = self.ensemble.isend(wsend, dest=((r+1) % n), tag=r)
-        mpi_requests.extend(request_send)
+        size = self.ensemble.ensemble_comm.size
+        rank = self.ensemble.ensemble_comm.rank
 
-        request_recv = self.ensemble.irecv(wrecv, source=((r-1) % n), tag=r-1)
-        mpi_requests.extend(request_recv)
+        # ring communication
+        dst = (rank+1) % size
+        src = (rank-1) % size
 
-        if blocking:
-            # wait for the data [we should really do this after internal
-            # assembly but have avoided that for now]
-            MPI.Request.Waitall(mpi_requests)
-            return
-        else:
-            return mpi_requests
+        return sendrecv(fsend=wsend, dest=dst, sendtag=rank,
+                        frecv=wrecv, source=src, recvtag=src)
 
     @PETSc.Log.EventDecorator()
     def update(self, X, wall=None, wsend=None, wrecv=None, blocking=True):
@@ -448,9 +400,13 @@ class AllAtOnceSystem(object):
         with wall.dat.vec_wo as v:
             v.array[:] = X.array_r
 
-        return self.update_time_halos(wsend=wsend, wrecv=wrecv, walls=wall.split(), blocking=True)
+        return self.update_time_halos(wsend=wsend,
+                                      wrecv=wrecv,
+                                      walls=wall.split(),
+                                      blocking=blocking)
 
     @PETSc.Log.EventDecorator()
+    @memprofile
     def _assemble_function(self, snes, X, Fvec):
         r"""
         This is the function we pass to the snes to assemble
