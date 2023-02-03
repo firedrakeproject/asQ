@@ -173,7 +173,6 @@ def window_postproc(pdg, wndw):
         # timestep and place it in qout.
         pdg.aaos.get_field(-1, index_range='window', wout=qout)
         timeseries.append(qout.copy(deepcopy=True))
-        outfile.write(s0)
 
 
 # Solve nwindows of the all-at-once system

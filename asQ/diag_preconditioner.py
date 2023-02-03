@@ -255,7 +255,6 @@ class DiagFFTPC(object):
         # building the nonlinearity separately for the real and imaginary
         # parts and then linearising.
 
-
         Nrr = form_function(*usr, *vsr, self.t)
         Nri = form_function(*usr, *vsi, self.t)
         Nir = form_function(*usi, *vsr, self.t)
@@ -385,6 +384,7 @@ class DiagFFTPC(object):
             self.u0.assign(self.ureduceC)
             self.u0 /= fd.Constant(sum(self.time_partition))
             self.t.assign(self.paradiag.t)
+
     @PETSc.Log.EventDecorator()
     @memprofile
     def apply(self, pc, x, y):
