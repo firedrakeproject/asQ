@@ -1,0 +1,124 @@
+from firedrake import *
+from firedrake.petsc import PETSc
+print = lambda x: PETSc.Sys.Print(x)
+from ufl.algorithms.ad import expand_derivatives
+
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+
+import numpy
+from datetime import datetime
+import pprint
+
+
+
+class Problem(object):
+    def __init__(self, N, degree):
+        super().__init__()
+        self.N = N
+        self.degree = degree
+
+
+    def mesh(self):
+        mesh = RectangleMesh(self.N, self.N, 100, 100, quadrilateral= False)
+        return mesh
+
+    def initial_condition(self, Z):
+        (x,y) = SpatialCoordinate(Z.mesh())
+        s = Function(Z)
+        s.interpolate(Constant(0))
+        return s
+
+    def function_space(self, mesh):
+        Ve = FiniteElement("CG", mesh.ufl_cell(), self.degree)
+        return FunctionSpace(mesh, Ve)
+
+#    def D(self, D_c, b, l, s):
+#        return D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((l-b-s-5)/10)**2)
+
+
+#    def L(self, G_0, l, b, s):
+#        return G_0/(1+ fd.exp(50*(l-b-s)))*fd.exp(-(l-b-s)/10)
+
+
+if __name__ == "__main__":
+    N = 1000
+    problem = Problem(N, 1)
+    mesh = problem.mesh()
+    Z = problem.function_space(mesh)
+    s0 = problem.initial_condition(Z)
+    s = Function(Z)
+    q = TestFunction(Z)
+    x, y = SpatialCoordinate(mesh)
+
+    sp = {
+
+           "snes_max_it": 2000,
+
+            "snes_atol": 1.0e-8,
+
+            "snes_rtol": 1.0e-8,
+
+            "snes_monitor": None,
+
+            "snes_linesearch_type": "l2",
+
+
+            "snes_linesearch_monitor": None,
+
+            "snes_converged_reason": None,
+
+ #           "snes_linesearch_maxstep": .1,
+#           "snes_linesearch_damping": .1,
+            "mat_type": "aij",
+
+            "ksp_type": "preonly",
+
+            #"ksp_view": None,
+
+            "pc_type": "lu",
+
+            "pc_factor_mat_solver_type": "mumps",
+            "mat_mumps_icntl_14": 200,
+            "mat_mumps_icntl_28": 2,
+            "mat_mumps_icntl_29": 1
+             }
+    ss = []
+    dt = Constant(1000)
+    A = Constant(50)
+    t = Constant(1000)
+    D_c = Constant(2e-3)
+    G_0 = Constant(4e-3)
+    b =  100*tanh(1/20*(x-50))
+    while (float(t) < float(2000)):
+        F = D_c*2/Constant(sqrt(2*pi))*exp(-1/2*((A*sin(2*pi*t/500000)-b-s-5)/10)**2)*inner(grad(s), grad(q))*dx - G_0/(1+ exp(50*(A*sin(2*pi*t/500000)-b-s)))*exp(-(A*sin(2*pi*t/500000)-b-s)/10)*q*dx
+
+        F_euler = ( inner((s), (q))*dx - inner((s0), (q))*dx + 2*dt*(F))
+
+        nvproblem = NonlinearVariationalProblem(F_euler, s)
+        solver = NonlinearVariationalSolver(nvproblem, solver_parameters = sp)
+        solver.solve()
+        t.assign(float(t+dt))
+        s0.assign(s)
+        ss.append(s.copy(deepcopy=True))
+
+
+
+nsp = 16
+
+fn_plotter = FunctionPlotter(mesh, num_sample_points=nsp)
+fig, axes = plt.subplots()
+axes.set_aspect('equal')
+colors = tripcolor(s0, num_sample_points=nsp, axes=axes)
+fig.colorbar(colors)
+
+def animate(s):
+    colors.set_array(fn_plotter(s))
+
+
+#interval = 1e3 * output_freq * dt
+animation = FuncAnimation(fig, animate, frames=ss)
+try:
+    animation.save("s.mp4", writer="ffmpeg")
+except:
+    print("Failed to write movie! Try installing `ffmpeg`.")

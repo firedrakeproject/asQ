@@ -44,7 +44,7 @@ window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
-
+print(dt)
 # parameters for the implicit diagonal solve in step-(b)
 sparameters = {
     'mat_type': 'matfree',

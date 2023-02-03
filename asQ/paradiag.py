@@ -93,6 +93,7 @@ class paradiag(object):
         self.circ = self.aaos.circ
         self.ctx = ctx
         self.block_ctx = block_ctx
+
         # set up the PETSc Vecs (X for coeffs and F for residuals)
         W = self.aaos.function_space
 
@@ -205,7 +206,9 @@ class paradiag(object):
             if not (1 < self.snes.getConvergedReason() < 5):
                 PETSc.Sys.Print(f'SNES diverged with error code {self.snes.getConvergedReason()}. Cancelling paradiag time integration.')
                 return
+
             # don't wipe all-at-once function at last window
             if wndw != nwindows-1:
                 self.aaos.next_window()
+
         self.sync_diagnostics()

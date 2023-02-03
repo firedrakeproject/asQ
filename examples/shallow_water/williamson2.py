@@ -48,7 +48,6 @@ window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
-
 # multigrid mesh set up
 
 ensemble = asQ.create_ensemble(time_partition)
@@ -192,7 +191,6 @@ def steady_state_test(w):
 def window_postproc(pdg, wndw):
     errors = np.zeros((window_length, 2))
     local_errors = np.zeros_like(errors)
-    print(local_errors)
     # collect errors for this slice
     def for_each_callback(window_index, slice_index, w):
         nonlocal local_errors

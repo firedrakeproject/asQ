@@ -19,12 +19,14 @@ class DiagFFTPC(object):
         block diagonal structure, using FFT.
         """
         self.initialized = False
+
     @memprofile
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
+
     @memprofile
     def initialize(self, pc):
         if pc.getType() != "python":
@@ -56,7 +58,9 @@ class DiagFFTPC(object):
         self.time_rank = paradiag.time_rank
         self.ntimesteps = paradiag.ntimesteps
         self.nlocal_timesteps = paradiag.nlocal_timesteps
+
         paradiag.diagfftpc = self
+
         # option for whether to use slice or window average for block jacobian
         self.jac_average = PETSc.Options().getString(
             f"{prefix}{self.prefix}jac_average", default='window')
@@ -83,19 +87,24 @@ class DiagFFTPC(object):
         # Gamma coefficients
         exponents = np.arange(self.ntimesteps)/self.ntimesteps
         self.Gam = paradiag.alpha**exponents
+
         slice_begin = self.aaos.transform_index(0, from_range='slice', to_range='window')
         slice_end = slice_begin + self.nlocal_timesteps
         self.Gam_slice = self.Gam[slice_begin:slice_end]
-         # circulant eigenvalues
+
+        # circulant eigenvalues
         C1col = np.zeros(self.ntimesteps)
         C2col = np.zeros(self.ntimesteps)
+
         dt = self.aaos.dt
+        self.t = fd.Constant(dt)
         theta = self.aaos.theta
         C1col[:2] = np.array([1, -1])/dt
         C2col[:2] = np.array([theta, 1-theta])
 
         self.D1 = np.sqrt(self.ntimesteps)*fft(self.Gam*C1col)
         self.D2 = np.sqrt(self.ntimesteps)*fft(self.Gam*C2col)
+
         # Block system setup
         # First need to build the vector function space version of
         # blockV
@@ -129,11 +138,12 @@ class DiagFFTPC(object):
         vs = fd.TestFunctions(self.CblockV)
         uts = fd.TrialFunctions(self.CblockV)
         self.u0 = fd.Function(self.CblockV)  # we will create a linearisation
-        self.t = fd.Constant(dt)
         us = fd.split(self.u0)
+
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
             self.ureduceC = fd.Function(self.CblockV)
+
         # extract the real and imaginary parts
         vsr = []
         vsi = []
@@ -378,6 +388,7 @@ class DiagFFTPC(object):
     @PETSc.Log.EventDecorator()
     @memprofile
     def apply(self, pc, x, y):
+
         # copy petsc vec into Function
         # hopefully this works
         with self.xf.dat.vec_wo as v:
@@ -464,5 +475,6 @@ class DiagFFTPC(object):
         ################
 
         self._record_diagnostics()
+
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError

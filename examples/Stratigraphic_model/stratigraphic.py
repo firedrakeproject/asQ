@@ -1,7 +1,6 @@
 import matplotlib.pyplot as plt
+from math import pi
 from matplotlib.animation import FuncAnimation
-from math import pi, cos, sin
-from utils import units
 import firedrake as fd
 from firedrake.petsc import PETSc
 import asQ
@@ -9,18 +8,16 @@ import asQ
 import argparse
 
 parser = argparse.ArgumentParser(
-    description='ParaDiag timestepping',
-    formatter_class=argparse.ArgumentDefaultsHelpFormatter
-)
-parser.add_argument('--nx', type=int, default = 1000, help='Number of cells along each square side.')
-parser.add_argument('--cfl', type=float, default=0.8, help='Convective CFL number.')
+    description='Stratigraphic model with parameters suggested by Jon.',
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('--nx', type=int, default=1000, help='Number of cells along each square side.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
-parser.add_argument('--nsample', type=int, default=32, help='Number of sample points for plotting.')
+parser.add_argument('--nsample', type=int, default=16, help='Number of sample points for plotting.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -35,9 +32,8 @@ time_partition = tuple(args.slice_length for _ in range(args.nslices))
 window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
-# Calculate the timestep from the CFL number
-dx = 1./args.nx
-dt = dx
+dx = 1/args.nx
+dt = 1000
 
 # The Ensemble with the spatial and time communicators
 ensemble = asQ.create_ensemble(time_partition)
@@ -47,41 +43,39 @@ ensemble = asQ.create_ensemble(time_partition)
 # The mesh needs to be created with the spatial communicator
 mesh = fd.SquareMesh(args.nx, args.nx, 100, quadrilateral=False, comm=ensemble.comm)
 
-# We use a discontinuous Galerkin space for the advected scalar
-# and a continuous Galerkin space for the advecting velocity field
 V = fd.FunctionSpace(mesh, "CG", args.degree)
 
 # # # === --- initial conditions --- === # # #
 
 x, y = fd.SpatialCoordinate(mesh)
 
-q0 = fd.Function(V, name="scalar_initial")
-q0.interpolate(fd.Constant(0.0))
+s0 = fd.Function(V, name="scalar_initial")
+s0.interpolate(fd.Constant(0.0))
+
+
+def D(D_c, d):
+    return D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
+
+
+def L(G_0, d):
+    return G_0/(1 + fd.exp(50*d))*fd.exp(-d/10)
 
 
 # # # === --- finite element forms --- === # # #
 
 
-def D(D_c, l, b, s):
-    return D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((l-b-s-5)/10)**2)
-
-def L(G_0, l, b, s):
-    return G_0/(1+ fd.exp(50*(l-b-s)))*fd.exp(-(l-b-s)/10)
-
-
-#Bcs = [fd.DirichletBC(V,fd.Constant((0)), (1,2))]
-Bcs = [ ]
-
-
-
 def form_mass(s, q):
     return s*q*fd.dx
 
-T = fd.Constant((1.0))
-b = x
+
+A = fd.Constant(50)
+D_c = fd.Constant(.002)
+G_0 = fd.Constant(.004)
+b = 100*fd.tanh(1/20*(x-50))
+
 
 def form_function(s, q, t):
-    return  D(4e-6, fd.sin(2*pi*t/T), b, s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx - L(2e-6, fd.sin(2*pi*t/T), b, s)*q*fd.dx
+    return D(D_c, A*fd.sin(2*pi*t/500000)-b-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, A*fd.sin(2*pi*t/500000)-b-s)*q*fd.dx
 
 
 # # # === --- PETSc solver parameters --- === # # #
@@ -90,8 +84,8 @@ def form_function(s, q, t):
 # The PETSc solver parameters used to solve the
 # blocks in step (b) of inverting the ParaDiag matrix.
 block_parameters = {
-     "ksp_type": "preonly",
-     "pc_type": "lu",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
 }
 
 # The PETSc solver parameters for solving the all-at-once system.
@@ -129,7 +123,7 @@ paradiag_parameters = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'
 }
-
+outfile = fd.File("timesteps.pvd")
 # We need to add a block solver parameters dictionary for each block.
 # Here they are all the same but they could be different.
 for i in range(window_length):
@@ -145,8 +139,8 @@ for i in range(window_length):
 pdg = asQ.paradiag(ensemble=ensemble,
                    form_function=form_function,
                    form_mass=form_mass,
-                   w0=q0, dt=dt, theta=args.theta,
-                   alpha=args.alpha, time_partition=time_partition, bcs = Bcs,
+                   w0=s0, dt=dt, theta=args.theta,
+                   alpha=args.alpha, time_partition=time_partition,
                    solver_parameters=paradiag_parameters,
                    circ=None)
 
@@ -168,7 +162,7 @@ is_last_slice = pdg.layout.is_local(-1)
 # Make an output Function on the last time-slice and start a snapshot list
 if is_last_slice:
     qout = fd.Function(V)
-    timeseries = [q0.copy(deepcopy=True)]
+    timeseries = [s0.copy(deepcopy=True)]
 
 
 # This is a callback which will be called after pdg solves each time-window
@@ -180,6 +174,8 @@ def window_postproc(pdg, wndw):
         # timestep and place it in qout.
         pdg.aaos.get_field(-1, index_range='window', wout=qout)
         timeseries.append(qout.copy(deepcopy=True))
+        outfile.write(s0)
+
 
 # Solve nwindows of the all-at-once system
 pdg.solve(args.nwindows,
@@ -221,7 +217,6 @@ if is_last_slice:
     def animate(q):
         colors.set_array(fn_plotter(q))
 
-    interval = 1e2
-    animation = FuncAnimation(fig, animate, frames=timeseries, interval=interval)
+    animation = FuncAnimation(fig, animate, frames=timeseries)
 
-    animation.save("p.mp4", writer="ffmpeg")
+    animation.save("periodic.mp4", writer="ffmpeg")

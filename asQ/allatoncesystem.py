@@ -3,7 +3,7 @@ from firedrake.petsc import PETSc
 from functools import reduce
 from operator import mul
 from .profiling import memprofile
-import numpy as np
+
 from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
@@ -101,6 +101,7 @@ class AllAtOnceSystem(object):
         self.ncomponents = len(self.function_space.split())
 
         self.dt = dt
+        self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
         self.theta = theta
 
         self.form_mass = form_mass
@@ -109,12 +110,13 @@ class AllAtOnceSystem(object):
         self.circ = circ
         self.alpha = alpha
         self.Circ = fd.Constant(0.0)
+
         self.max_indices = {
             'component': self.ncomponents,
             'slice': self.nlocal_timesteps,
             'window': self.ntimesteps
         }
-        self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
+
         # function pace for the slice of the all-at-once system on this process
         self.function_space_all = reduce(mul, (self.function_space
                                                for _ in range(self.nlocal_timesteps)))
@@ -433,12 +435,14 @@ class AllAtOnceSystem(object):
         Constructs the bilinear form for the all at once system.
         Specific to the theta-centred Crank-Nicholson method
         """
+
         w_alls = fd.split(self.w_all)
         test_fns = fd.TestFunctions(self.function_space_all)
 
         dt = fd.Constant(self.dt)
         theta = fd.Constant(self.theta)
         alpha = fd.Constant(self.alpha)
+
         def get_step(i):
             return self.get_field_components(i, f_alls=w_alls)
 
