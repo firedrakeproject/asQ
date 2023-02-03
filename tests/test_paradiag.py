@@ -688,13 +688,14 @@ def test_jacobian_mixed_parallel():
 
 bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
-extruded = [pytest.param(False, id="standard_mesh"),
-            pytest.param(True, id="extruded_mesh")]
+extruded_mixed = [pytest.param(False, id="standard_mesh"),
+                  pytest.param(True, id="extruded_mesh",
+                               marks=pytest.mark.xfail(reason="fd.split for TensorProductElements in unmixed spaces broken by ufl PR#122."))]
 
 
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("bc_opt", bc_opts)
-@pytest.mark.parametrize("extruded", extruded)
+@pytest.mark.parametrize("extruded", extruded_mixed)
 def test_solve_para_form(bc_opt, extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR heat equation as an example by
@@ -803,8 +804,12 @@ def test_solve_para_form(bc_opt, extruded):
         assert (fd.errornorm(vfull.sub(ind1), PD.aaos.w_all.sub(i)) < 1.0e-9)
 
 
+extruded_primal = [pytest.param(False, id="standard_mesh"),
+                   pytest.param(True, id="extruded_mesh")]
+
+
 @pytest.mark.parallel(nprocs=6)
-@pytest.mark.parametrize("extruded", extruded)
+@pytest.mark.parametrize("extruded", extruded_primal)
 def test_solve_para_form_mixed(extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR mixed wave equation as an
