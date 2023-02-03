@@ -192,7 +192,7 @@ class paradiag(object):
         """
 
         for wndw in range(nwindows):
-            self.t = wndw*self.aaos.ntimesteps*self.aaos.dt
+            self.t = wndw*self.aaos.ntimesteps*self.aaos.dt + self.aaos.dt
             preproc(self, wndw)
 
             with self.opts.inserted_options():
