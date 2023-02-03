@@ -16,8 +16,14 @@ class ManifoldTransfer(object):
         self.ready = {}
         self.Ftransfer = fd.TransferManager()  # is this the firedrake warning?
 
+    def ufl_domain(self, mesh):
+        from ufl.domain import extract_unique_domain
+        return extract_unique_domain(fd.SpatialCoordinate(mesh))
+
     def prolong(self, coarse, fine):
-        Vfine = fd.FunctionSpace(fine.ufl_domain(),
+        ufl_domain = self.ufl_domain
+
+        Vfine = fd.FunctionSpace(ufl_domain(fine),
                                  fine.function_space().ufl_element())
         key = Vfine.dim()
 
@@ -25,8 +31,8 @@ class ManifoldTransfer(object):
         if firsttime:
             self.ready[key] = True
 
-            coarse_mesh = coarse.ufl_domain()
-            fine_mesh = fine.ufl_domain()
+            coarse_mesh = ufl_domain(coarse)
+            fine_mesh = ufl_domain(fine)
             if not hasattr(coarse_mesh, "coordinates_bk"):
                 coordinates_bk_c = fd.Function(coarse_mesh.coordinates)
                 coarse_mesh.coordinates_bk = coordinates_bk_c
@@ -35,22 +41,24 @@ class ManifoldTransfer(object):
                 fine_mesh.coordinates_bk = coordinates_bk_f
 
         # change to the transfer coordinates for prolongation
-        coarse.ufl_domain().coordinates.assign(
-            coarse.ufl_domain().transfer_coordinates)
-        fine.ufl_domain().coordinates.assign(
-            fine.ufl_domain().transfer_coordinates)
+        ufl_domain(coarse).coordinates.assign(
+            ufl_domain(coarse).transfer_coordinates)
+        ufl_domain(fine).coordinates.assign(
+            ufl_domain(fine).transfer_coordinates)
 
         # standard transfer preserves divergence-free subspaces
         self.Ftransfer.prolong(coarse, fine)
 
         # change back to deformed mesh
-        coarse.ufl_domain().coordinates.assign(
-            coarse.ufl_domain().coordinates_bk)
-        fine.ufl_domain().coordinates.assign(
-            fine.ufl_domain().coordinates_bk)
+        ufl_domain(coarse).coordinates.assign(
+            ufl_domain(coarse).coordinates_bk)
+        ufl_domain(fine).coordinates.assign(
+            ufl_domain(fine).coordinates_bk)
 
     def restrict(self, fine, coarse):
-        Vfine = fd.FunctionSpace(fine.ufl_domain(),
+        ufl_domain = self.ufl_domain
+
+        Vfine = fd.FunctionSpace(ufl_domain(fine),
                                  fine.function_space().ufl_element())
         key = Vfine.dim()
 
@@ -58,8 +66,8 @@ class ManifoldTransfer(object):
         if firsttime:
             self.ready[key] = True
 
-            coarse_mesh = coarse.ufl_domain()
-            fine_mesh = fine.ufl_domain()
+            coarse_mesh = ufl_domain(coarse)
+            fine_mesh = ufl_domain(fine)
             if not hasattr(coarse_mesh, "coordinates_bk"):
                 coordinates_bk_c = fd.Function(coarse_mesh.coordinates)
                 coarse_mesh.coordinates_bk = coordinates_bk_c
@@ -68,22 +76,24 @@ class ManifoldTransfer(object):
                 fine_mesh.coordinates_bk = coordinates_bk_f
 
         # change to the transfer coordinates for prolongation
-        coarse.ufl_domain().coordinates.assign(
-            coarse.ufl_domain().transfer_coordinates)
-        fine.ufl_domain().coordinates.assign(
-            fine.ufl_domain().transfer_coordinates)
+        ufl_domain(coarse).coordinates.assign(
+            ufl_domain(coarse).transfer_coordinates)
+        ufl_domain(fine).coordinates.assign(
+            ufl_domain(fine).transfer_coordinates)
 
         # standard transfer preserves divergence-free subspaces
         self.Ftransfer.restrict(fine, coarse)
 
         # change back to deformed mesh
-        coarse.ufl_domain().coordinates.assign(
-            coarse.ufl_domain().coordinates_bk)
-        fine.ufl_domain().coordinates.assign(
-            fine.ufl_domain().coordinates_bk)
+        ufl_domain(coarse).coordinates.assign(
+            ufl_domain(coarse).coordinates_bk)
+        ufl_domain(fine).coordinates.assign(
+            ufl_domain(fine).coordinates_bk)
 
     def inject(self, fine, coarse):
-        Vfine = fd.FunctionSpace(fine.ufl_domain(),
+        ufl_domain = self.ufl_domain
+
+        Vfine = fd.FunctionSpace(ufl_domain(fine),
                                  fine.function_space().ufl_element())
         key = Vfine.dim()
 
@@ -91,8 +101,8 @@ class ManifoldTransfer(object):
         if firsttime:
             self.ready[key] = True
 
-            coarse_mesh = coarse.ufl_domain()
-            fine_mesh = fine.ufl_domain()
+            coarse_mesh = ufl_domain(coarse)
+            fine_mesh = ufl_domain(fine)
             if not hasattr(coarse_mesh, "coordinates_bk"):
                 coordinates_bk_c = fd.Function(coarse_mesh.coordinates)
                 coarse_mesh.coordinates_bk = coordinates_bk_c
@@ -101,19 +111,19 @@ class ManifoldTransfer(object):
                 fine_mesh.coordinates_bk = coordinates_bk_f
 
         # change to the transfer coordinates for prolongation
-        coarse.ufl_domain().coordinates.assign(
-            coarse.ufl_domain().transfer_coordinates)
-        fine.ufl_domain().coordinates.assign(
-            fine.ufl_domain().transfer_coordinates)
+        ufl_domain(coarse).coordinates.assign(
+            ufl_domain(coarse).transfer_coordinates)
+        ufl_domain(fine).coordinates.assign(
+            ufl_domain(fine).transfer_coordinates)
 
         # standard transfer preserves divergence-free subspaces
         self.Ftransfer.inject(fine, coarse)
 
         # change back to deformed mesh
-        coarse.ufl_domain().coordinates.assign(
-            coarse.ufl_domain().coordinates_bk)
-        fine.ufl_domain().coordinates.assign(
-            fine.ufl_domain().coordinates_bk)
+        ufl_domain(coarse).coordinates.assign(
+            ufl_domain(coarse).coordinates_bk)
+        ufl_domain(fine).coordinates.assign(
+            ufl_domain(fine).coordinates_bk)
 
 
 def manifold_transfer_manager(W):
