@@ -47,8 +47,8 @@ if __name__ == "__main__":
         "pc_factor_mat_solver_type": "mumps",
     }
 
-    A = Constant(50)
     dt = Constant(1000)
+    A = Constant(50)
     t = Constant(0)
     D_c = Constant(2e-3)
     G_0 = Constant(4e-3)

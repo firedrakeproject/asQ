@@ -68,9 +68,9 @@ def form_mass(s, q):
     return s*q*fd.dx
 
 
-A = fd.Constant(50)
 D_c = fd.Constant(.002)
 G_0 = fd.Constant(.004)
+A = fd.Constant(50)
 b = 100*fd.tanh(1/20*(x-50))
 
 
