@@ -125,7 +125,7 @@ def manifold_transfer_manager(W):
     arg: W: a MixedFunctionSpace over the manifold mesh
     '''
 
-    Vs = W.split()
+    Vs = W.subfunctions
     vtransfer = ManifoldTransfer()
     transfers = {}
     for V in Vs:

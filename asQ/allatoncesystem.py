@@ -98,7 +98,7 @@ class AllAtOnceSystem(object):
         self.initial_condition = w0
         self.function_space = w0.function_space()
         self.boundary_conditions = bcs
-        self.ncomponents = len(self.function_space.split())
+        self.ncomponents = len(self.function_space.subfunctions)
 
         self.dt = dt
         self.theta = theta

@@ -70,7 +70,7 @@ def test_transform_index(ensemble, W,
     time_partition = [slice_length for _ in range(nslices)]
     time_rank = ensemble.ensemble_comm.rank
 
-    ncpts = len(W.split())
+    ncpts = len(W.subfunctions)
 
     window_length = sum(time_partition)
 

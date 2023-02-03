@@ -110,7 +110,7 @@ class DiagFFTPC(object):
         mesh = self.blockV.mesh()
         Ve = self.blockV.ufl_element()
         self.ncpts = len(self.blockV)
-        V_cpts = self.blockV.split()
+        V_cpts = self.blockV.subfunctions
         ComplexCpts = []
         for V_cpt in V_cpts:
             rank = V_cpt.rank
