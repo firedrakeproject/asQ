@@ -121,7 +121,7 @@ class AllAtOnceSystem(object):
                                                for _ in range(self.nlocal_timesteps)))
 
         self.w_all = fd.Function(self.function_space_all)
-        self.w_alls = self.w_all.split()
+        self.w_alls = self.w_all.subfunctions
 
         for i in range(self.nlocal_timesteps):
             self.set_field(i, self.initial_condition, index_range='slice')
@@ -402,7 +402,7 @@ class AllAtOnceSystem(object):
 
         return self.update_time_halos(wsend=wsend,
                                       wrecv=wrecv,
-                                      walls=wall.split(),
+                                      walls=wall.subfunctions,
                                       blocking=blocking)
 
     @PETSc.Log.EventDecorator()

@@ -84,7 +84,8 @@ class ShallowWaterMiniApp(object):
         # initial conditions
 
         w0 = fd.Function(self.function_space())
-        u0, h0 = w0.split()
+        u0 = w0.subfunctions[self.velocity_index]
+        h0 = w0.subfunctions[self.depth_index]
 
         u0.project(velocity_expression(*x))
         h0.project(depth_expression(*x))
@@ -172,7 +173,7 @@ class ShallowWaterMiniApp(object):
             if v.function_space() == self.velocity_function_space():
                 u = v
             elif v.function_space() == self.function_space():
-                u = v.split()[self.velocity_index]
+                u = v.subfunctions[self.velocity_index]
             else:
                 raise ValueError("function v must be in FunctionSpace V1 or MixedFunctionSpace W")
         else:

@@ -143,8 +143,11 @@ W = wserial[0].function_space()
 ws = fd.Function(W)
 wp = fd.Function(W)
 
-us, hs = ws.split()
-up, hp = wp.split()
+us = ws.subfunctions[0]
+hs = ws.subfunctions[1]
+
+up = wp.subfunctions[0]
+hp = wp.subfunctions[1]
 
 # calculate error against serial
 local_errors = np.zeros((2, nsteps))
@@ -164,12 +167,12 @@ for w in range(args.nwindows):
 
         tstep = slice_step0 + i
 
-        up.assign(wparallel[w][i].split()[0])
-        hp.assign(wparallel[w][i].split()[1])
+        up.assign(wparallel[w][i].subfunctions[0])
+        hp.assign(wparallel[w][i].subfunctions[1])
         hp.assign(hp + b - case5.H0)
 
-        us.assign(wserial[tstep].split()[0])
-        hs.assign(wserial[tstep].split()[1])
+        us.assign(wserial[tstep].subfunctions[0])
+        hs.assign(wserial[tstep].subfunctions[1])
         hs.assign(hs + b - case5.H0)
 
         uerror = fd.errornorm(us, up)/fd.norm(us)

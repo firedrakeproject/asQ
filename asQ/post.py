@@ -36,7 +36,7 @@ def write_timesteps(pdg,
             functions.append(fd.Function(V))
 
     # functions from entire local time-slice
-    walls = pdg.w_all.split()
+    walls = pdg.w_all.subfunctions
 
     # first timestep of this local time-slice
     timestep0 = sum(pdg.M[:pdg.rT])
@@ -112,7 +112,7 @@ def write_timeseries(pdg,
                           comm=pdg.ensemble.comm)
 
     # functions from entire local time-slice
-    walls = pdg.w_all.split()
+    walls = pdg.w_all.subfunctions
 
     # first timestep of this local time-slice
     timestep_begin = sum(pdg.M[:pdg.rT])

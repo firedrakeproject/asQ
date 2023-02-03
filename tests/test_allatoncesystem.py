@@ -78,7 +78,7 @@ def test_transform_index(ensemble, W,
     theta = 0.5
 
     w0 = fd.Function(W)
-    for v in w0.split():
+    for v in w0.subfunctions:
         v.assign(0)
 
     aaos = asQ.AllAtOnceSystem(ensemble, time_partition,
@@ -323,7 +323,7 @@ def test_set_field(ensemble, mesh, W,
                                w0=v0)
 
     vcheck = fd.Function(W)
-    vchecks = vcheck.split()
+    vchecks = vcheck.subfunctions
 
     # set each step using window index
     rank = aaos.time_rank
@@ -530,7 +530,7 @@ def test_update_time_halos(ensemble, mesh, V,
     wsend = fd.Function(aaos.function_space).assign(-1)
     wrecv = fd.Function(aaos.function_space).assign(-1)
     wall = fd.Function(aaos.function_space_all)
-    walls = wall.split()
+    walls = wall.subfunctions
 
     for step in range(aaos.time_partition[rank]):
         walls[step].assign(v1)

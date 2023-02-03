@@ -369,9 +369,9 @@ class DiagFFTPC(object):
         self.u0.assign(0)
         for i in range(self.nlocal_timesteps):
             # copy the data into solver input
-            u0s = self.u0.split()
+            u0s = self.u0.subfunctions
             for cpt in range(self.ncpts):
-                wcpt = self.w_all.split()[self.ncpts*i+cpt]
+                wcpt = self.w_all.subfunctions[self.ncpts*i+cpt]
                 for r in range(2):  # real and imaginary parts
                     u0s[cpt].sub(r).assign(u0s[cpt].sub(r) + wcpt)
 
@@ -426,11 +426,11 @@ class DiagFFTPC(object):
             # copy the data into solver input
             self.xtemp.assign(0.)
 
-            Jins = self.xtemp.split()
+            Jins = self.xtemp.subfunctions
 
             for cpt in range(self.ncpts):
-                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
-                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())
+                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.subfunctions)
+                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.subfunctions)
 
             # Do a project for Riesz map, to be superceded
             # when we get Cofunction
@@ -441,10 +441,10 @@ class DiagFFTPC(object):
             self.Jsolvers[i].solve()
 
             # copy the data from solver output
-            Jpouts = self.Jprob_out.split()
+            Jpouts = self.Jprob_out.subfunctions
             for cpt in range(self.ncpts):
-                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.split())
-                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.split())
+                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.subfunctions)
+                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.subfunctions)
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
