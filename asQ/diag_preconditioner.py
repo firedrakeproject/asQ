@@ -97,8 +97,8 @@ class DiagFFTPC(object):
         C2col = np.zeros(self.ntimesteps)
 
         dt = self.aaos.dt
-        theta = self.aaos.theta
         self.t = fd.Constant(dt)
+        theta = self.aaos.theta
         C1col[:2] = np.array([1, -1])/dt
         C2col[:2] = np.array([theta, 1-theta])
 

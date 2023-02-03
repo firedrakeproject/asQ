@@ -101,7 +101,7 @@ class AllAtOnceSystem(object):
         self.ncomponents = len(self.function_space.split())
 
         self.dt = dt
-        self.Time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
+        self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
         self.theta = theta
 
         self.form_mass = form_mass
@@ -344,7 +344,7 @@ class AllAtOnceSystem(object):
         # persistence forecast
         for i in range(self.nlocal_timesteps):
             self.set_field(i, self.initial_condition, index_range='slice')
-            self.Time[i].assign(self.Time[i] + self.dt*self.ntimesteps)
+            self.time[i].assign(self.time[i] + self.dt*self.ntimesteps)
         return
 
     @PETSc.Log.EventDecorator()
@@ -450,7 +450,7 @@ class AllAtOnceSystem(object):
             return self.get_field_components(i, f_alls=test_fns)
 
         for n in range(self.nlocal_timesteps):
-            self.Time[n].assign(self.Time[n] + dt*(self.layout.transform_index(n, 'l', 'g') + 1))
+            self.time[n].assign(self.time[n] + dt*(self.layout.transform_index(n, 'l', 'g') + 1))
             # previous time level
             if n == 0:
                 if self.time_rank == 0:
@@ -480,6 +480,6 @@ class AllAtOnceSystem(object):
             aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
 
             # vector field
-            aao_form += theta*self.form_function(*w1s, *dws, self.Time[n])
-            aao_form += (1-theta)*self.form_function(*w0s, *dws, self.Time[n])
+            aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
+            aao_form += (1-theta)*self.form_function(*w0s, *dws, self.time[n])
         self.aao_form = aao_form
