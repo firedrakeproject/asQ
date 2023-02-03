@@ -123,7 +123,6 @@ paradiag_parameters = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'
 }
-outfile = fd.File("timesteps.pvd")
 # We need to add a block solver parameters dictionary for each block.
 # Here they are all the same but they could be different.
 for i in range(window_length):
