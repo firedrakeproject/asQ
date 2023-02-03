@@ -91,7 +91,7 @@ def form_mass(q, phi):
 # The DG advection form for the scalar advection equation.
 # asQ assumes that the function form is nonlinear so here
 # q is a Function and phi is a TestFunction
-def form_function(q, phi, t):
+def form_function(q, phi):
     # upwind switch
     n = fd.FacetNormal(mesh)
     un = 0.5*(fd.dot(u, n) + abs(fd.dot(u, n)))
@@ -154,7 +154,7 @@ paradiag_parameters = {
 # We need to add a block solver parameters dictionary for each block.
 # Here they are all the same but they could be different.
 for i in range(window_length):
-    paradiag_parameters['diagfft_block_'+str(i)+'_'] = block_parameters
+    paradiag_parameters['diagfft_'+str(i)+'_'] = block_parameters
 
 
 # # # === --- Setup ParaDiag --- === # # #
