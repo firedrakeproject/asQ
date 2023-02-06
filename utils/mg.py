@@ -1,5 +1,6 @@
 
 import firedrake as fd
+from ufl.domain import extract_unique_domain as ufl_domain
 
 
 # transfer between mesh levels on a manifold
@@ -16,13 +17,7 @@ class ManifoldTransfer(object):
         self.ready = {}
         self.Ftransfer = fd.TransferManager()  # is this the firedrake warning?
 
-    def ufl_domain(self, mesh):
-        from ufl.domain import extract_unique_domain
-        return extract_unique_domain(fd.SpatialCoordinate(mesh))
-
     def prolong(self, coarse, fine):
-        ufl_domain = self.ufl_domain
-
         Vfine = fd.FunctionSpace(ufl_domain(fine),
                                  fine.function_space().ufl_element())
         key = Vfine.dim()
@@ -56,8 +51,6 @@ class ManifoldTransfer(object):
             ufl_domain(fine).coordinates_bk)
 
     def restrict(self, fine, coarse):
-        ufl_domain = self.ufl_domain
-
         Vfine = fd.FunctionSpace(ufl_domain(fine),
                                  fine.function_space().ufl_element())
         key = Vfine.dim()
@@ -91,8 +84,6 @@ class ManifoldTransfer(object):
             ufl_domain(fine).coordinates_bk)
 
     def inject(self, fine, coarse):
-        ufl_domain = self.ufl_domain
-
         Vfine = fd.FunctionSpace(ufl_domain(fine),
                                  fine.function_space().ufl_element())
         key = Vfine.dim()
