@@ -149,7 +149,7 @@ def test_galewsky_timeseries():
     }
 
     for i in range(sum(time_partition)):
-        parallel_sparameters['diagfft_'+str(i)] = block_sparameters
+        parallel_sparameters['diagfft_block_'+str(i)] = block_sparameters
 
     block_ctx = {}
     transfer_managers = []
@@ -979,7 +979,7 @@ def test_diagnostics():
     }
 
     for i in range(np.sum(M)):
-        diag_sparameters["diagfft_" + str(i) + "_"] = block_sparameters
+        diag_sparameters["diagfft_block_" + str(i) + "_"] = block_sparameters
 
     def form_function(u, v):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx

@@ -155,7 +155,7 @@ paradiag_parameters = {
 # We need to add a block solver parameters dictionary for each block.
 # Here they are all the same but they could be different.
 for i in range(window_length):
-    paradiag_parameters['diagfft_'+str(i)+'_'] = block_parameters
+    paradiag_parameters['diagfft_block_'+str(i)+'_'] = block_parameters
 
 
 # # # === --- Setup ParaDiag --- === # # #
