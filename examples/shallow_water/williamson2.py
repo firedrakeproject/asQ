@@ -71,7 +71,8 @@ W = fd.MixedFunctionSpace((V1, V2))
 
 # initial conditions
 w0 = fd.Function(W)
-un, hn = w0.split()
+un = w0.subfunctions[0]
+hn = w0.subfunctions[1]
 
 f = case2.coriolis_expression(*x)
 b = case2.topography_function(*x, V2, name="Topography")
@@ -173,13 +174,14 @@ def window_preproc(pdg, wndw):
 
 # check against initial conditions
 wcheck = w0.copy(deepcopy=True)
-ucheck, hcheck = wcheck.split()
+ucheck = wcheck.subfunctions[0]
+hcheck = wcheck.subfunctions[1]
 hcheck.assign(hcheck - H + b)
 
 
 def steady_state_test(w):
-    up = w.split()[0]
-    hp = w.split()[1]
+    up = w.subfunctions[0]
+    hp = w.subfunctions[1]
     hp.assign(hp - H + b)
 
     uerr = fd.errornorm(ucheck, up)/fd.norm(ucheck)
