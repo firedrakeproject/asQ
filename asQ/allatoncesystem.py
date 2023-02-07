@@ -102,6 +102,7 @@ class AllAtOnceSystem(object):
 
         self.dt = dt
         self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
+        self.t0 = fd.Constant(0.0)
         self.theta = theta
 
         self.form_mass = form_mass
@@ -345,6 +346,7 @@ class AllAtOnceSystem(object):
         for i in range(self.nlocal_timesteps):
             self.set_field(i, self.initial_condition, index_range='slice')
             self.time[i].assign(self.time[i] + self.dt*self.ntimesteps)
+        self.t0.assign(self.t0 + self.dt*self.ntimesteps)
         return
 
     @PETSc.Log.EventDecorator()
@@ -480,6 +482,10 @@ class AllAtOnceSystem(object):
             aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
 
             # vector field
-            aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
-            aao_form += (1-theta)*self.form_function(*w0s, *dws, self.time[n])
+            if self.layout.transform_index(n, 'l', 'g') == 0:
+                aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
+                aao_form += (1-theta)*self.form_function(*w0s, *dws, self.t0)
+            else:
+                aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
+                aao_form += (1-theta)*self.form_function(*w0s, *dws, self.time[n-1])
         self.aao_form = aao_form
