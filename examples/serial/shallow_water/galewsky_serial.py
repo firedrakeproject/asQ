@@ -59,7 +59,8 @@ coriolis = swe.earth_coriolis_expression(*x)
 
 # initial conditions
 w_initial = fd.Function(W)
-u_initial, h_initial = w_initial.split()
+u_initial = w_initial.subfunctions[0]
+h_initial = w_initial.subfunctions[1]
 
 u_initial.project(galewsky.velocity_expression(*x))
 h_initial.project(galewsky.depth_expression(*x))
