@@ -452,7 +452,7 @@ class AllAtOnceSystem(object):
             return self.get_field_components(i, f_alls=test_fns)
 
         for n in range(self.nlocal_timesteps):
-            self.time[n].assign(self.time[n] + dt*(self.layout.transform_index(n, 'l', 'g') + 1))
+            self.time[n].assign(self.time[n] + dt*(self.transform_index(n, from_range='slice', to_range='window') + 1))
             # previous time level
             if n == 0:
                 if self.time_rank == 0:
@@ -482,7 +482,7 @@ class AllAtOnceSystem(object):
             aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
 
             # vector field
-            if self.layout.transform_index(n, 'l', 'g') == 0:
+            if self.transform_index(n, from_range='slice', to_range='window') == 0:
                 aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
                 aao_form += (1-theta)*self.form_function(*w0s, *dws, self.t0)
             else:

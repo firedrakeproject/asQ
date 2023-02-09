@@ -383,7 +383,7 @@ class DiagFFTPC(object):
             self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
             self.u0.assign(self.ureduceC)
             self.u0 /= fd.Constant(sum(self.time_partition))
-            self.t.assign(self.paradiag.t)
+        self.t.assign(self.paradiag.t)
 
     @PETSc.Log.EventDecorator()
     @memprofile
