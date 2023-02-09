@@ -8,7 +8,7 @@ import asQ
 import argparse
 
 parser = argparse.ArgumentParser(
-    description='Stratigraphic model.',
+    description='Paradiag for Stratigraphic model that simulate formation of sedimentary rock over geological time.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('--nx', type=int, default=1000, help='Number of cells along each square side.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
@@ -52,13 +52,13 @@ x, y = fd.SpatialCoordinate(mesh)
 s0 = fd.Function(V, name="scalar_initial")
 s0.interpolate(fd.Constant(0.0))
 
-
+# The sediment movement D
 def D(D_c, d):
     return D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
 
-
+# The carbonate growth G.
 def L(G_0, d):
-    return G_0/(1 + fd.exp(50*d))*fd.exp(-d/10)
+    return G_0*fd.conditional(d > 0, fd.exp(-d/10), fd.exp((d/0.1)**3))
 
 
 # # # === --- finite element forms --- === # # #

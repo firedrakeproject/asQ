@@ -66,7 +66,7 @@ if __name__ == "__main__":
 # d is the water depth.
     d = l-b-s
     D = 2*D_c/fd.sqrt(2*pi)*fd.exp(-1/2*((d-5)/10)**2)
-    G = fd.conditional(d > 0, G_0*fd.exp(-d/10), G_0*fd.exp(-1000*d**2))
+    G = fd.conditional(d > 0, G_0*fd.exp(-d/10), G_0*fd.exp((d/.1)**3))
     F = D*fd.inner(fd.grad(s), fd.grad(q))*fd.dx - G*q*fd.dx
     F_euler = (fd.inner(s, q)*fd.dx - fd.inner(s0, q)*fd.dx + dt*(F))
     nvproblem = fd.NonlinearVariationalProblem(F_euler, s)
