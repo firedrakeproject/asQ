@@ -69,11 +69,11 @@ class ShallowWaterMiniApp(object):
                                                name='topography')
         self.topography_function.interpolate(self.topography)
 
-        def form_function(u, h, v, q):
+        def form_function(u, h, v, q, t):
             g = self.gravity
             b = self.topography
             f = self.coriolis
-            return swe.nonlinear.form_function(self.mesh, g, b, f, u, h, v, q)
+            return swe.nonlinear.form_function(self.mesh, g, b, f, u, h, v, q, t)
 
         def form_mass(u, h, v, q):
             return swe.nonlinear.form_mass(self.mesh, u, h, v, q)
