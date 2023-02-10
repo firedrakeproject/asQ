@@ -26,7 +26,6 @@ class SerialMiniApp(object):
         '''
         self.dt = dt
         self.theta = theta
-
         self.initial_condition = w_initial
         self.function_space = w_initial.function_space()
 
@@ -61,10 +60,10 @@ class SerialMiniApp(object):
         v = fd.TestFunctions(w0.function_space())
         w1s = fd.split(w1)
         w0s = fd.split(w0)
-
+        t = []
         dqdt = form_mass(*w1s, *v) - form_mass(*w0s, *v)
 
-        L = theta*form_function(*w1s, *v) + (1 - theta)*form_function(*w0s, *v)
+        L = theta*form_function(*w1s, *v, t) + (1 - theta)*form_function(*w0s, *v, t)
 
         return dt1*dqdt + L
 
