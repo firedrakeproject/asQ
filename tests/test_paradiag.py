@@ -309,6 +309,90 @@ def test_steady_swe():
         assert (abs(uerr) < utol)
 
 
+@pytest.mark.parallel(nprocs=4)
+def test_steady_linear_eq():
+    # test the linear equation u_t - (1+2sin(pi x) sin(pi y)) Delta u = f.
+    nspatial_domains = 2
+    degree = 1
+    nx = 10
+    dx = 1/nx
+    dt = dx
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.UnitSquareMesh(nx, nx, quadrilateral=False, comm=ensemble.comm)
+
+    x, y = fd.SpatialCoordinate(mesh)
+
+    V = fd.FunctionSpace(mesh, "CG", degree)
+
+    # Exact solution.
+    u_exact = fd.sin(np.pi*x)*fd.cos(np.pi*y)
+
+    def time_coef(t):
+        return 2 + fd.sin(2*np.pi*t)
+
+    def Rhs(t):
+        # As our exact solution is independent of t, the Rhs is just $-(2 + \sin(2*pi*t)) \Delta u$
+        return -(2 + fd.sin(2*np.pi*t))*fd.div(fd.grad(u_exact))
+
+    w0 = fd.Function(V)
+    w0.interpolate(u_exact)
+    # Dirichlet BCs
+    bcs = [fd.DirichletBC(V, u_exact, 'on_boundary')]
+
+    def form_mass(q, phi):
+        return phi*q*fd.dx
+
+    def form_function(q, phi, t):
+        return time_coef(t)*fd.inner(fd.grad(q), fd.grad(phi))*fd.dx - fd.inner(Rhs(t), phi)*fd.dx
+
+    # Parameters for the diag
+    sparameters = {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'}
+
+    solver_parameters_diag = {
+        "snes_linesearch_type": "basic",
+        'snes_atol': 1e-8,
+        # 'snes_monitor': None,
+        # 'snes_converged_reason': None,
+        'ksp_rtol': 1e-8,
+        # 'ksp_monitor': None,
+        # 'ksp_converged_reason': None,
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
+
+    M = [2, 2]
+    solver_parameters_diag["diagfft_block_"] = sparameters
+
+    alpha = 1.0e-3
+    theta = 0.5
+
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, w0=w0,
+                      dt=dt, theta=theta,
+                      alpha=alpha,
+                      time_partition=M, bcs=bcs, solver_parameters=solver_parameters_diag,
+                      circ=None, tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
+    PD.solve()
+
+    # check against initial conditions
+    walls = PD.aaos.w_all.split()
+    qmag = fd.norm(w0)
+    for step in range(M[PD.time_rank]):
+
+        qp = walls[step]
+        qerr = fd.errornorm(qp, w0)/qmag
+        qtol = pow(dx, 3/2)
+
+        assert (abs(qerr) < qtol)
+
+
 @pytest.mark.parallel(nprocs=6)
 def test_jacobian_heat_equation():
     # tests the basic snes setup
