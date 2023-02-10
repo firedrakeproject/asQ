@@ -55,12 +55,12 @@ def test_galewsky_timeseries():
     h_initial.project(galewsky.depth_expression(*x))
 
     # shallow water equation forms
-    def form_function(u, h, v, q):
+    def form_function(u, h, v, q, t):
         return swe.nonlinear.form_function(mesh,
                                            gravity,
                                            topography,
                                            coriolis,
-                                           u, h, v, q)
+                                           u, h, v, q, t)
 
     def form_mass(u, h, v, q):
         return swe.nonlinear.form_mass(mesh, u, h, v, q)
@@ -241,8 +241,8 @@ def test_steady_swe():
 
     # finite element forms
 
-    def form_function(u, h, v, q):
-        return swe.form_function(mesh, g, b, f, u, h, v, q)
+    def form_function(u, h, v, q, t):
+        return swe.form_function(mesh, g, b, f, u, h, v, q, t)
 
     def form_mass(u, h, v, q):
         return swe.form_mass(mesh, u, h, v, q)
