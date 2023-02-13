@@ -102,6 +102,9 @@ class AllAtOnceSystem(object):
 
         self.dt = dt
         self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
+        for n in range((self.nlocal_timesteps)):
+            self.time[n].assign(self.time[n] + dt*(self.transform_index(n, from_range='slice', to_range='window') + 1))
+
         self.t0 = fd.Constant(0.0)
         self.theta = theta
 
@@ -452,7 +455,6 @@ class AllAtOnceSystem(object):
             return self.get_field_components(i, f_alls=test_fns)
 
         for n in range(self.nlocal_timesteps):
-            self.time[n].assign(self.time[n] + dt*(self.transform_index(n, from_range='slice', to_range='window') + 1))
             # previous time level
             if n == 0:
                 if self.time_rank == 0:
