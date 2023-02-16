@@ -485,5 +485,5 @@ class AllAtOnceSystem(object):
 
             # vector field
             aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
-            aao_form += (1-theta)*self.form_function(*w0s, *dws, self.time[n] - dt)
+            aao_form += (1-theta)*self.form_function(*w0s, *dws, self.time[n]-dt)
         self.aao_form = aao_form
