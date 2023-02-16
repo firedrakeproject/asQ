@@ -484,10 +484,6 @@ class AllAtOnceSystem(object):
             aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
 
             # vector field
-            if self.transform_index(n, from_range='slice', to_range='window') == 0:
-                aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
-                aao_form += (1-theta)*self.form_function(*w0s, *dws, self.t0)
-            else:
-                aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
-                aao_form += (1-theta)*self.form_function(*w0s, *dws, self.time[n-1])
+            aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
+            aao_form += (1-theta)*self.form_function(*w0s, *dws, self.time[n] - dt)
         self.aao_form = aao_form
