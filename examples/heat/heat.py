@@ -142,20 +142,31 @@ def window_preproc(pdg, wndw):
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
 
-# We find the L2-error at each timestep
-def window_postproc(pdg, wndw):
-    time = tuple(fd.Constant(0) for _ in range(args.slice_length))
-    q_exact = tuple(fd.Function(V) for _ in range(args.slice_length))
-    for n in range(args.slice_length):
-        time[n].assign(time[n] + dt*(pdg.aaos.transform_index(n, from_range='slice', to_range='window') + 1) + dt*wndw*window_length)
-        q_exact[n].interpolate(fd.exp(.5*x + y + 1.25*time[n]))
 
-    walls = pdg.aaos.w_all.split()
-    for step in range(args.slice_length):
-        qp = walls[step]
-        qerr = fd.errornorm(qp, q_exact[step])
-        PETSc.Sys.Print(f"Time={time[step].values()}, qerr={qerr}",
-                        comm=ensemble.comm)
+# We find the L2-error at each timestep
+q_exact = fd.Function(V)
+qp = fd.Function(V)
+errors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+times = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+
+
+def window_postproc(pdg, wndw):
+    aaos = pdg.aaos
+
+    for step in range(aaos.ntimesteps):
+        if aaos.layout.is_local(step):
+            local_step = aaos.transform_index(step, from_range='window')
+            t = aaos.time[local_step]
+            q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
+            aaos.get_field(local_step, wout=qp)
+            errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
+            times.dlocal[local_step] = t
+
+    errors.synchronise()
+    times.synchronise()
+
+    for step in range(aaos.ntimesteps):
+        PETSc.Sys.Print(f"Time={str(times.dglobal[step]).ljust(8, ' ')}, qerr={errors.dglobal[step]}")
 
 
 # Solve nwindows of the all-at-once system
