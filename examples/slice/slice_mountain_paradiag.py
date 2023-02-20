@@ -12,10 +12,8 @@ L = 144e3
 distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
 
 # set up the ensemble communicator for space-time parallelism
-nspatial_domains = 4
+nspatial_domains = 2
 M = [2, 2, 2, 2]
-
-# we expect 16 processors
 
 ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
 m = fd.PeriodicIntervalMesh(base_columns, L,
@@ -88,7 +86,9 @@ thetab = Tsurf*fd.exp(N**2*z/g)
 cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
 Up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
-un, rhon, thetan = Un.split()
+un = Un.subfunctions[0]
+rhon = Un.subfunctions[1]
+thetan = Un.subfunctions[2]
 un.project(fd.as_vector([20.0, 0.0]))
 thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
@@ -147,14 +147,14 @@ lines_parameters = {
 }
 
 solver_parameters_diag = {
-    "snes_lag_preconditioner_persists": None,
-    "snes_lag_preconditioner": 4,
+    #"snes_lag_preconditioner_persists": None,
+    #"snes_lag_preconditioner": 4,
     "ksp_type": "fgmres",
     "ksp_monitor": None,
     "ksp_converged_reason": None,
     "ksp_atol": 1e-8,
     "ksp_rtol": 1e-8,
-    "ksp_max_it": 400,
+    #"ksp_max_it": 400,
     'snes_monitor': None,
     'snes_converged_reason': None,
     'mat_type': 'matfree',
@@ -162,7 +162,7 @@ solver_parameters_diag = {
     'pc_python_type': 'asQ.DiagFFTPC'}
 
 for i in range(np.sum(M)):
-    solver_parameters_diag["diagfft_"+str(i)+"_"] = lines_parameters
+    solver_parameters_diag["diagfft_block_"+str(i)+"_"] = lines_parameters
 
 dt = 5
 dT.assign(dt)
@@ -195,9 +195,9 @@ if PD.time_rank == len(M)-1:
                     comm=ensemble.comm)
 
     def assign_out_functions():
-        uout.assign(PD.aaos.w_all.split()[-3])
-        rhoout.assign(PD.aaos.w_all.split()[-2] - rho_back)
-        thetaout.assign(PD.aaos.w_all.split()[-1] - theta_back)
+        uout.assign(PD.aaos.w_all.subfunctions[-3])
+        rhoout.assign(PD.aaos.w_all.subfunctions[-2] - rho_back)
+        thetaout.assign(PD.aaos.w_all.subfunctions[-1] - theta_back)
 
     def write_to_file():
         ofile.write(uout, rhoout, thetaout)

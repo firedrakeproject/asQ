@@ -65,10 +65,10 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
     PiProblem = fd.LinearVariationalProblem(Pieqn, L, wh, bcs=bcs)
 
     lu_params = {
-        'snes_monitor': None,
-        'snes_stol': 1.0e-50,
-        'ksp_monitor': None,
-        'snes_converged_reason': None,
+        #'snes_monitor': None,
+        #'snes_stol': 1.0e-50,
+        #'ksp_monitor': None,
+        #'snes_converged_reason': None,
         'mat_type': 'aij',
         'pc_type': 'lu',
         "pc_factor_mat_ordering_type": "rcm",
@@ -78,13 +78,15 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
                                           solver_parameters=lu_params,
                                           options_prefix="pisolver")
     PiSolver.solve()
-    v, Pi0 = wh.split()
+    v = wh.subfunctions[0]
+    Pi0 = wh.subfunctions[1]
     if Pi:
         Pi.assign(Pi0)
 
     if rhon:
         rhon.interpolate(rho_formula(Pi0, thetan, R_d, p_0, kappa))
-        v, rho = wh.split()
+        v = wh.subfunctions[0]
+        rho = wh.subfunctions[1]
         rho.assign(rhon)
         v, rho = fd.split(wh)
 
@@ -117,7 +119,8 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
                                                   options_prefix="rhosolver")
 
         RhoSolver.solve()
-        v, Rho0 = wh.split()
+        v = wh.subfunctions[0]
+        Rho0 = wh.subfunctions[1]
         rhon.assign(Rho0)
 
 
