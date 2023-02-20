@@ -76,7 +76,7 @@ def topography_expression(x, y, z,
     lambda2 = pow(lambda_x - lambda_c, 2)
     theta2 = pow(theta_x - theta_c, 2)
 
-    min_arg = fd.Min(radius2, theta2 + lambda2)
+    min_arg = fd.min_value(radius2, theta2 + lambda2)
 
     return height*(1 - fd.sqrt(min_arg)/radius)
 
