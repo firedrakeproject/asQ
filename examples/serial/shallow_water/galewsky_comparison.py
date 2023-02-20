@@ -53,7 +53,8 @@ ensemble = asQ.create_ensemble(time_partition)
 
 # icosahedral mg mesh
 mesh = swe.create_mg_globe_mesh(ref_level=args.ref_level,
-                                comm=ensemble.comm)
+                                comm=ensemble.comm,
+                                coords_degree=1)
 x = fd.SpatialCoordinate(mesh)
 
 # shallow water equation function spaces (velocity and depth)
@@ -67,7 +68,8 @@ coriolis = swe.earth_coriolis_expression(*x)
 
 # initial conditions
 w_initial = fd.Function(W)
-u_initial, h_initial = w_initial.split()
+u_initial = w_initial.subfunctions[0]
+h_initial = w_initial.subfunctions[1]
 
 u_initial.project(galewsky.velocity_expression(*x))
 h_initial.project(galewsky.depth_expression(*x))

@@ -49,7 +49,8 @@ def test_galewsky_timeseries():
 
     # initial conditions
     w_initial = fd.Function(W)
-    u_initial, h_initial = w_initial.split()
+    u_initial = w_initial.subfunctions[0]
+    h_initial = w_initial.subfunctions[1]
 
     u_initial.project(galewsky.velocity_expression(*x))
     h_initial.project(galewsky.depth_expression(*x))
@@ -148,7 +149,7 @@ def test_galewsky_timeseries():
     }
 
     for i in range(sum(time_partition)):
-        parallel_sparameters['diagfft_'+str(i)] = block_sparameters
+        parallel_sparameters['diagfft_block_'+str(i)] = block_sparameters
 
     block_ctx = {}
     transfer_managers = []
@@ -235,7 +236,8 @@ def test_steady_swe():
 
     # W = V1 * V2
     w0 = fd.Function(W)
-    un, hn = w0.split()
+    un = w0.subfunctions[0]
+    hn = w0.subfunctions[1]
     un.project(case2.velocity_expression(*x))
     hn.project(H - b + case2.elevation_expression(*x))
 
@@ -287,7 +289,7 @@ def test_steady_swe():
     PD.solve()
 
     # check against initial conditions
-    walls = PD.aaos.w_all.split()
+    walls = PD.aaos.w_all.subfunctions
     hn.assign(hn - H + b)
 
     hmag = fd.norm(hn)
@@ -401,13 +403,13 @@ def test_set_para_form():
     WFull = V * V * V * V * V * V * V * V
     ufull = fd.Function(WFull)
     np.random.seed(132574)
-    ufull_list = ufull.split()
+    ufull_list = ufull.subfunctions
     for i in range(8):
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
     # copy the data from the full list into the time slice for this rank in PD.w_all
-    w_alls = PD.aaos.w_all.split()
+    w_alls = PD.aaos.w_all.subfunctions
     w_alls[0].assign(ufull_list[rT*2])
     w_alls[1].assign(ufull_list[rT*2+1])
     # copy from w_all into the PETSc vec PD.X
@@ -460,7 +462,8 @@ def test_set_para_form_mixed_parallel():
     x, y = fd.SpatialCoordinate(mesh)
     # u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
     w0 = fd.Function(W)
-    u0, p0 = w0.split()
+    u0 = w0.subfunctions[0]
+    p0 = w0.subfunctions[1]
     p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
     dt = 0.01
     theta = 0.5
@@ -490,13 +493,13 @@ def test_set_para_form_mixed_parallel():
     WFull = W * W * W * W * W * W * W * W
     ufull = fd.Function(WFull)
     np.random.seed(132574)
-    ufull_list = ufull.split()
+    ufull_list = ufull.subfunctions
     for i in range((2*8)):
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
     # copy the data from the full list into the time slice for this rank in PD.w_all
-    w_alls = PD.aaos.w_all.split()
+    w_alls = PD.aaos.w_all.subfunctions
     w_alls[0].assign(ufull_list[4 * rT])   # 1st time slice V
     w_alls[1].assign(ufull_list[4 * rT + 1])  # 1st time slice Q
     w_alls[2].assign(ufull_list[4 * rT + 2])  # 2nd time slice V
@@ -555,8 +558,8 @@ def test_jacobian_mixed_parallel():
 
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
-    u0, p0 = w0.split()
-    # p0, u0 = w0.split()
+    u0 = w0.subfunctions[0]
+    p0 = w0.subfunctions[1]
     p0.interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
@@ -592,22 +595,22 @@ def test_jacobian_mixed_parallel():
     WFull = reduce(mul, (W for _ in range(Ml)))
     ufull = fd.Function(WFull)
     np.random.seed(132574)
-    ufull_list = ufull.split()
+    ufull_list = ufull.subfunctions
     for i in range((2 * Ml)):
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     # make another function v_alls:
     vfull = fd.Function(WFull)
-    vfull_list = vfull.split()
+    vfull_list = vfull.subfunctions
     for i in range((2 * Ml)):
         vfull_list[i].dat.data[:] = np.random.randn(*(vfull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
 
     # copy the data from the full list into the time slice for this rank in PD.w_all
-    w_alls = PD.aaos.w_all.split()
+    w_alls = PD.aaos.w_all.subfunctions
     v_all = fd.Function(PD.aaos.function_space_all)
-    v_alls = v_all.split()
+    v_alls = v_all.subfunctions
 
     nM = M[rT]
     for i in range(nM):
@@ -688,13 +691,14 @@ def test_jacobian_mixed_parallel():
 
 bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
-extruded = [pytest.param(False, id="standard_mesh"),
-            pytest.param(True, id="extruded_mesh")]
+extruded_mixed = [pytest.param(False, id="standard_mesh"),
+                  pytest.param(True, id="extruded_mesh",
+                               marks=pytest.mark.xfail(reason="fd.split for TensorProductElements in unmixed spaces broken by ufl PR#122."))]
 
 
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("bc_opt", bc_opts)
-@pytest.mark.parametrize("extruded", extruded)
+@pytest.mark.parametrize("extruded", extruded_mixed)
 def test_solve_para_form(bc_opt, extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR heat equation as an example by
@@ -787,7 +791,7 @@ def test_solve_para_form(bc_opt, extruded):
     # Calculation of time slices in serial:
     VFull = reduce(mul, (V for _ in range(Ml)))
     vfull = fd.Function(VFull)
-    vfull_list = vfull.split()
+    vfull_list = vfull.subfunctions
     rT = ensemble.ensemble_comm.rank
 
     for i in range(Ml):
@@ -803,8 +807,12 @@ def test_solve_para_form(bc_opt, extruded):
         assert (fd.errornorm(vfull.sub(ind1), PD.aaos.w_all.sub(i)) < 1.0e-9)
 
 
+extruded_primal = [pytest.param(False, id="standard_mesh"),
+                   pytest.param(True, id="extruded_mesh")]
+
+
 @pytest.mark.parallel(nprocs=6)
-@pytest.mark.parametrize("extruded", extruded)
+@pytest.mark.parametrize("extruded", extruded_primal)
 def test_solve_para_form_mixed(extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR mixed wave equation as an
@@ -848,7 +856,7 @@ def test_solve_para_form_mixed(extruded):
 
     x, y = fd.SpatialCoordinate(mesh)
     w0 = fd.Function(W)
-    u0, p0 = w0.split()
+    u0, p0 = w0.subfunctions
     p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
     dt = 0.01
     theta = 0.5
@@ -921,7 +929,7 @@ def test_solve_para_form_mixed(extruded):
     # Calculation of time slices in serial:
     VFull = reduce(mul, (W for _ in range(Ml)))
     vfull = fd.Function(VFull)
-    vfull_list = vfull.split()
+    vfull_list = vfull.subfunctions
 
     rT = ensemble.ensemble_comm.rank
 
@@ -971,7 +979,7 @@ def test_diagnostics():
     }
 
     for i in range(np.sum(M)):
-        diag_sparameters["diagfft_" + str(i) + "_"] = block_sparameters
+        diag_sparameters["diagfft_block_" + str(i) + "_"] = block_sparameters
 
     def form_function(u, v):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
