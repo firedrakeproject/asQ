@@ -331,6 +331,7 @@ class DiagFFTPC(object):
 
     def set_CblockV_bcs(self):
         self.CblockV_bcs = []
+        zero = fd.Constant(0)
         for bc in self.aaos.boundary_conditions:
             is_mixed_element = isinstance(self.aaos.function_space.ufl_element(),
                                           fd.MixedElement)
@@ -338,11 +339,11 @@ class DiagFFTPC(object):
                 if is_mixed_element:
                     i = bc.function_space().index
                     all_bc = fd.DirichletBC(self.CblockV.sub(i).sub(r),
-                                            0*bc.function_arg,
+                                            zero*bc.function_arg,
                                             bc.sub_domain)
                 else:
                     all_bc = fd.DirichletBC(self.CblockV.sub(r),
-                                            0*bc.function_arg,
+                                            zero*bc.function_arg,
                                             bc.sub_domain)
                 self.CblockV_bcs.append(all_bc)
 
