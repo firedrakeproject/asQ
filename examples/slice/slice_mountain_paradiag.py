@@ -147,19 +147,19 @@ lines_parameters = {
 }
 
 solver_parameters_diag = {
-    #"snes_lag_preconditioner_persists": None,
-    #"snes_lag_preconditioner": 4,
+    # "snes_lag_preconditioner_persists": None,
+    # "snes_lag_preconditioner": 4,
     "ksp_type": "fgmres",
     "ksp_monitor": None,
     "ksp_converged_reason": None,
     "ksp_atol": 1e-8,
     "ksp_rtol": 1e-8,
-    #"ksp_max_it": 400,
     'snes_monitor': None,
     'snes_converged_reason': None,
     'mat_type': 'matfree',
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'}
+    'pc_python_type': 'asQ.DiagFFTPC'
+}
 
 for i in range(np.sum(M)):
     solver_parameters_diag["diagfft_block_"+str(i)+"_"] = lines_parameters

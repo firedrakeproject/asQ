@@ -65,10 +65,10 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
     PiProblem = fd.LinearVariationalProblem(Pieqn, L, wh, bcs=bcs)
 
     lu_params = {
-        #'snes_monitor': None,
-        #'snes_stol': 1.0e-50,
-        #'ksp_monitor': None,
-        #'snes_converged_reason': None,
+        # 'snes_monitor': None,
+        # 'snes_stol': 1.0e-50,
+        # 'ksp_monitor': None,
+        # 'snes_converged_reason': None,
         'mat_type': 'aij',
         'pc_type': 'lu',
         "pc_factor_mat_ordering_type": "rcm",
