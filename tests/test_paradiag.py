@@ -423,7 +423,7 @@ def test_jacobian_heat_equation():
                          # 'snes_view': None
                          }
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v)) * fd.dx
 
     def form_mass(u, v):
@@ -461,11 +461,16 @@ def test_set_para_form():
     theta = 0.5
     alpha = 0.001
     M = [2, 2, 2]
+    Ml = np.sum(M)
+    time = tuple(fd.Constant(0) for _ in range(Ml))
+    for i in range(Ml):
+        time[i].assign(fd.Constant(i*dt))
+
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
@@ -482,11 +487,11 @@ def test_set_para_form():
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
-    WFull = V * V * V * V * V * V * V * V
+    WFull = reduce(mul, (V for _ in range(Ml)))
     ufull = fd.Function(WFull)
     np.random.seed(132574)
     ufull_list = ufull.split()
-    for i in range(8):
+    for i in range(Ml):
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
@@ -502,14 +507,14 @@ def test_set_para_form():
     vfull = fd.TestFunction(WFull)
     ufulls = fd.split(ufull)
     vfulls = fd.split(vfull)
-    for i in range(8):
+    for i in range(Ml):
         if i == 0:
             un = u0
         else:
             un = ufulls[i-1]
         unp1 = ufulls[i]
         v = vfulls[i]
-        tform = form_mass(unp1 - un, v/dt) + form_function((unp1+un)/2, v)
+        tform = form_mass(unp1 - un, v/dt) + form_function(unp1/2, v, time[i]) + form_function(un/2, v, time[i]-dt)
         if i == 0:
             fullform = tform
         else:
@@ -550,11 +555,17 @@ def test_set_para_form_mixed_parallel():
     theta = 0.5
     alpha = 0.001
     M = [2, 2, 2]
+    Ml = np.sum(M)
+    time = tuple(fd.Constant(0) for _ in range(Ml))
+    for i in range(Ml):
+        time[i].assign(fd.Constant(i*dt))
+
+
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
 
-    def form_function(uu, up, vu, vp):
+    def form_function(uu, up, vu, vp, t):
         return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
 
     def form_mass(uu, up, vu, vp):
@@ -571,11 +582,11 @@ def test_set_para_form_mixed_parallel():
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
-    WFull = W * W * W * W * W * W * W * W
+    WFull = reduce(mul, (W for _ in range(Ml)))
     ufull = fd.Function(WFull)
     np.random.seed(132574)
     ufull_list = ufull.split()
-    for i in range((2*8)):
+    for i in range((2*Ml)):
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
@@ -595,7 +606,7 @@ def test_set_para_form_mixed_parallel():
     ufulls = fd.split(ufull)
     vfulls = fd.split(vfull)
 
-    for i in range(8):
+    for i in range(Ml):
         if i == 0:
             un = u0
             pn = p0
@@ -608,7 +619,8 @@ def test_set_para_form_mixed_parallel():
         vp = vfulls[2 * i + 1]
         # forms have 2 components and 2 test functions: (u, h, w, phi)
         tform = form_mass(unp1 - un, pnp1 - pn, vu / dt, vp / dt) \
-            + form_function((unp1 + un) / 2, (pnp1 + pn) / 2, vu, vp)
+            + form_function(unp1 / 2, pnp1 / 2, vu, vp, time[i])\
+            + form_function(un / 2, pn / 2, vu, vp, time[i] - dt)
         if i == 0:
             fullform = tform
         else:
@@ -642,11 +654,15 @@ def test_jacobian_mixed_parallel():
     u0, p0 = w0.split()
     # p0, u0 = w0.split()
     p0.interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.001
     M = [2, 2, 2]
     Ml = np.sum(M)
+    dt = 0.01
+    time = tuple(fd.Constant(0) for _ in range(Ml))
+    for i in range(Ml):
+        time[i].assign(fd.Constant(i*dt))
+
+    theta = 0.5
+    alpha = 0.001
     c = fd.Constant(0.1)
     eps = fd.Constant(0.001)
 
@@ -654,7 +670,7 @@ def test_jacobian_mixed_parallel():
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
 
-    def form_function(uu, up, vu, vp):
+    def form_function(uu, up, vu, vp, t):
         return (fd.div(vu) * up
                 + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
                 - fd.div(uu) * vp) * fd.dx
@@ -745,8 +761,8 @@ def test_jacobian_mixed_parallel():
         vu, vp = tfulls[2*i: 2*i + 2]
 
         tform = form_mass(unp1 - un, pnp1 - pn, vu / dt, vp / dt) \
-            + 0.5*form_function(unp1, pnp1, vu, vp) \
-            + 0.5*form_function(un, pn, vu, vp)
+            + 0.5*form_function(unp1, pnp1, vu, vp, time[i]) \
+            + 0.5*form_function(un, pn, vu, vp, time[i] - dt)
         if i == 0:
             fullform = tform
         else:
@@ -805,6 +821,7 @@ def test_solve_para_form(bc_opt, extruded):
     c = fd.Constant(1)
     M = [2, 2, 2]
     Ml = np.sum(M)
+    time = 0.01
 
     # Parameters for the diag
     sparameters = {
@@ -828,7 +845,7 @@ def test_solve_para_form(bc_opt, extruded):
     for i in range(sum(M)):
         solver_parameters_diag[f"diagfft_block_{i}_"] = sparameters
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
@@ -858,10 +875,9 @@ def test_solve_para_form(bc_opt, extruded):
 
     un.assign(u0)
     v = fd.TestFunction(V)
-
     eqn = (unp1 - un)*v*fd.dx
-    eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
-    eqn += fd.Constant(dt*theta)*form_function(unp1, v)
+    eqn += fd.Constant(dt*(1-theta))*form_function(un, v, time - dt)
+    eqn += fd.Constant(dt*theta)*form_function(unp1, v, time)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1, bcs=bcs)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
@@ -876,6 +892,7 @@ def test_solve_para_form(bc_opt, extruded):
 
     for i in range(Ml):
         ssolver.solve()
+        time += dt
         vfull_list[i].assign(unp1)
         un.assign(unp1)
 
@@ -942,6 +959,7 @@ def test_solve_para_form_mixed(extruded):
 
     M = [2, 2, 2]
     Ml = np.sum(M)
+    time = 0.01
 
     # Parameters for the diag
     sparameters = {
@@ -963,7 +981,7 @@ def test_solve_para_form_mixed(extruded):
 
     solver_parameters_diag["diagfft_block_"] = sparameters
 
-    def form_function(uu, up, vu, vp):
+    def form_function(uu, up, vu, vp, t):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
                 - fd.div(uu) * vp) * fd.dx
 
@@ -990,9 +1008,9 @@ def test_solve_para_form_mixed(extruded):
     eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
     eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
     eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
-                                                   *(fd.split(v)))
+                                                   *(fd.split(v)), time - dt)
     eqn += fd.Constant(dt*theta)*form_function(*(fd.split(unp1)),
-                                               *(fd.split(v)))
+                                               *(fd.split(v)), time)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
@@ -1011,6 +1029,7 @@ def test_solve_para_form_mixed(extruded):
 
     for i in range(Ml):
         ssolver.solve()
+        time += dt
         for k in range(2):
             vfull.sub(2*i+k).assign(unp1.sub(k))
         un.assign(unp1)
@@ -1057,7 +1076,7 @@ def test_diagnostics():
     for i in range(np.sum(M)):
         diag_sparameters["diagfft_" + str(i) + "_"] = block_sparameters
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
