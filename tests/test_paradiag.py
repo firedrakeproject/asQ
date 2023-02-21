@@ -560,7 +560,6 @@ def test_set_para_form_mixed_parallel():
     for i in range(Ml):
         time[i].assign(fd.Constant(i*dt))
 
-
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
