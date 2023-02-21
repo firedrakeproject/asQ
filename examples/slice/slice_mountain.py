@@ -6,14 +6,14 @@ from utils.vertical_slice import hydrostatic_rho, \
 from petsc4py import PETSc
 
 # set up the ensemble communicator for space-time parallelism
-time_partition = tuple((1 for _ in range(8)))
+time_partition = tuple((1 for _ in range(4)))
 
 ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
 # set up the mesh
 
-nlayers = 40  # horizontal layers
-base_columns = 80  # number of columns
+nlayers = 50  # horizontal layers
+base_columns = 150  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -194,7 +194,7 @@ if is_last_slice:
     thetaout = fd.Function(Vt, name='temperature')
     rhoout = fd.Function(V2, name='density')
 
-    ofile = fd.File('slice_mountain_diag.pvd',
+    ofile = fd.File('output/slice_mountain_diag.pvd',
                     comm=ensemble.comm)
 
     def assign_out_functions():
