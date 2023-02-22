@@ -1,6 +1,6 @@
 import firedrake as fd
 import asQ
-import numpy as np
+from math import pi
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
 from petsc4py import PETSc
@@ -56,7 +56,7 @@ name = "mountain_nh"
 if smooth_z:
     name += '_smootherz'
     zh = 5000.
-    xexpr = fd.as_vector([x, fd.conditional(z < zh, z + fd.cos(0.5*np.pi*z/zh)**6*zs, z)])
+    xexpr = fd.as_vector([x, fd.conditional(z < zh, z + fd.cos(0.5*pi*z/zh)**6*zs, z)])
 else:
     xexpr = fd.as_vector([x, z + ((H-z)/H)*zs])
 mesh.coordinates.interpolate(xexpr)
@@ -127,7 +127,7 @@ rho_back = fd.Function(V2).assign(rhon)
 
 zc = H-10000.
 mubar = 0.3
-mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((np.pi/2.)*(z-zc)/(H-zc))**2)
+mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(H-zc))**2)
 mu = fd.Function(V2).interpolate(mu_top/dT)
 
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
@@ -168,7 +168,7 @@ solver_parameters_diag = {
     'pc_python_type': 'asQ.DiagFFTPC'
 }
 
-for i in range(np.sum(time_partition)):
+for i in range(sum(time_partition)):
     solver_parameters_diag["diagfft_block_"+str(i)+"_"] = lines_parameters
 
 t = 0.
