@@ -1,24 +1,36 @@
 import firedrake as fd
 import asQ
-import numpy as np
-from slice_utils import hydrostatic_rho, \
+from math import pi
+from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
 from petsc4py import PETSc
-dT = fd.Constant(1)
+
+# set up the ensemble communicator for space-time parallelism
+time_partition = tuple((1 for _ in range(4)))
+
+ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+
+# set up the mesh
 
 nlayers = 50  # horizontal layers
 base_columns = 150  # number of columns
 L = 144e3
-distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
+H = 35e3  # Height position of the model top
 
-# set up the ensemble communicator for space-time parallelism
-nspatial_domains = 2
-M = [2, 2, 2, 2]
+distribution_parameters = {
+    "partition": True,
+    "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)
+}
 
-ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
-m = fd.PeriodicIntervalMesh(base_columns, L,
-                            distribution_parameters=distribution_parameters,
-                            comm=ensemble.comm)
+# surface mesh of ground
+base_mesh = fd.PeriodicIntervalMesh(base_columns, L,
+                                    distribution_parameters=distribution_parameters,
+                                    comm=ensemble.comm)
+
+# volume mesh of the slice
+mesh = fd.ExtrudedMesh(base_mesh, layers=nlayers, layer_height=H/nlayers)
+n = fd.FacetNormal(mesh)
+
 
 g = fd.Constant(9.810616)
 N = fd.Constant(0.01)  # Brunt-Vaisala frequency (1/s)
@@ -29,10 +41,8 @@ p_0 = fd.Constant(1000.0*100.0)  # reference pressure (Pa, not hPa)
 cv = fd.Constant(717.)  # SHC of dry air at const. volume (J/kg/K)
 T_0 = fd.Constant(273.15)  # ref. temperature
 
-# build volume mesh
-H = 35e3  # Height position of the model top
-mesh = fd.ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
-n = fd.FacetNormal(mesh)
+dt = 5
+dT = fd.Constant(dt)
 
 # making a mountain out of a molehill
 a = 1000.
@@ -41,12 +51,12 @@ x, z = fd.SpatialCoordinate(mesh)
 hm = 1.
 zs = hm*a**2/((x-xc)**2 + a**2)
 
-smooth_z = False
+smooth_z = True
 name = "mountain_nh"
 if smooth_z:
     name += '_smootherz'
     zh = 5000.
-    xexpr = fd.as_vector([x, fd.conditional(z < zh, z + fd.cos(0.5*np.pi*z/zh)**6*zs, z)])
+    xexpr = fd.as_vector([x, fd.conditional(z < zh, z + fd.cos(0.5*pi*z/zh)**6*zs, z)])
 else:
     xexpr = fd.as_vector([x, z + ((H-z)/H)*zs])
 mesh.coordinates.interpolate(xexpr)
@@ -117,7 +127,7 @@ rho_back = fd.Function(V2).assign(rhon)
 
 zc = H-10000.
 mubar = 0.3
-mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((np.pi/2.)*(z-zc)/(H-zc))**2)
+mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(H-zc))**2)
 mu = fd.Function(V2).interpolate(mu_top/dT)
 
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
@@ -136,7 +146,7 @@ for bc in bcs:
 # Parameters for the diag
 lines_parameters = {
     "ksp_type": "gmres",
-    "ksp_converged_reason": None,
+    # "ksp_converged_reason": None,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled_pc_type": "python",
@@ -147,57 +157,53 @@ lines_parameters = {
 }
 
 solver_parameters_diag = {
-    # "snes_lag_preconditioner_persists": None,
-    # "snes_lag_preconditioner": 4,
     "ksp_type": "fgmres",
     "ksp_monitor": None,
     "ksp_converged_reason": None,
-    "ksp_atol": 1e-8,
-    "ksp_rtol": 1e-8,
     'snes_monitor': None,
     'snes_converged_reason': None,
+    'snes_rtol': 1e-8,
     'mat_type': 'matfree',
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'
 }
 
-for i in range(np.sum(M)):
+for i in range(sum(time_partition)):
     solver_parameters_diag["diagfft_block_"+str(i)+"_"] = lines_parameters
-
-dt = 5
-dT.assign(dt)
 
 t = 0.
 
 alpha = 1.0e-4
 theta = 0.5
 
-PD = asQ.paradiag(ensemble=ensemble,
-                  form_function=form_function,
-                  form_mass=form_mass, w0=Un,
-                  dt=dt, theta=theta,
-                  alpha=alpha, time_partition=M, bcs=bcs,
-                  solver_parameters=solver_parameters_diag,
-                  circ="none",
-                  tol=1.0e-6, maxits=None,
-                  ctx={}, block_mat_type="aij")
+pdg = asQ.paradiag(ensemble=ensemble,
+                   form_function=form_function,
+                   form_mass=form_mass, w0=Un,
+                   dt=dt, theta=theta,
+                   alpha=alpha, time_partition=time_partition, bcs=bcs,
+                   solver_parameters=solver_parameters_diag,
+                   circ="none")
 
-r = PD.time_rank
+aaos = pdg.aaos
+is_last_slice = pdg.layout.is_local(-1)
 
 # only last slice does diagnostics/output
-if PD.time_rank == len(M)-1:
+if is_last_slice:
 
     uout = fd.Function(V1, name='velocity')
     thetaout = fd.Function(Vt, name='temperature')
     rhoout = fd.Function(V2, name='density')
 
-    ofile = fd.File('slice_mountain_diag.pvd',
+    ofile = fd.File('output/slice_mountain_diag.pvd',
                     comm=ensemble.comm)
 
     def assign_out_functions():
-        uout.assign(PD.aaos.w_all.subfunctions[-3])
-        rhoout.assign(PD.aaos.w_all.subfunctions[-2] - rho_back)
-        thetaout.assign(PD.aaos.w_all.subfunctions[-1] - theta_back)
+        aaos.get_component(-1, 0, wout=uout)
+        aaos.get_component(-1, 1, wout=rhoout)
+        aaos.get_component(-1, 2, wout=thetaout)
+
+        rhoout.assign(rhoout - rho_back)
+        thetaout.assign(thetaout - theta_back)
 
     def write_to_file():
         ofile.write(uout, rhoout, thetaout)
@@ -211,12 +217,12 @@ def window_preproc(pdg, wndw):
 
 def window_postproc(pdg, wndw):
     # postprocess this timeslice
-    if r == len(M)-1:
+    if is_last_slice:
         assign_out_functions()
         write_to_file()
 
 
 # solve for each window
-PD.solve(nwindows=5,
-         preproc=window_preproc,
-         postproc=window_postproc)
+pdg.solve(nwindows=1,
+          preproc=window_preproc,
+          postproc=window_postproc)

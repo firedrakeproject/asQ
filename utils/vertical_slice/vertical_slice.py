@@ -33,7 +33,8 @@ def rho_formula(pi, theta, R_d, p_0, kappa):
 
 def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
                     cp, R_d, p_0, kappa, g, Up,
-                    top=False, Pi=None):
+                    top=False, Pi=None,
+                    verbose=0):
     # Calculate hydrostatic Pi, rho
     W_h = Vv * V2
     wh = fd.Function(W_h)
@@ -65,14 +66,26 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
     PiProblem = fd.LinearVariationalProblem(Pieqn, L, wh, bcs=bcs)
 
     lu_params = {
-        # 'snes_monitor': None,
-        # 'snes_stol': 1.0e-50,
-        # 'ksp_monitor': None,
-        # 'snes_converged_reason': None,
+        'snes_stol': 1e-10,
         'mat_type': 'aij',
         'pc_type': 'lu',
         "pc_factor_mat_ordering_type": "rcm",
+        "pc_factor_mat_solver_type": "mumps",
     }
+
+    verbose_options = {
+        'snes_monitor': None,
+        'snes_converged_reason': None,
+        'ksp_monitor': None,
+        'ksp_converged_reason': None,
+    }
+
+    if verbose == 0:
+        pass
+    elif verbose == 1:
+        lu_params['snes_converged_reason'] = None
+    elif verbose >= 2:
+        lu_params.update(verbose_options)
 
     PiSolver = fd.LinearVariationalSolver(PiProblem,
                                           solver_parameters=lu_params,
