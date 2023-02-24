@@ -6,17 +6,17 @@ from utils.vertical_slice import hydrostatic_rho, \
 from petsc4py import PETSc
 
 # set up the ensemble communicator for space-time parallelism
-time_partition = tuple((1 for _ in range(2)))
+time_partition = tuple((1 for _ in range(4)))
 
 ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
 # set up the mesh
 
-nx = 16  # number streamwise of columns
-ny = 8  # number spanwise of columns
+nx = 12  # number streamwise of columns
+ny = 6  # number spanwise of columns
 nz = 12  # horizontal layers
 Lx = 16e3
-Ly = 16e3
+Ly = 12e3
 Lz = 12e3  # Height position of the model top
 
 distribution_parameters = {
