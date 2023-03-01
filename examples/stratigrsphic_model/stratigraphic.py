@@ -32,7 +32,6 @@ time_partition = tuple(args.slice_length for _ in range(args.nslices))
 window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
-dx = 1/args.nx
 dt = 1000
 
 # The Ensemble with the spatial and time communicators
@@ -52,13 +51,15 @@ x, y = fd.SpatialCoordinate(mesh)
 s0 = fd.Function(V, name="scalar_initial")
 s0.interpolate(fd.Constant(0.0))
 
+
 # The sediment movement D
 def D(D_c, d):
     return D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
 
-# The carbonate growth G.
+
+# The carbonate growth L.
 def L(G_0, d):
-    return G_0*fd.conditional(d > 0, fd.exp(-d/10), fd.exp((d/0.1)**3))
+    return G_0*fd.conditional(d > 0, fd.exp(-d/10)/(1 + fd.exp(-50*d)), fd.exp((50-1/10)*d)/(fd.exp(50*d) + 1))
 
 
 # # # === --- finite element forms --- === # # #
