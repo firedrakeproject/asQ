@@ -310,8 +310,8 @@ def test_steady_swe():
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_steady_linear_eq():
-    # test the linear equation u_t - (1+2sin(pi x) sin(pi y)) Delta u = f.
+def test_Nitsche_BCs():
+    # test the linear equation u_t - Delta u = 0, with u_ex = exp(0.5*x + y + 1.25*t) and weakly imposing Dirichlet BCs
     nspatial_domains = 2
     degree = 1
     nx = 10
@@ -321,29 +321,17 @@ def test_steady_linear_eq():
     mesh = fd.UnitSquareMesh(nx, nx, quadrilateral=False, comm=ensemble.comm)
 
     x, y = fd.SpatialCoordinate(mesh)
-
+    n = fd.FacetNormal(mesh)
     V = fd.FunctionSpace(mesh, "CG", degree)
 
-    # Exact solution.
-    u_exact = fd.sin(np.pi*x)*fd.cos(np.pi*y)
-
-    def time_coef(t):
-        return 2 + fd.sin(2*np.pi*t)
-
-    def Rhs(t):
-        # As our exact solution is independent of t, the Rhs is just $-(2 + \sin(2*pi*t)) \Delta u$
-        return -(2 + fd.sin(2*np.pi*t))*fd.div(fd.grad(u_exact))
-
     w0 = fd.Function(V)
-    w0.interpolate(u_exact)
-    # Dirichlet BCs
-    bcs = [fd.DirichletBC(V, u_exact, 'on_boundary')]
+    w0.interpolate(fd.exp(0.5*x + y))
 
     def form_mass(q, phi):
         return phi*q*fd.dx
 
     def form_function(q, phi, t):
-        return time_coef(t)*fd.inner(fd.grad(q), fd.grad(phi))*fd.dx - fd.inner(Rhs(t), phi)*fd.dx
+        return fd.inner(fd.grad(q), fd.grad(phi))*fd.dx - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds - fd.inner(q-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(phi), n))*fd.ds + 20*nx*fd.inner(q-fd.exp(0.5*x + y + 1.25*t), phi)*fd.ds
 
     # Parameters for the diag
     sparameters = {
@@ -376,21 +364,31 @@ def test_steady_linear_eq():
                       form_mass=form_mass, w0=w0,
                       dt=dt, theta=theta,
                       alpha=alpha,
-                      time_partition=M, bcs=bcs, solver_parameters=solver_parameters_diag,
+                      time_partition=M, bcs=[], solver_parameters=solver_parameters_diag,
                       circ=None, tol=1.0e-6, maxits=None,
                       ctx={}, block_mat_type="aij")
     PD.solve()
 
     # check against initial conditions
-    walls = PD.aaos.w_all.split()
-    qmag = fd.norm(w0)
-    for step in range(M[PD.time_rank]):
+    aaos = PD.aaos
+    q_exact = fd.Function(V)
+    qp = fd.Function(V)
+    errors = asQ.SharedArray(M, comm=ensemble.ensemble_comm)
+    times = asQ.SharedArray(M, comm=ensemble.ensemble_comm)
+    for step in range(aaos.ntimesteps):
+        if aaos.layout.is_local(step):
+            local_step = aaos.transform_index(step, from_range='window')
+            t = aaos.time[local_step]
+            q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
+            aaos.get_field(local_step, wout=qp)
+            errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
+            times.dlocal[local_step] = t
 
-        qp = walls[step]
-        qerr = fd.errornorm(qp, w0)/qmag
-        qtol = pow(dx, 3/2)
+    errors.synchronise()
+    times.synchronise()
 
-        assert (abs(qerr) < qtol)
+    for step in range(aaos.ntimesteps):
+        assert (errors.dglobal[step] < (dx)**(3/2))
 
 
 @pytest.mark.parallel(nprocs=6)
