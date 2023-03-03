@@ -10,6 +10,8 @@ import importlib
 from ufl.classes import MultiIndex, FixedIndex, Indexed
 from .profiling import memprofile
 
+import complex_proxy.vector as cpx
+
 
 class DiagFFTPC(object):
     prefix = "diagfft_"
@@ -110,25 +112,7 @@ class DiagFFTPC(object):
         mesh = self.blockV.mesh()
         Ve = self.blockV.ufl_element()
         self.ncpts = len(self.blockV)
-        V_cpts = self.blockV.subfunctions
-        ComplexCpts = []
-        for V_cpt in V_cpts:
-            rank = V_cpt.rank
-            V_cpt_ele = V_cpt.ufl_element()
-            if rank == 0:  # scalar basis coefficients
-                ComplexCpts.append(fd.VectorElement(V_cpt_ele, dim=2))
-            elif rank == 1:  # vector basis coefficients
-                dim = V_cpt_ele.num_sub_elements()
-                shape = (2, dim)
-                scalar_element = V_cpt_ele.sub_elements()[0]
-                ComplexCpts.append(fd.TensorElement(scalar_element, shape))
-            else:
-                assert (rank > 0)
-                shape = (2,) + V_cpt_ele._shape
-                scalar_element = V_cpt_ele.sub_elements()[0]
-                ComplexCpts.append(fd.TensorElement(scalar_element, shape))
-        self.CblockV = reduce(mul, [fd.FunctionSpace(mesh, ComplexCpt)
-                                    for ComplexCpt in ComplexCpts])
+        self.CblockV = cpx.FunctionSpace(self.blockV)
 
         # get the boundary conditions
         self.set_CblockV_bcs()
