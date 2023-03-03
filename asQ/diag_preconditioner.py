@@ -339,11 +339,8 @@ class DiagFFTPC(object):
             # copy the data into solver input
             self.xtemp.assign(0.)
 
-            Jins = self.xtemp.subfunctions
-
-            for cpt in range(self.ncpts):
-                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.subfunctions)
-                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.subfunctions)
+            cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+            cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
             # Do a project for Riesz map, to be superceded
             # when we get Cofunction
@@ -354,10 +351,8 @@ class DiagFFTPC(object):
             self.Jsolvers[i].solve()
 
             # copy the data from solver output
-            Jpouts = self.Jprob_out.subfunctions
-            for cpt in range(self.ncpts):
-                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.subfunctions)
-                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.subfunctions)
+            cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+            cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
