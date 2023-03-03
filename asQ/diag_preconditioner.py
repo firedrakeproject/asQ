@@ -4,8 +4,6 @@ from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc
 # from mpi4py_fft.pencil import Pencil, Subcomm
 from asQ.pencil import Pencil, Subcomm
-from operator import mul
-from functools import reduce
 import importlib
 from ufl.classes import MultiIndex, FixedIndex, Indexed
 from .profiling import memprofile
@@ -109,13 +107,15 @@ class DiagFFTPC(object):
         # Block system setup
         # First need to build the vector function space version of
         # blockV
-        mesh = self.blockV.mesh()
         Ve = self.blockV.ufl_element()
         self.ncpts = len(self.blockV)
         self.CblockV = cpx.FunctionSpace(self.blockV)
 
-        # get the boundary conditions
-        self.set_CblockV_bcs()
+        # set the boundary conditions
+        self.CblockV_bcs = tuple((cb
+                                  for bc in self.aaos.boundary_conditions
+                                  for cb in cpx.DirichletBC(self.CblockV, self.blockV,
+                                                            bc, 0*bc.function_arg)))
 
         # Now need to build the block solver
         vs = fd.TestFunctions(self.CblockV)
@@ -312,23 +312,6 @@ class DiagFFTPC(object):
             self.Jsolvers.append(Jsolver)
 
         self.initialized = True
-
-    def set_CblockV_bcs(self):
-        self.CblockV_bcs = []
-        for bc in self.aaos.boundary_conditions:
-            is_mixed_element = isinstance(self.aaos.function_space.ufl_element(),
-                                          fd.MixedElement)
-            for r in range(2):  # Complex coefficient index
-                if is_mixed_element:
-                    i = bc.function_space().index
-                    all_bc = fd.DirichletBC(self.CblockV.sub(i).sub(r),
-                                            0*bc.function_arg,
-                                            bc.sub_domain)
-                else:
-                    all_bc = fd.DirichletBC(self.CblockV.sub(r),
-                                            0*bc.function_arg,
-                                            bc.sub_domain)
-                self.CblockV_bcs.append(all_bc)
 
     def _record_diagnostics(self):
         """
