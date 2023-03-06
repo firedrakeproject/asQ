@@ -7,7 +7,7 @@ from asQ.pencil import Pencil, Subcomm
 import importlib
 from asQ.profiling import memprofile
 
-import complex_proxy.vector as cpx
+import complex_proxy.mixed as cpx
 
 
 class DiagFFTPC(object):
@@ -106,7 +106,6 @@ class DiagFFTPC(object):
         # Block system setup
         # First need to build the vector function space version of
         # blockV
-        Ve = self.blockV.ufl_element()
         self.ncpts = len(self.blockV)
         self.CblockV = cpx.FunctionSpace(self.blockV)
 
@@ -150,11 +149,11 @@ class DiagFFTPC(object):
             'ksp_type': 'preonly',
             'pc_type': 'lu',
             'pc_factor_mat_solver_type': 'mumps',
-            'mat_type': 'baij'
+            'mat_type': 'aij'
         }
 
         # mixed mass matrices are decoupled so solve seperately
-        if isinstance(Ve, fd.MixedElement):
+        if isinstance(self.CblockV.ufl_element(), fd.MixedElement):
             default_riesz_parameters = {
                 'ksp_type': 'preonly',
                 'mat_type': 'nest',
