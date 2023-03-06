@@ -118,7 +118,8 @@ class DiagFFTPC(object):
 
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
-            self.ureduceC = fd.Function(self.CblockV)
+            self.ureduce = fd.Function(self.blockV)
+            self.uwrk = fd.Function(self.blockV)
 
         # input and output functions
         self.Jprob_in = fd.Function(self.CblockV)
@@ -279,22 +280,22 @@ class DiagFFTPC(object):
         an operator that is block diagonal in the 2x2 system coupling
         real and imaginary parts.
         '''
-        self.u0.assign(0)
+        self.ureduce.assign(0)
+
+        urs = self.ureduce.subfunctions
         for i in range(self.nlocal_timesteps):
-            # copy the data into solver input
-            u0s = self.u0.subfunctions
-            for cpt in range(self.ncpts):
-                wcpt = self.w_all.subfunctions[self.ncpts*i+cpt]
-                for r in range(2):  # real and imaginary parts
-                    u0s[cpt].sub(r).assign(u0s[cpt].sub(r) + wcpt)
+            for ur, ui in zip(urs, self.aaos.get_field_components(i)):
+                ur.assign(ur + ui)
 
         # average only over current time-slice
         if self.jac_average == 'slice':
-            self.u0 /= fd.Constant(self.nlocal_timesteps)
+            self.ureduce /= fd.Constant(self.nlocal_timesteps)
         else:  # implies self.jac_average == 'window':
-            self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
-            self.u0.assign(self.ureduceC)
-            self.u0 /= fd.Constant(sum(self.time_partition))
+            self.paradiag.ensemble.allreduce(self.ureduce, self.uwrk)
+            self.ureduce.assign(self.uwrk/fd.Constant(self.ntimesteps))
+
+        cpx.set_real(self.u0, self.ureduce)
+        cpx.set_imag(self.u0, self.ureduce)
 
     @PETSc.Log.EventDecorator()
     @memprofile
