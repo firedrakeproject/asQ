@@ -153,7 +153,7 @@ class DiagFFTPC(object):
         }
 
         # mixed mass matrices are decoupled so solve seperately
-        if isinstance(self.CblockV.ufl_element(), fd.MixedElement):
+        if isinstance(self.blockV.ufl_element(), fd.MixedElement):
             default_riesz_parameters = {
                 'ksp_type': 'preonly',
                 'mat_type': 'nest',
