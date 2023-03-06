@@ -7,7 +7,7 @@ from asQ.pencil import Pencil, Subcomm
 import importlib
 from asQ.profiling import memprofile
 
-import complex_proxy.mixed as cpx
+import complex_proxy.vector as cpx
 
 
 class DiagFFTPC(object):
