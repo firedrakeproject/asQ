@@ -25,7 +25,7 @@ class SerialMiniApp(object):
         :arg solver_parameters: options dictionary for nonlinear solver
         '''
         self.dt = dt
-        self.time = dt
+        self.time = fd.Constant(dt)
         self.theta = theta
         self.initial_condition = w_initial
         self.function_space = w_initial.function_space()
@@ -78,7 +78,7 @@ class SerialMiniApp(object):
 
             self.nlsolver.solve()
             self.w0.assign(self.w1)
-            self.time += self.dt
+            self.time.assign( self.time + self.dt)
 
             postproc(self, step, self.time)
 
