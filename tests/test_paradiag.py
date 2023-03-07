@@ -202,6 +202,122 @@ def test_galewsky_timeseries():
 
 
 @pytest.mark.parallel(nprocs=4)
+def test_Nitsche_heat_timeseries():
+    from utils.serial import ComparisonMiniapp
+    from copy import deepcopy
+
+    nwindows = 1
+    nslices = 2
+    slice_length = 2
+    alpha = 0.0001
+    dt = 0.5
+    theta = 0.5
+
+    time_partition = [slice_length for _ in range(nslices)]
+    ensemble = asQ.create_ensemble(time_partition)
+    nx = 10
+    mesh = fd.UnitSquareMesh(nx, nx, comm=ensemble.comm)
+    x, y = fd.SpatialCoordinate(mesh)
+    n = fd.FacetNormal(mesh)
+
+    W = fd.FunctionSpace(mesh, 'CG', 1)
+
+    # initial conditions
+    w_initial = fd.Function(W)
+    w_initial.interpolate(fd.exp(0.5*x + y))
+
+    # Heat equaion with Nitsch BCs.
+    def form_function(u, v, t):
+        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx - fd.inner(v, fd.inner(fd.grad(u), n))*fd.ds - fd.inner(u-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(v), n))*fd.ds + 20*nx*fd.inner(u-fd.exp(0.5*x + y + 1.25*t), v)*fd.ds
+
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    block_sparameters = {
+        'ksp_type': 'preonly',
+        'ksp': {
+            'atol': 1e-5,
+            'rtol': 1e-5,
+        },
+        'pc_type': 'lu',
+    }
+
+    snes_sparameters = {
+        'monitor': None,
+        'converged_reason': None,
+        'atol': 1e-10,
+        'rtol': 1e-12,
+        'stol': 1e-12,
+    }
+
+    # solver parameters for serial method
+    serial_sparameters = {
+        'snes': snes_sparameters
+    }
+    serial_sparameters.update(deepcopy(block_sparameters))
+    serial_sparameters['ksp']['monitor'] = None
+    serial_sparameters['ksp']['converged_reason'] = None
+
+    # solver parameters for parallel method
+    parallel_sparameters = {
+        'snes': snes_sparameters,
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'ksp': {
+            'monitor': None,
+            'converged_reason': None,
+        },
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
+
+    for i in range(sum(time_partition)):
+        parallel_sparameters['diagfft_block_'+str(i)] = block_sparameters
+
+    block_ctx = {}
+
+    miniapp = ComparisonMiniapp(ensemble, time_partition,
+                                form_mass,
+                                form_function,
+                                w_initial,
+                                dt, theta, alpha,
+                                serial_sparameters,
+                                parallel_sparameters,
+                                circ=None, block_ctx=block_ctx)
+
+    norm0 = fd.norm(w_initial)
+
+    def preproc(serial_app, paradiag, wndw):
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print(f'### === --- Time window {wndw} --- === ###')
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print('=== --- Parallel solve --- ===')
+        PETSc.Sys.Print('')
+
+    def parallel_postproc(pdg, wndw):
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print('=== --- Serial solve --- ===')
+        PETSc.Sys.Print('')
+        return
+
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
+
+    errors = miniapp.solve(nwindows=nwindows,
+                           preproc=preproc,
+                           parallel_postproc=parallel_postproc)
+
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('### === --- Errors --- === ###')
+
+    for it, err in enumerate(errors):
+        PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
+
+    for err in errors:
+        assert err/norm0 < 1e-5
+
+
+@pytest.mark.parallel(nprocs=4)
 def test_steady_swe():
     # test that steady-state is maintained for shallow water eqs
     import utils.units as units
