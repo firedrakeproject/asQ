@@ -10,7 +10,7 @@ import argparse
 parser = argparse.ArgumentParser(
     description='Paradiag for Stratigraphic model that simulate formation of sedimentary rock over geological time.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--nx', type=int, default=1000, help='Number of cells along each square side.')
+parser.add_argument('--nx', type=int, default=200, help='Number of cells along each square side.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
@@ -75,8 +75,8 @@ A = fd.Constant(50)
 b = 100*fd.tanh(1/20*(x-50))
 
 
-def form_function(s, q, t):
-    return D(D_c, A*fd.sin(2*pi*t/500000)-b-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, A*fd.sin(2*pi*t/500000)-b-s)*q*fd.dx
+def form_function(s, q, l):
+    return D(D_c, l-b-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, l-b-s)*q*fd.dx
 
 
 # # # === --- PETSc solver parameters --- === # # #
@@ -105,21 +105,18 @@ block_parameters = {
 
 paradiag_parameters = {
     'snes': {
-        'linesearch_type': 'basic',
+        'ksp_ew': None,
+        'linesearch_type': 'l2',
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
-        'atol': 1e-12,
-        'stol': 1e-12,
+        'atol': 1e-8,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
-        'atol': 1e-12,
-        'stol': 1e-12,
+        'atol': 1e-8,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'

@@ -78,7 +78,7 @@ class SerialMiniApp(object):
 
             self.nlsolver.solve()
             self.w0.assign(self.w1)
-            self.time.assign( self.time + self.dt)
+            self.time.assign(self.time + self.dt)
 
             postproc(self, step, self.time)
 

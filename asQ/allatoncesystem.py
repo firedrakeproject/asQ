@@ -1,11 +1,10 @@
-#Abdalaziz
 import firedrake as fd
 from firedrake.petsc import PETSc
 from functools import reduce
 from operator import mul
 from .profiling import memprofile
 
-from asQ.parallel_arrays import in_range, DistributedDataLayout1D
+from asQ.parallel_arrays import in_range, DistributedDataLayout1D, SharedArray
 
 
 class JacobianMatrix(object):
@@ -103,8 +102,23 @@ class AllAtOnceSystem(object):
 
         self.dt = dt
         self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
+        self.sea_level = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
+
         for n in range((self.nlocal_timesteps)):
             self.time[n].assign(self.time[n] + dt*(self.transform_index(n, from_range='slice', to_range='window') + 1))
+            self.sea_level[n].assign(50*fd.sin(2*fd.pi*self.time[n]/500000))
+
+        R = SharedArray(self.time_partition, comm=self.ensemble.ensemble_comm)
+        for step in range(self.ntimesteps):
+            if self.layout.is_local(step):
+                local_step = self.transform_index(step, from_range='window')
+                sea = self.sea_level[local_step]
+                R.dlocal[local_step] = sea
+        R.synchronise()
+        self.sea_level_average = fd.Constant(0)
+        for step in range(self.ntimesteps):
+            self.sea_level_average.assign(self.sea_level_average + R.dglobal[step])
+        self.sea_level_average = self.sea_level_average/self.ntimesteps
 
         self.t0 = fd.Constant(0.0)
         self.theta = theta
@@ -350,7 +364,24 @@ class AllAtOnceSystem(object):
         for i in range(self.nlocal_timesteps):
             self.set_field(i, self.initial_condition, index_range='slice')
             self.time[i].assign(self.time[i] + self.dt*self.ntimesteps)
+            self.sea_level[i].assign(50*fd.sin(2*fd.pi*self.time[i]/500000))
+
+        R = SharedArray(self.time_partition, comm=self.ensemble.ensemble_comm)
+        for step in range(self.ntimesteps):
+            if self.layout.is_local(step):
+                local_step = self.transform_index(step, from_range='window')
+                sea = self.sea_level[local_step]
+                R.dlocal[local_step] = sea
+        R.synchronise()
+        self.sea_level_average = fd.Constant(0)
+        for step in range(self.ntimesteps):
+            self.sea_level_average.assign(self.sea_level_average + R.dglobal[step])
+
+        self.sea_level_average = self.sea_level_average/self.ntimesteps
+
         self.t0.assign(self.t0 + self.dt*self.ntimesteps)
+        PETSc.Sys.Print(self.t0.values())
+
         return
 
     @PETSc.Log.EventDecorator()
@@ -484,7 +515,9 @@ class AllAtOnceSystem(object):
                 aao_form += (1.0/dt)*self.form_mass(*w1s, *dws)
             aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
 
-            # vector field
-            aao_form += theta*self.form_function(*w1s, *dws, self.time[n])
-            aao_form += (1-theta)*self.form_function(*w0s, *dws, self.time[n]-dt)
+            if n == 0:
+                aao_form += (1-theta)*self.form_function(*w0s, *dws, 50*fd.sin(2*fd.pi*self.t0)/500000)
+            else:
+                aao_form += (1-theta)*self.form_function(*w0s, *dws, self.sea_level[n-1])
+            aao_form += theta*self.form_function(*w1s, *dws, self.sea_level[n])
         self.aao_form = aao_form
