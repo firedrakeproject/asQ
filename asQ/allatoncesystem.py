@@ -516,7 +516,8 @@ class AllAtOnceSystem(object):
             aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
 
             if n == 0:
-                aao_form += (1-theta)*self.form_function(*w0s, *dws, 50*fd.sin(2*fd.pi*self.t0)/500000)
+                t = dt*(self.transform_index(0, from_range='slice', to_range='window'))
+                aao_form += (1-theta)*self.form_function(*w0s, *dws, 50*fd.sin(2*fd.pi*t/500000))
             else:
                 aao_form += (1-theta)*self.form_function(*w0s, *dws, self.sea_level[n-1])
             aao_form += theta*self.form_function(*w1s, *dws, self.sea_level[n])
