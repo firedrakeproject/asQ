@@ -97,7 +97,7 @@ class DiagFFTPC(object):
         C2col = np.zeros(self.ntimesteps)
 
         dt = self.aaos.dt
-        self.t_average = fd.Constant(self.aaos.t0 + self.ntimesteps*dt/2)
+        self.t_average = fd.Constant(self.aaos.t0 + (self.ntimesteps + 1)*dt/2)
         theta = self.aaos.theta
         C1col[:2] = np.array([1, -1])/dt
         C2col[:2] = np.array([theta, 1-theta])
@@ -383,7 +383,7 @@ class DiagFFTPC(object):
             self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
             self.u0.assign(self.ureduceC)
             self.u0 /= fd.Constant(sum(self.time_partition))
-        self.t_average.assign(self.aaos.t0 + self.aaos.ntimesteps*self.aaos.dt/2)
+        self.t_average.assign(self.aaos.t0 + (self.aaos.ntimesteps + 1)*self.aaos.dt/2)
 
     @PETSc.Log.EventDecorator()
     @memprofile
