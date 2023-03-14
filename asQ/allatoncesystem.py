@@ -377,11 +377,7 @@ class AllAtOnceSystem(object):
         for step in range(self.ntimesteps):
             self.sea_level_average.assign(self.sea_level_average + R.dglobal[step])
 
-        self.sea_level_average = self.sea_level_average/self.ntimesteps
-
-        self.t0.assign(self.t0 + self.dt*self.ntimesteps)
-        PETSc.Sys.Print(self.t0.values())
-
+        self.sea_level_average = fd.Constant(self.sea_level_average/self.ntimesteps)
         return
 
     @PETSc.Log.EventDecorator()
@@ -515,10 +511,6 @@ class AllAtOnceSystem(object):
                 aao_form += (1.0/dt)*self.form_mass(*w1s, *dws)
             aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
 
-            if n == 0:
-                t = dt*(self.transform_index(0, from_range='slice', to_range='window'))
-                aao_form += (1-theta)*self.form_function(*w0s, *dws, 50*fd.sin(2*fd.pi*t/500000))
-            else:
-                aao_form += (1-theta)*self.form_function(*w0s, *dws, self.sea_level[n-1])
-            aao_form += theta*self.form_function(*w1s, *dws, self.sea_level[n])
+            aao_form += theta*self.form_function(*w1s, *dws, 50*fd.sin(2*fd.pi*self.time[n]/500000))
+            aao_form += (1-theta)*self.form_function(*w0s, *dws, 50*fd.sin(2*fd.pi*(self.time[n]-dt)/500000))
         self.aao_form = aao_form
