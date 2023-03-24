@@ -39,7 +39,7 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
 class paradiag(object):
     @memprofile
     def __init__(self, ensemble,
-                 form_function, form_mass, w0, dt, theta,
+                 form_function, form_mass, w0, z0, dt, theta,
                  alpha, time_partition, bcs=[],
                  solver_parameters={},
                  circ="picard",
@@ -78,7 +78,7 @@ class paradiag(object):
         self.aaos = AllAtOnceSystem(ensemble, time_partition,
                                     dt, theta,
                                     form_mass, form_function,
-                                    w0, bcs,
+                                    w0, z0, bcs,
                                     circ, alpha)
 
         self.ensemble = ensemble

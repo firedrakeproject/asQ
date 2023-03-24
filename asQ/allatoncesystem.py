@@ -77,7 +77,7 @@ class AllAtOnceSystem(object):
                  ensemble, time_partition,
                  dt, theta,
                  form_mass, form_function,
-                 w0, bcs=[],
+                 w0, z0, bcs=[],
                  circ="", alpha=1e-3):
         """
         The all-at-once system representing multiple timesteps of a time-dependent finite-element problem.
@@ -97,6 +97,7 @@ class AllAtOnceSystem(object):
 
         self.initial_condition = w0
         self.function_space = w0.function_space()
+        self.initial_guess = z0
         self.boundary_conditions = bcs
         self.ncomponents = len(self.function_space.split())
 
@@ -129,7 +130,7 @@ class AllAtOnceSystem(object):
         self.w_alls = self.w_all.split()
 
         for i in range(self.nlocal_timesteps):
-            self.set_field(i, self.initial_condition, index_range='slice')
+            self.set_field(i, self.initial_guess.sub(self.transform_index(i, from_range='slice', to_range='window')), index_range='slice')
 
         self.boundary_conditions_all = self.set_boundary_conditions(bcs)
 
@@ -329,7 +330,6 @@ class AllAtOnceSystem(object):
     def next_window(self, w1=None):
         """
         Reset all-at-once-system ready for next time-window
-
         :arg w1: initial solution for next time-window.If None,
                  will use the final timestep from previous window
         """
