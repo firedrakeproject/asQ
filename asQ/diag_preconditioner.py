@@ -64,7 +64,7 @@ class DiagFFTPC(object):
         self.jac_average = PETSc.Options().getString(
             f"{prefix}{self.prefix}jac_average", default='window')
 
-        valid_jac_averages = ['window', 'slice', 'linear']
+        valid_jac_averages = ['window', 'slice', 'linear', 'initial']
 
         if self.jac_average not in valid_jac_averages:
             raise ValueError("diagfft_jac_average must be one of "+" or ".join(valid_jac_averages))
@@ -280,6 +280,10 @@ class DiagFFTPC(object):
         '''
         if self.jac_average == 'linear':
             PETSc.Sys.Print("No time average")
+            return
+        elif self.jac_average == 'initial':
+            cpx.set_real(self.u0, self.aaos.initial_condition)
+            cpx.set_imag(self.u0, self.aaos.initial_condition)
             return
 
         self.ureduce.assign(0)

@@ -24,6 +24,7 @@ parser.add_argument('--slice_length', type=int, default=2, help='Number of times
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
+parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -91,18 +92,21 @@ sparameters_diag = {
         'monitor': None,
         'converged_reason': None,
         'atol': 1e-0,
-        'rtol': 1e-8,
+        'rtol': 1e-10,
         'stol': 1e-12,
-        'max_its': 1
+        #'ksp_ew': None,
+        #'ksp_ew_threshold': 1e-5
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
+        'rtol': 1e-5,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfftpc_jac_average': 'initial'
 }
 
 sparameters_diag['diagfft_block_'] = sparameters
@@ -151,7 +155,7 @@ miniapp.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
 from asQ import write_paradiag_metrics
-write_paradiag_metrics(miniapp.paradiag)
+write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
 
 PETSc.Sys.Print('')
 
