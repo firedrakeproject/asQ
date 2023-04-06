@@ -22,7 +22,8 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours.')
-parser.add_argument('--filename', type=str, default='gravity_waves', help='Name of output vtk files')
+parser.add_argument('--filename', type=str, default='gravity_waves', help='Name of output vtk files.')
+parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -163,7 +164,7 @@ miniapp.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
 from asQ import write_paradiag_metrics
-write_paradiag_metrics(miniapp.paradiag)
+write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
 
 PETSc.Sys.Print('')
 
