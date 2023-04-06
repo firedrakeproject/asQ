@@ -79,7 +79,7 @@ class DiagFFTPC(object):
         # sanity check
         assert (self.blockV.dim()*paradiag.nlocal_timesteps == W_all.dim())
 
-        # Input/Output wrapper Functions
+        # Input/Output wrapper Functions for all-at-once residual being acted on
         self.xf = fd.Function(W_all)  # input
         self.yf = fd.Function(W_all)  # output
 
@@ -104,12 +104,10 @@ class DiagFFTPC(object):
         self.D2 = np.sqrt(self.ntimesteps)*fft(self.Gam*C2col)
 
         # Block system setup
-        # First need to build the vector function space version of
-        # blockV
-        self.ncpts = len(self.blockV)
+        # First need to build the vector function space version of blockV
         self.CblockV = cpx.FunctionSpace(self.blockV)
 
-        # set the boundary conditions
+        # set the boundary conditions to zero for the residual
         self.CblockV_bcs = tuple((cb
                                   for bc in self.aaos.boundary_conditions
                                   for cb in cpx.DirichletBC(self.CblockV, self.blockV,
@@ -120,18 +118,18 @@ class DiagFFTPC(object):
             self.ureduce = fd.Function(self.blockV)
             self.uwrk = fd.Function(self.blockV)
 
-        # input and output functions
+        # input and output functions to the block solve
         self.Jprob_in = fd.Function(self.CblockV)
         self.Jprob_out = fd.Function(self.CblockV)
 
-        # A place to store all the inputs to the block problems
+        # A place to store the real/imag components of the all-at-once residual after fft
         self.xfi = fd.Function(W_all)
         self.xfr = fd.Function(W_all)
 
         # setting up the FFT stuff
         # construct simply dist array and 1d fftn:
         subcomm = Subcomm(self.ensemble.ensemble_comm, [0, 1])
-        # get some dimensions
+        # dimensions of space-time data in this ensemble_comm
         nlocal = self.blockV.node_set.size
         NN = np.array([self.ntimesteps, nlocal], dtype=int)
         # transfer pencil is aligned along axis 1
@@ -193,6 +191,7 @@ class DiagFFTPC(object):
         # We achieve this by copying w_all into both components of u0
         # building the nonlinearity separately for the real and imaginary
         # parts and then linearising.
+        # This is constructed by cpx.derivative
 
         #  Building the nonlinear operator
         self.Jsolvers = []
