@@ -94,6 +94,7 @@ sparameters = {
 }
 
 sparameters_diag = {
+    'snes_type': 'ksponly',
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
@@ -113,8 +114,9 @@ sparameters_diag = {
     'pc_python_type': 'asQ.DiagFFTPC'
 }
 
-for i in range(window_length):
-    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
+sparameters_diag['diagfft_block'] = sparameters
+#for i in range(window_length):
+#    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
