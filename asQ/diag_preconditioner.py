@@ -64,7 +64,7 @@ class DiagFFTPC(object):
         self.jac_average = PETSc.Options().getString(
             f"{prefix}{self.prefix}jac_average", default='window')
 
-        valid_jac_averages = ['window', 'slice']
+        valid_jac_averages = ['window', 'slice', 'linear']
 
         if self.jac_average not in valid_jac_averages:
             raise ValueError("diagfft_jac_average must be one of "+" or ".join(valid_jac_averages))
@@ -114,7 +114,7 @@ class DiagFFTPC(object):
                                                             bc, 0*bc.function_arg)))
 
         # function to do global reduction into for average block jacobian
-        if self.jac_average == 'window':
+        if self.jac_average in ('window', 'slice'):
             self.ureduce = fd.Function(self.blockV)
             self.uwrk = fd.Function(self.blockV)
 
@@ -278,6 +278,10 @@ class DiagFFTPC(object):
         an operator that is block diagonal in the 2x2 system coupling
         real and imaginary parts.
         '''
+        if self.jac_average == 'linear':
+            PETSc.Sys.Print("No time average")
+            return
+
         self.ureduce.assign(0)
 
         urs = self.ureduce.subfunctions

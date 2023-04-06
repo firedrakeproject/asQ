@@ -111,7 +111,8 @@ sparameters_diag = {
         'converged_reason': None,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfft_jac_average': 'linear'
 }
 
 sparameters_diag['diagfft_block'] = sparameters
