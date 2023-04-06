@@ -42,6 +42,7 @@ class paradiag(object):
                  form_function, form_mass, w0, dt, theta,
                  alpha, time_partition, bcs=[],
                  solver_parameters={},
+                 reference_state=None,
                  circ="picard",
                  tol=1.0e-6, maxits=10,
                  ctx={}, block_ctx={}, block_mat_type="aij"):
@@ -49,36 +50,38 @@ class paradiag(object):
 
         :arg ensemble: the ensemble communicator
         :arg form_function: a function that returns a linear form
-        on w0.function_space() providing f(w) for the ODE w_t + f(w) = 0.
+            on w0.function_space() providing f(w) for the ODE w_t + f(w) = 0.
         :arg form_mass: a function that returns a linear form
-        on W providing the mass operator for the time derivative.
+            on W providing the mass operator for the time derivative.
         :arg w0: a Function from W containing the initial data
         :arg dt: float, the timestep size.
         :arg theta: float, implicit timestepping parameter
         :arg alpha: float, circulant matrix parameter
         :arg time_partition: a list of integers, the number of timesteps
-        assigned to each rank
+            assigned to each rank
         :arg bcs: a list of DirichletBC boundary conditions on W
         :arg solver_parameters: options dictionary for nonlinear solver
+        :arg reference_state: a Function in W to use as a reference state
+            e.g. in DiagFFTPC
         :arg circ: a string describing the option on where to use the
-        alpha-circulant modification. "picard" - do a nonlinear wave
-        form relaxation method. "quasi" - do a modified Newton
-        method with alpha-circulant modification added to the
-        Jacobian. To make the alpha circulant modification only in the
-        preconditioner, simply set ksp_type:preonly in the solve options.
+            alpha-circulant modification. "picard" - do a nonlinear wave
+            form relaxation method. "quasi" - do a modified Newton
+            method with alpha-circulant modification added to the
+            Jacobian. To make the alpha circulant modification only in the
+            preconditioner, simply set ksp_type:preonly in the solve options.
         :arg tol: float, the tolerance for the relaxation method (if used)
         :arg maxits: integer, the maximum number of iterations for the
-        relaxation method, if used.
+            relaxation method, if used.
         :arg ctx: application context for solvers.
         :arg block_ctx: non-petsc context for solvers.
         :arg block_mat_type: set the type of the diagonal block systems.
-        Default is aij.
+            Default is aij.
         """
 
         self.aaos = AllAtOnceSystem(ensemble, time_partition,
                                     dt, theta,
                                     form_mass, form_function,
-                                    w0, bcs,
+                                    w0, bcs, reference_state,
                                     circ, alpha)
 
         self.ensemble = ensemble

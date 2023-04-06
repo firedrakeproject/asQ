@@ -78,6 +78,7 @@ class AllAtOnceSystem(object):
                  dt, theta,
                  form_mass, form_function,
                  w0, bcs=[],
+                 reference_state=None,
                  circ="", alpha=1e-3):
         """
         The all-at-once system representing multiple timesteps of a time-dependent finite-element problem.
@@ -86,6 +87,15 @@ class AllAtOnceSystem(object):
         :arg time_partition: a list of integers for the number of timesteps stored on each ensemble rank.
         :arg w0: a Function containing the initial data.
         :arg bcs: a list of DirichletBC boundary conditions on w0.function_space.
+        :arg reference_state: a Function in W to use as a reference state
+            e.g. in DiagFFTPC
+        :arg circ: a string describing the option on where to use the
+            alpha-circulant modification. "picard" - do a nonlinear wave
+            form relaxation method. "quasi" - do a modified Newton
+            method with alpha-circulant modification added to the
+            Jacobian. To make the alpha circulant modification only in the
+            preconditioner, simply set ksp_type:preonly in the solve options.
+        :arg alpha: float, circulant matrix parameter
         """
         self.layout = DistributedDataLayout1D(time_partition, ensemble.ensemble_comm)
 
@@ -97,8 +107,12 @@ class AllAtOnceSystem(object):
 
         self.initial_condition = w0
         self.function_space = w0.function_space()
+        self.reference_state = reference_state
         self.boundary_conditions = bcs
         self.ncomponents = len(self.function_space.subfunctions)
+
+        if reference_state is not None and reference_state.function_space() != w0.function_space():
+            raise ValueError("AllAtOnceSystem reference state must be in the same function space as the initial condition.")
 
         self.dt = dt
         self.theta = theta

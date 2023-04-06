@@ -154,7 +154,7 @@ for _ in range(nlocal_timesteps):
     tm = mg.manifold_transfer_manager(W)
     transfer_managers.append(tm)
 
-block_ctx['diag_transfer_managers'] = transfer_managers
+block_ctx['diagfft_transfer_managers'] = transfer_managers
 
 PD = asQ.paradiag(ensemble=ensemble,
                   form_function=form_function,

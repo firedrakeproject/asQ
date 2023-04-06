@@ -64,10 +64,13 @@ class DiagFFTPC(object):
         self.jac_average = PETSc.Options().getString(
             f"{prefix}{self.prefix}jac_average", default='window')
 
-        valid_jac_averages = ['window', 'slice', 'linear', 'initial']
+        valid_jac_averages = ['window', 'slice', 'linear', 'initial', 'reference']
 
         if self.jac_average not in valid_jac_averages:
             raise ValueError("diagfft_jac_average must be one of "+" or ".join(valid_jac_averages))
+
+        if self.jac_average == 'reference' and self.aaos.reference_state is None:
+            raise ValueError("AllAtOnceSystem must be provided a reference state to use \'reference\' for diagfft_jac_average.")
 
         # this time slice part of the all at once solution
         self.w_all = self.aaos.w_all
@@ -245,9 +248,9 @@ class DiagFFTPC(object):
                                                  appctx=appctx_h,
                                                  options_prefix=block_prefix)
             # multigrid transfer manager
-            if 'diag_transfer_managers' in paradiag.block_ctx:
+            if f'{prefix}transfer_managers' in paradiag.block_ctx:
                 # Jsolver.set_transfer_manager(paradiag.block_ctx['diag_transfer_managers'][ii])
-                tm = paradiag.block_ctx['diag_transfer_managers'][i]
+                tm = paradiag.block_ctx[f'{prefix}transfer_managers'][i]
                 Jsolver.set_transfer_manager(tm)
                 tm_set = (Jsolver._ctx.transfer_manager is tm)
 
@@ -284,6 +287,10 @@ class DiagFFTPC(object):
         elif self.jac_average == 'initial':
             cpx.set_real(self.u0, self.aaos.initial_condition)
             cpx.set_imag(self.u0, self.aaos.initial_condition)
+            return
+        elif self.jac_average == 'reference':
+            cpx.set_real(self.u0, self.aaos.reference_state)
+            cpx.set_imag(self.u0, self.aaos.reference_state)
             return
 
         self.ureduce.assign(0)
