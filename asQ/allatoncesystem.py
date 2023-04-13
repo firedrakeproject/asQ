@@ -15,31 +15,40 @@ class JacobianMatrix(object):
         :param aaos: The AllAtOnceSystem object
         """
         self.aaos = aaos
-        self.u = fd.Function(self.aaos.function_space_all)  # for the input function
-        self.F = fd.Function(self.aaos.function_space_all)  # for the output residual
-        self.F_prev = fd.Function(self.aaos.function_space_all)  # Where we compute the
-        # part of the output residual from neighbouring contributions
 
-        self.urecv = fd.Function(self.aaos.function_space)  # will contain the previous time value i.e. 3*r-1
-        # Jform missing contributions from the previous step
-        # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
-        # definition:
-        # dF_{u1}[u1, u2, u3; delta_u, v] =
-        #  lim_{eps -> 0} (F[u1+eps*delta_u,u2,u3;v]
-        #                  - F[u1,u2,u3;v])/eps
-        # Newton, solves for delta_u such that
-        # dF_{u1}[u1, u2, u3; delta_u, v] = -F[u1,u2,u3; v], for all v
-        # then updates u1 += delta_u
-        self.Jform = fd.derivative(self.aaos.aao_form, self.aaos.w_all)
+        # function to linearise around, and timestep from end of previous slice
+        self.u = fd.Function(self.aaos.function_space_all)
+        self.urecv = fd.Function(self.aaos.function_space)
+
+        # function the Jacobian acts on, and contribution from timestep at end of previous slice
+        self.x = fd.Function(self.aaos.function_space_all)
+        self.xrecv = fd.Function(self.aaos.function_space)
+
+        # output residual, and contribution from timestep at end of previous slice
+        self.F = fd.Function(self.aaos.function_space_all)
+        self.F_prev = fd.Function(self.aaos.function_space_all)
+
+        # all-at-once form to linearise
+        self.aao_form = self.aaos.construct_aao_form(self.u, self.urecv)
+
+        # Jform without contributions from the previous step
+        self.Jform = fd.derivative(self.aao_form, self.u)
         # Jform contributions from the previous step
-        self.Jform_prev = fd.derivative(self.aaos.aao_form,
-                                        self.aaos.w_recv)
+        self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
+
+    def update(self, X=None):
+        # update the state to linearise around from the current all-at-once solution
+        if X is None:
+            self.u.assign(self.aaos.w_all)
+            self.urecv.assign(self.aaos.w_recv)
+        else:
+            self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
 
     @PETSc.Log.EventDecorator()
     @memprofile
     def mult(self, mat, X, Y):
 
-        self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
+        self.aaos.update(X, wall=self.x, wrecv=self.xrecv, blocking=True)
 
         # Set the flag for the circulant option
         if self.aaos.circ in ["quasi", "picard"]:
@@ -48,8 +57,8 @@ class JacobianMatrix(object):
             self.aaos.Circ.assign(0.0)
 
         # assembly stage
-        fd.assemble(fd.action(self.Jform, self.u), tensor=self.F)
-        fd.assemble(fd.action(self.Jform_prev, self.urecv),
+        fd.assemble(fd.action(self.Jform, self.x), tensor=self.F)
+        fd.assemble(fd.action(self.Jform_prev, self.xrecv),
                     tensor=self.F_prev)
         self.F += self.F_prev
 
@@ -64,7 +73,7 @@ class JacobianMatrix(object):
         # at boundary nodes
         for bc in self.aaos.boundary_conditions_all:
             bc.homogenize()
-            bc.apply(self.F, u=self.u)
+            bc.apply(self.F, u=self.x)
             bc.restore()
 
         with self.F.dat.vec_ro as v:
@@ -154,7 +163,7 @@ class AllAtOnceSystem(object):
         self.w_recv = fd.Function(self.function_space)
         self.w_send = fd.Function(self.function_space)
 
-        self._set_aao_form()
+        self.aao_form = self.construct_aao_form(self.w_all, self.w_recv)
         self.jacobian = JacobianMatrix(self)
 
     def set_boundary_conditions(self, bcs):
@@ -443,13 +452,24 @@ class AllAtOnceSystem(object):
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
 
-    def _set_aao_form(self):
+    def construct_aao_form(self, wall=None, wrecv=None):
         """
         Constructs the bilinear form for the all at once system.
         Specific to the theta-centred Crank-Nicholson method
-        """
 
-        w_alls = fd.split(self.w_all)
+        :arg wall: all-at-once function to construct the form over.
+            Defaults to the AllAtOnceSystem's.
+        :arg wrecv: last timestep from previous time slice.
+            Defaults to the AllAtOnceSystem's.
+        """
+        if wall is None:
+            w_alls = fd.split(self.w_all)
+        else:
+            w_alls = fd.split(wall)
+
+        if wrecv is None:
+            wrecv = self.w_recv
+
         test_fns = fd.TestFunctions(self.function_space_all)
 
         dt = fd.Constant(self.dt)
@@ -471,13 +491,13 @@ class AllAtOnceSystem(object):
                     w0list = fd.split(self.initial_condition)
 
                     # circulant option for quasi-Jacobian
-                    wrecvlist = fd.split(self.w_recv)
+                    wrecvlist = fd.split(wrecv)
 
                     w0s = [w0list[i] + self.Circ*alpha*wrecvlist[i]
                            for i in range(self.ncomponents)]
                 else:
-                    # self.w_recv will contain the data from the previous slice
-                    w0s = fd.split(self.w_recv)
+                    # wrecv will contain the data from the previous slice
+                    w0s = fd.split(wrecv)
             else:
                 w0s = get_step(n-1)
 
@@ -496,4 +516,4 @@ class AllAtOnceSystem(object):
             aao_form += theta*self.form_function(*w1s, *dws)
             aao_form += (1-theta)*self.form_function(*w0s, *dws)
 
-        self.aao_form = aao_form
+        return aao_form

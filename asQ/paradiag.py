@@ -137,6 +137,7 @@ class paradiag(object):
             # copy the snes state vector into self.X
             X.copy(self.X)
             self.aaos.update(X)
+            self.aaos.jacobian.update()
             J.assemble()
             P.assemble()
 
