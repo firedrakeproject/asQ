@@ -630,7 +630,7 @@ def test_jacobian_mixed_parallel():
     PD.aaos.update(PD.X)
 
     # use PD to calculate the Jacobian
-    Jac1 = PD.aaos.jacobian
+    Jac1 = PD.jacobian
     Jac1.update()  # updates Jacobian state from aaos
 
     # construct Petsc vector X1, Y1:

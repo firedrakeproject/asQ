@@ -61,14 +61,17 @@ class DiagFFTPC(object):
         paradiag.diagfftpc = self
 
         # option for whether to use slice or window average for block jacobian
-        self.jac_average = lambda: PETSc.Options().getString(
-            f"{prefix}{self.prefix}jac_average", default='window')
-        jac_average = self.jac_average()
-
         valid_jac_averages = ['window', 'slice', 'linear', 'initial', 'reference']
+        jac_option = f"{prefix}{self.prefix}jac_average"
 
-        if jac_average not in valid_jac_averages:
-            raise ValueError(f"{prefix}{self.prefix}jac_average must be one of "+" or ".join(valid_jac_averages))
+        def jac_average():
+            average = PETSc.Options().getString(jac_option, default='window')
+            if average not in valid_jac_averages:
+                raise ValueError(f"{jac_option} must be one of "+" or ".join(valid_jac_averages))
+            return average
+
+        self.jac_average = jac_average
+        jac_average = self.jac_average()
 
         if jac_average == 'reference' and self.aaos.reference_state is None:
             raise ValueError("AllAtOnceSystem must be provided a reference state to use \'reference\' for diagfft_jac_average.")

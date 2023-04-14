@@ -8,13 +8,18 @@ from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
 class JacobianMatrix(object):
+    prefix = "aaos_jacobian_"
+
     @memprofile
-    def __init__(self, aaos):
+    def __init__(self, aaos, snes=None):
         r"""
         Python matrix for the Jacobian of the all at once system
         :param aaos: The AllAtOnceSystem object
         """
         self.aaos = aaos
+
+        if snes is not None:
+            self.snes = snes
 
         # function to linearise around, and timestep from end of previous slice
         self.u = fd.Function(self.aaos.function_space_all)
@@ -36,13 +41,31 @@ class JacobianMatrix(object):
         # Jform contributions from the previous step
         self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
 
+        # option for what state to linearise around
+        valid_jacobian_states = ['current']
+
+        if snes is None:
+            self.jacobian_state = lambda: 'current'
+        else:
+            prefix = snes.getOptionsPrefix()
+            prefix += self.prefix
+            state_option = f"{prefix}state"
+
+            def jacobian_state():
+                state = PETSc.Options().getString(state_option, default='current')
+                if state not in valid_jacobian_states:
+                    raise ValueError(f"{state_option} must be one of "+" or ".join(valid_jacobian_states))
+                return state
+            self.jacobian_state = jacobian_state
+
     def update(self, X=None):
         # update the state to linearise around from the current all-at-once solution
-        if X is None:
-            self.u.assign(self.aaos.w_all)
-            self.urecv.assign(self.aaos.w_recv)
-        else:
-            self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
+        if self.jacobian_state() == 'current':
+            if X is None:
+                self.u.assign(self.aaos.w_all)
+                self.urecv.assign(self.aaos.w_recv)
+            else:
+                self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
 
     @PETSc.Log.EventDecorator()
     @memprofile
@@ -164,7 +187,6 @@ class AllAtOnceSystem(object):
         self.w_send = fd.Function(self.function_space)
 
         self.aao_form = self.construct_aao_form(self.w_all, self.w_recv)
-        self.jacobian = JacobianMatrix(self)
 
     def set_boundary_conditions(self, bcs):
         """

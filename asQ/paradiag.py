@@ -4,7 +4,7 @@ from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
 from .profiling import memprofile
 
-from asQ.allatoncesystem import AllAtOnceSystem
+from asQ.allatoncesystem import AllAtOnceSystem, JacobianMatrix
 from asQ.parallel_arrays import SharedArray
 
 appctx = {}
@@ -123,13 +123,20 @@ class paradiag(object):
         self.snes = PETSc.SNES().create(comm=ensemble.global_comm)
         self.opts = OptionsManager(self.flat_solver_parameters, '')
         self.snes.setOptionsPrefix('')
-        self.snes.setFunction(self.aaos._assemble_function, self.F)
+
+        # set up the residual function
+        def assemble_function(snes, X, Fvec):
+            self.aaos._assemble_function(snes, X, Fvec)
+
+        self.snes.setFunction(assemble_function, self.F)
 
         # set up the Jacobian
+        self.jacobian = JacobianMatrix(self.aaos, self.snes)
+
         Jacmat = PETSc.Mat().create(comm=ensemble.global_comm)
         Jacmat.setType("python")
         Jacmat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
-        Jacmat.setPythonContext(self.aaos.jacobian)
+        Jacmat.setPythonContext(self.jacobian)
         Jacmat.setUp()
         self.Jacmat = Jacmat
 
@@ -137,7 +144,7 @@ class paradiag(object):
             # copy the snes state vector into self.X
             X.copy(self.X)
             self.aaos.update(X)
-            self.aaos.jacobian.update()
+            self.jacobian.update()
             J.assemble()
             P.assemble()
 
