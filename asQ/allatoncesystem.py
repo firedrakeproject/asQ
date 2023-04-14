@@ -42,7 +42,7 @@ class JacobianMatrix(object):
         self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
 
         # option for what state to linearise around
-        valid_jacobian_states = ['current']
+        valid_jacobian_states = ['current', 'initial']
 
         if snes is None:
             self.jacobian_state = lambda: 'current'
@@ -60,12 +60,21 @@ class JacobianMatrix(object):
 
     def update(self, X=None):
         # update the state to linearise around from the current all-at-once solution
-        if self.jacobian_state() == 'current':
+
+        aaos = self.aaos
+        jacobian_state = self.jacobian_state()
+
+        if jacobian_state == 'current':
             if X is None:
-                self.u.assign(self.aaos.w_all)
-                self.urecv.assign(self.aaos.w_recv)
+                self.u.assign(aaos.w_all)
+                self.urecv.assign(aaos.w_recv)
             else:
-                self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
+                aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
+
+        elif jacobian_state == 'initial':
+            self.urecv.assign(aaos.initial_condition)
+            for i in range(aaos.nlocal_timesteps):
+                aaos.set_field(i, aaos.initial_condition, f_alls=self.u.subfunctions)
 
     @PETSc.Log.EventDecorator()
     @memprofile
