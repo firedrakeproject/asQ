@@ -287,7 +287,6 @@ class DiagFFTPC(object):
         '''
         jac_average = self.jac_average()
         if jac_average == 'linear':
-            PETSc.Sys.Print("No time average")
             return
         elif jac_average == 'initial':
             cpx.set_real(self.u0, self.aaos.initial_condition)

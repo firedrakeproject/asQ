@@ -42,7 +42,7 @@ class JacobianMatrix(object):
         self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
 
         # option for what state to linearise around
-        valid_jacobian_states = ['current', 'initial']
+        valid_jacobian_states = ['current', 'linear', 'initial']
 
         if snes is None:
             self.jacobian_state = lambda: 'current'
@@ -64,7 +64,10 @@ class JacobianMatrix(object):
         aaos = self.aaos
         jacobian_state = self.jacobian_state()
 
-        if jacobian_state == 'current':
+        if jacobian_state == 'linear':
+            return
+
+        elif jacobian_state == 'current':
             if X is None:
                 self.u.assign(aaos.w_all)
                 self.urecv.assign(aaos.w_recv)
