@@ -42,7 +42,7 @@ class JacobianMatrix(object):
         self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
 
         # option for what state to linearise around
-        valid_jacobian_states = ['current', 'linear', 'initial']
+        valid_jacobian_states = ['current', 'linear', 'initial', 'reference']
 
         if snes is None:
             self.jacobian_state = lambda: 'current'
@@ -57,6 +57,11 @@ class JacobianMatrix(object):
                     raise ValueError(f"{state_option} must be one of "+" or ".join(valid_jacobian_states))
                 return state
             self.jacobian_state = jacobian_state
+
+        jacobian_state = self.jacobian_state()
+
+        if jacobian_state == 'reference' and self.aaos.reference_state is None:
+            raise ValueError("AllAtOnceSystem must be provided a reference state to use \'reference\' for aaos_jacobian_state.")
 
     def update(self, X=None):
         # update the state to linearise around from the current all-at-once solution
@@ -78,6 +83,11 @@ class JacobianMatrix(object):
             self.urecv.assign(aaos.initial_condition)
             for i in range(aaos.nlocal_timesteps):
                 aaos.set_field(i, aaos.initial_condition, f_alls=self.u.subfunctions)
+
+        elif jacobian_state == 'reference':
+            self.urecv.assign(aaos.reference_state)
+            for i in range(aaos.nlocal_timesteps):
+                aaos.set_field(i, aaos.reference_state, f_alls=self.u.subfunctions)
 
     @PETSc.Log.EventDecorator()
     @memprofile

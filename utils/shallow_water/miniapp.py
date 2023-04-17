@@ -108,6 +108,9 @@ class ShallowWaterMiniApp(object):
 
         if reference_state:
             self.reference_state = fd.Function(self.function_space())
+            reference_state = self.reference_state
+        else:
+            reference_state = None
 
         # non-petsc information for block solve
 
@@ -127,7 +130,7 @@ class ShallowWaterMiniApp(object):
             form_mass=form_mass,
             w0=w0, dt=dt, theta=theta,
             alpha=alpha, time_partition=time_partition,
-            reference_state=self.reference_state,
+            reference_state=reference_state,
             solver_parameters=paradiag_sparameters,
             circ=None, ctx={}, block_ctx=block_ctx)
 

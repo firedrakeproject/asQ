@@ -50,8 +50,8 @@ sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-8,
-        'rtol': 1e-8,
+        'atol': 1e-5,
+        'rtol': 1e-5,
         'max_it': 400,
     },
     'pc_type': 'mg',
@@ -95,6 +95,7 @@ sparameters_diag = {
         'rtol': 1e-10,
         'stol': 1e-12,
         'ksp_ew': None,
+        'ksp_ew_version': 1,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
@@ -102,10 +103,12 @@ sparameters_diag = {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-5,
+        'atol': 1e-12,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_jac_average': 'initial'
+    'diagfft_jac_average': 'reference',
+    'aaos_jacobian_state': 'reference',
 }
 
 sparameters_diag['diagfft_block_'] = sparameters
@@ -129,7 +132,11 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename)
 
-miniapp.reference_state.assign(miniapp.aaos.initial_condition)
+
+ics = miniapp.aaos.initial_condition
+miniapp.reference_state.assign(ics)
+miniapp.reference_state.subfunctions[0].assign(0)
+miniapp.reference_state.subfunctions[1].assign(galewsky.H0)
 
 
 def window_preproc(swe_app, pdg, wndw):
