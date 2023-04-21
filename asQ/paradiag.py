@@ -114,11 +114,11 @@ class paradiag(object):
                 appctx["paradiag"] = self
                 solver_parameters["diagfft_context"] = "asQ.paradiag.get_context"
         self.solver_parameters = solver_parameters
-        flat_solver_parameters = flatten_parameters(solver_parameters)
+        self.flat_solver_parameters = flatten_parameters(solver_parameters)
 
         # set up the snes
         self.snes = PETSc.SNES().create(comm=ensemble.global_comm)
-        self.opts = OptionsManager(flat_solver_parameters, '')
+        self.opts = OptionsManager(self.flat_solver_parameters, '')
         self.snes.setOptionsPrefix('')
         self.snes.setFunction(self.aaos._assemble_function, self.F)
 
@@ -207,8 +207,15 @@ class paradiag(object):
 
             postproc(self, wndw)
 
-            if not (1 < self.snes.getConvergedReason() < 5):
-                PETSc.Sys.Print(f'SNES diverged with error code {self.snes.getConvergedReason()}. Cancelling paradiag time integration.')
+            converged_reason = self.snes.getConvergedReason()
+            is_linear = (
+                'snes_type' in self.flat_solver_parameters
+                and self.flat_solver_parameters['snes_type'] == 'ksponly'
+            )
+            if is_linear and (converged_reason == 5):
+                pass
+            elif not (1 < converged_reason < 5):
+                PETSc.Sys.Print(f'SNES diverged with error code {converged_reason}. Cancelling paradiag time integration.')
                 return
 
             # don't wipe all-at-once function at last window
