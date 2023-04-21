@@ -51,12 +51,12 @@ def FunctionSpace(V):
     """
     Return a FunctionSpace which proxies a complex version of the real FunctionSpace V.
 
-    The returned complex-valued function space has as many components as the real-valued function space, but each component has a 'real' and 'imaginary' part eg:
-    Scalar components of the real-valued function space become 2-vector components of the complex-valued space.
-    n-vector components of the real-valued function space become 2xn-tensor components of the complex-valued space.
-    (shape)-tensor components of the real-valued function space become (2,shape)-tensor components of the complex-valued space.
+    The returned complex-valued Function space has as many components as the real-valued FunctionSpace, but each component has a 'real' and 'imaginary' part eg:
+    Scalar components of the real-valued FunctionSpace become 2-vector components of the complex-valued space.
+    n-vector components of the real-valued FunctionSpace become 2xn-tensor components of the complex-valued space.
+    (shape)-tensor components of the real-valued FunctionSpace become (2,shape)-tensor components of the complex-valued FunctionSpace.
 
-    :arg V: the real-valued function space.
+    :arg V: the real-valued FunctionSpace.
     """
     return fd.FunctionSpace(V.mesh(), FiniteElement(V.ufl_element()))
 
@@ -86,7 +86,7 @@ def DirichletBC(W, V, bc, function_arg=None):
 def split(u, i):
     """
     If u is a Coefficient or Argument in the complex FunctionSpace,
-        returns a tuple with the function components corresponding
+        returns a tuple with the Function components corresponding
         to the real or imaginary subelements, indexed appropriately.
 
     :arg u: a Coefficient or Argument in the complex FunctionSpace
@@ -112,7 +112,7 @@ def split(u, i):
 
 def subfunctions(u, i):
     """
-    Return a tuple of the real or imaginary components of the complex function u. Analogous to u.subfunctions.
+    Return a tuple of the real or imaginary components of the complex Function u. Analogous to u.subfunctions.
 
     :arg u: a complex Function.
     :arg i: the index of the components, Part.Real for real or Part.Imag for imaginary.
@@ -132,7 +132,7 @@ def subfunctions(u, i):
         return tuple((w for v in u.subfunctions for w in subfunctions(v, i)))
 
     else:
-        raise ValueError("u must be a function from a complex-proxy FunctionSpace")
+        raise ValueError("u must be a Function from a complex-proxy FunctionSpace")
 
 
 def _get_part(u, vout, i):
@@ -249,7 +249,7 @@ def BilinearForm(W, z, A, return_z=False):
 
 def derivative(z, F, u, return_z=False):
     """
-    Return a bilinear Form equivalent to z*J where z is a complex number, J = dF/dw, F is a nonlinear Form on the real-valued space, and w is a function in the real-valued space. The real and imaginary components of the complex function u most both be equal to w for this operation to be valid.
+    Return a bilinear Form equivalent to z*J where z is a complex number, J = dF/dw, F is a nonlinear Form on the real-valued space, and w is a Function in the real-valued space. The real and imaginary components of the complex Function u most both be equal to w for this operation to be valid.
 
     If z = zr + i*zi is a complex number, x = xr + i*xi is a complex Function, b = br + i*bi is a complex linear Form, J is the bilinear Form dF/dw, we want to construct a Form such that (zJ)x=b
 

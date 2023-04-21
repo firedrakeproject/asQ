@@ -41,13 +41,13 @@ def FunctionSpace(V):
     """
     Return a FunctionSpace which proxies a complex version of the real FunctionSpace V.
 
-    The returned complex-valued function space has twice as many components as the real-valued element, with
-    each component of the real-valued function space having a corresponding 'real' and 'imaginary' part eg:
-    Non-mixed real function spaces become 2-component MixedFunctionSpaces.
-    Mixed real function spaces become MixedFunctionSpaces with 2*len(V.ufl_element().num_sub_elements()) components.
+    The returned complex-valued FunctionSpace has twice as many components as the real-valued element, with
+    each component of the real-valued FunctionSpace having a corresponding 'real' and 'imaginary' part eg:
+    Non-mixed real FunctionSpaces become 2-component MixedFunctionSpaces.
+    Mixed real FunctionSpaces become MixedFunctionSpaces with 2*len(V.ufl_element().num_sub_elements()) components.
     Function spaces with nested MixedElements are flattened before being proxied.
 
-    :arg V: the real-valued function space.
+    :arg V: the real-valued FunctionSpace.
     """
     return fd.FunctionSpace(V.mesh(), FiniteElement(V.ufl_element()))
 
@@ -76,8 +76,8 @@ def _component_elements(us, i):
     """
     Return a tuple of the real or imaginary components of the iterable us
 
-    :arg us: an iterable having the same number of elements as the complex function space
-                i.e. twice the number of components as the real function space.
+    :arg us: an iterable having the same number of elements as the complex FunctionSpace
+                i.e. twice the number of components as the real FunctionSpace.
     :arg i: the index of the components, Part.Real for real or Part.Imag for imaginary.
     """
     if not isinstance(i, Part):
@@ -88,7 +88,7 @@ def _component_elements(us, i):
 def split(u, i):
     """
     If u is a Coefficient or Argument in the complex FunctionSpace,
-        returns a tuple with the function components corresponding
+        returns a tuple with the Function components corresponding
         to the real or imaginary subelements, indexed appropriately.
         Analogous to firedrake.split(u)
 
@@ -100,7 +100,7 @@ def split(u, i):
 
 def subfunctions(u, i):
     """
-    Return a tuple of the real or imaginary components of the complex function u. Analogous to u.subfunctions.
+    Return a tuple of the real or imaginary components of the complex Function u. Analogous to u.subfunctions.
 
     :arg u: a complex Function.
     :arg i: the index of the components, Part.Real for real or Part.Imag for imaginary.
@@ -146,7 +146,7 @@ def get_real(u, vout):
     Copy the real component of the complex Function u into the real-valued Function vout
 
     :arg u: a complex Function.
-    :arg vout: A real-valued function that real component of u is copied into.
+    :arg vout: A real-valued Function that real component of u is copied into.
     """
     return _get_part(u, vout, Part.Real)
 
@@ -156,7 +156,7 @@ def get_imag(u, vout, name=None):
     Copy the imaginary component of the complex Function u into the real-valued Function vout
 
     :arg u: a complex Function.
-    :arg vout: A real-valued function that imaginary component of u is copied into.
+    :arg vout: A real-valued Function that imaginary component of u is copied into.
     """
     return _get_part(u, vout, Part.Imag)
 
@@ -217,7 +217,7 @@ def BilinearForm(W, z, A, return_z=False):
 
 def derivative(z, F, u, return_z=False):
     """
-    Return a bilinear Form equivalent to z*J where z is a complex number, J = dF/dw, F is a nonlinear Form on the real-valued space, and w is a function in the real-valued space. The real and imaginary components of the complex function u most both be equal to w for this operation to be valid.
+    Return a bilinear Form equivalent to z*J where z is a complex number, J = dF/dw, F is a nonlinear Form on the real-valued space, and w is a Function in the real-valued space. The real and imaginary components of the complex Function u most both be equal to w for this operation to be valid.
 
     If z = zr + i*zi is a complex number, x = xr + i*xi is a complex Function, b = br + i*bi is a complex linear Form, J is the bilinear Form dF/dw, we want to construct a Form such that (zJ)x=b
 
