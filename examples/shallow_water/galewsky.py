@@ -46,44 +46,58 @@ nsteps = args.nwindows*window_length
 dt = args.dt*units.hour
 
 # parameters for the implicit diagonal solve in step-(b)
+
+patch_parameters = {
+    'pc_patch': {
+        'save_operators': True,
+        'partition_of_unity': True,
+        'sub_mat_type': 'seqdense',
+        'construct_dim': 0,
+        'construct_type': 'vanka',
+        'local_type': 'additive',
+        'precompute_element_tensors': True,
+        'symmetrise_sweep': False
+    },
+    'sub': {
+        'ksp_type': 'preonly',
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_detect_saddle_point': None,
+        'pc_fieldsplit_schur_fact_type': 'full',
+        'pc_fieldsplit_schur_precondition': 'full',
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
+    }
+}
+
+mg_parameters = {
+    'levels': {
+        'ksp_type': 'gmres',
+        'ksp_max_it': 5,
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.PatchPC',
+        'patch': patch_parameters
+    },
+    'coarse': {
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.AssembledPC',
+        'assembled_pc_type': 'lu',
+        'assembled_pc_factor_mat_solver_type': 'mumps'
+    }
+}
+
 sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-8,
-        'rtol': 1e-8,
-        'max_it': 400,
+        'atol': 1e-5,
+        'rtol': 1e-5,
+        'max_it': 60
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
-    'mg': {
-        'levels': {
-            'ksp_type': 'gmres',
-            'ksp_max_it': 5,
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.PatchPC',
-            'patch': {
-                'pc_patch_save_operators': True,
-                'pc_patch_partition_of_unity': True,
-                'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_dim': 0,
-                'pc_patch_construct_type': 'vanka',
-                'pc_patch_local_type': 'additive',
-                'pc_patch_precompute_element_tensors': True,
-                'pc_patch_symmetrise_sweep': False,
-                'sub_ksp_type': 'preonly',
-                'sub_pc_type': 'lu',
-                'sub_pc_factor_shift_type': 'nonzero',
-            },
-        },
-        'coarse': {
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.AssembledPC',
-            'assembled_pc_type': 'lu',
-            'assembled_pc_factor_mat_solver_type': 'mumps',
-        },
-    }
+    'mg': mg_parameters
 }
 
 sparameters_diag = {
@@ -95,6 +109,7 @@ sparameters_diag = {
         'rtol': 1e-10,
         'stol': 1e-12,
         'ksp_ew': None,
+        'ksp_ew_version': 1,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
@@ -105,7 +120,8 @@ sparameters_diag = {
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_jac_average': 'initial'
+    'diagfft_jac_average': 'window',
+    'aaos_jacobian_state': 'current'
 }
 
 sparameters_diag['diagfft_block_'] = sparameters
