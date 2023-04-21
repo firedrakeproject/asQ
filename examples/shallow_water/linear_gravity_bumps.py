@@ -113,7 +113,8 @@ sparameters_diag = {
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_jac_average': 'linear'
+    'diagfft_jac_average': 'linear',
+    'aaos_jacobian_state': 'linear',
 }
 
 sparameters_diag['diagfft_block'] = sparameters

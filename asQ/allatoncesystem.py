@@ -42,7 +42,7 @@ class JacobianMatrix(object):
         self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
 
         # option for what state to linearise around
-        valid_jacobian_states = ['current', 'initial']
+        valid_jacobian_states = ['current', 'linear', 'initial', 'reference']
 
         if snes is None:
             self.jacobian_state = lambda: 'current'
@@ -58,13 +58,21 @@ class JacobianMatrix(object):
                 return state
             self.jacobian_state = jacobian_state
 
+        jacobian_state = self.jacobian_state()
+
+        if jacobian_state == 'reference' and self.aaos.reference_state is None:
+            raise ValueError("AllAtOnceSystem must be provided a reference state to use \'reference\' for aaos_jacobian_state.")
+
     def update(self, X=None):
         # update the state to linearise around from the current all-at-once solution
 
         aaos = self.aaos
         jacobian_state = self.jacobian_state()
 
-        if jacobian_state == 'current':
+        if jacobian_state == 'linear':
+            return
+
+        elif jacobian_state == 'current':
             if X is None:
                 self.u.assign(aaos.w_all)
                 self.urecv.assign(aaos.w_recv)
@@ -75,6 +83,11 @@ class JacobianMatrix(object):
             self.urecv.assign(aaos.initial_condition)
             for i in range(aaos.nlocal_timesteps):
                 aaos.set_field(i, aaos.initial_condition, f_alls=self.u.subfunctions)
+
+        elif jacobian_state == 'reference':
+            self.urecv.assign(aaos.reference_state)
+            for i in range(aaos.nlocal_timesteps):
+                aaos.set_field(i, aaos.reference_state, f_alls=self.u.subfunctions)
 
     @PETSc.Log.EventDecorator()
     @memprofile
@@ -146,9 +159,12 @@ class AllAtOnceSystem(object):
         self.nlocal_timesteps = self.layout.local_size
         self.ntimesteps = self.layout.global_size
 
-        self.initial_condition = w0
         self.function_space = w0.function_space()
-        self.reference_state = reference_state
+        if reference_state is None:
+            self.reference_state = None
+        else:
+            self.reference_state = fd.Function(self.function_space).assign(reference_state)
+        self.initial_condition = fd.Function(self.function_space).assign(w0)
         self.boundary_conditions = bcs
         self.ncomponents = len(self.function_space.subfunctions)
 
