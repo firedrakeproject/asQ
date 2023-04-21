@@ -134,9 +134,9 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
 
 
 ics = miniapp.aaos.initial_condition
-miniapp.reference_state.assign(ics)
-miniapp.reference_state.subfunctions[0].assign(0)
-miniapp.reference_state.subfunctions[1].assign(galewsky.H0)
+miniapp.aaos.reference_state.assign(ics)
+miniapp.aaos.reference_state.subfunctions[0].assign(0)
+miniapp.aaos.reference_state.subfunctions[1].assign(galewsky.H0)
 
 
 def window_preproc(swe_app, pdg, wndw):
