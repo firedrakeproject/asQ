@@ -1,9 +1,9 @@
 
 import firedrake as fd
 
-from complex_proxy.common import (Part, re, im, api_names,  # noqa:F401
-                                  _flatten_tree,
-                                  _build_oneform, _build_twoform)  # noqa: F401
+from asQ.complex_proxy.common import (Part, re, im, api_names,  # noqa:F401
+                                      _flatten_tree,
+                                      _build_oneform, _build_twoform)  # noqa: F401
 
 __all__ = api_names
 

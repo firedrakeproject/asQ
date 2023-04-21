@@ -1,1 +1,1 @@
-from complex_proxy.vector_impl import *  # noqa: F401, F403
+from asQ.complex_proxy.vector_impl import *  # noqa: F401, F403
