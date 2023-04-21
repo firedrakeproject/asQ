@@ -195,8 +195,12 @@ class paradiag(object):
 
             preproc(self, wndw)
 
+            with self.aaos.w_all.dat.vec_ro as v:
+                v.copy(self.X)
+
             with self.opts.inserted_options():
                 self.snes.solve(None, self.X)
+
             self.aaos.update(self.X)
 
             self._record_diagnostics()
