@@ -9,3 +9,4 @@ from .post import (write_timesteps,  # noqa: F401
                    write_aaos_solve_metrics,  # noqa: F401
                    write_block_solve_metrics,  # noqa: F401
                    write_paradiag_metrics)  # noqa: F401
+from asQ import complex_proxy  # noqa: F401
