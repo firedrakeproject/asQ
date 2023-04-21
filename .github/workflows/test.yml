@@ -44,8 +44,6 @@ jobs:
           python -m pip install pytest-timeout
           python -m pip install pytest-cov
           python -m pip uninstall --yes pytest-mpi
-          git clone https://github.com/JHopeCollins/complex-proxy.git
-          python -m pip install -e complex-proxy
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
