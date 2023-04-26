@@ -118,7 +118,7 @@ sparameters_diag = {
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_jac_average': 'linear',
+    'diagfft_state': 'linear',
     'aaos_jacobian_state': 'linear',
 }
 

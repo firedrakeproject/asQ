@@ -123,8 +123,10 @@ def test_galewsky_timeseries():
         'monitor': None,
         'converged_reason': None,
         'atol': 1e-0,
-        'rtol': 1e-12,
+        'rtol': 1e-10,
         'stol': 1e-12,
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
     }
 
     # solver parameters for serial method
@@ -139,7 +141,7 @@ def test_galewsky_timeseries():
     parallel_sparameters = {
         'snes': snes_sparameters,
         'mat_type': 'matfree',
-        'ksp_type': 'preonly',
+        'ksp_type': 'fgmres',
         'ksp': {
             'monitor': None,
             'converged_reason': None,
@@ -267,6 +269,8 @@ def test_steady_swe():
         'ksp_type': 'gmres',
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
+        'diagfft_state': 'initial',
+        'aaos_jacobian_state': 'initial',
     }
 
     M = [2, 2]
