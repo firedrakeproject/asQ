@@ -59,8 +59,13 @@ patch_parameters = {
     },
     'sub': {
         'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_shift_type': 'nonzero'
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_detect_saddle_point': None,
+        'pc_fieldsplit_schur_fact_type': 'full',
+        'pc_fieldsplit_schur_precondition': 'full',
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
     }
 }
 
@@ -84,12 +89,12 @@ sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-8,
-        'rtol': 1e-8,
-        'max_it': 400
+        'atol': 1e-5,
+        'rtol': 1e-5,
+        'max_it': 60
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
+    'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }

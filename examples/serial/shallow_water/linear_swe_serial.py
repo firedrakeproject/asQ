@@ -72,17 +72,26 @@ def form_mass(u, h, v, q):
 
 
 patch_parameters = {
-    'pc_patch_save_operators': True,
-    'pc_patch_partition_of_unity': True,
-    'pc_patch_sub_mat_type': 'seqdense',
-    'pc_patch_construct_dim': 0,
-    'pc_patch_construct_type': 'vanka',
-    'pc_patch_local_type': 'additive',
-    'pc_patch_precompute_element_tensors': True,
-    'pc_patch_symmetrise_sweep': False,
-    'sub_ksp_type': 'preonly',
-    'sub_pc_type': 'lu',
-    'sub_pc_factor_shift_type': 'nonzero',
+    'pc_patch': {
+        'save_operators': True,
+        'partition_of_unity': True,
+        'sub_mat_type': 'seqdense',
+        'construct_dim': 0,
+        'construct_type': 'vanka',
+        'local_type': 'additive',
+        'precompute_element_tensors': True,
+        'symmetrise_sweep': False
+    },
+    'sub': {
+        'ksp_type': 'preonly',
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_detect_saddle_point': None,
+        'pc_fieldsplit_schur_fact_type': 'full',
+        'pc_fieldsplit_schur_precondition': 'full',
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
+    }
 }
 
 mg_parameters = {
@@ -108,18 +117,20 @@ sparameters = {
         'monitor': None,
         'converged_reason': None,
         'atol': 1e-0,
-        'rtol': 1e-10
+        'rtol': 1e-10,
+        'stol': 1e-12,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    'ksp_rtol': 1e-10,
     'ksp': {
         'atol': 1e-0,
+        'rtol': 1e-10,
+        'stol': 1e-12,
         'monitor': None,
         'converged_reason': None
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
+    'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
