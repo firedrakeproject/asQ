@@ -33,8 +33,33 @@ class JacobianMatrix(object):
         self.F = fd.Function(self.aaos.function_space_all)
         self.F_prev = fd.Function(self.aaos.function_space_all)
 
+        # option for what form to linearise
+        valid_linearisations = ['consistent', 'user']
+
+        if snes is None:
+            self.linearised_mass = aaos.linearised_mass
+            self.linearised_function = aaos.linearised_function
+        else:
+            prefix = snes.getOptionsPrefix()
+            prefix += self.prefix
+            linear_option = f"{prefix}linearisation"
+
+            linear = PETSc.Options().getString(linear_option, default=valid_linearisations[0])
+            assert linear == valid_linearisations[0]
+            if linear not in valid_linearisations:
+                raise ValueError(f"{linear_option}={linear} but must be one of "+" or ".join(valid_linearisations))
+
+            if linear == 'consistent':
+                self.linearised_mass = aaos.form_mass
+                self.linearised_function = aaos.form_function
+            elif linear == 'user':
+                self.linearised_mass = aaos.linearised_mass
+                self.linearised_function = aaos.linearised_function
+
         # all-at-once form to linearise
-        self.aao_form = self.aaos.construct_aao_form(self.u, self.urecv)
+        self.aao_form = self.aaos.construct_aao_form(wall=self.u, wrecv=self.urecv,
+                                                     mass=self.linearised_mass,
+                                                     function=self.linearised_function)
 
         # Jform without contributions from the previous step
         self.Jform = fd.derivative(self.aao_form, self.u)
@@ -133,6 +158,8 @@ class AllAtOnceSystem(object):
                  form_mass, form_function,
                  w0, bcs=[],
                  reference_state=None,
+                 linearised_function=None,
+                 linearised_mass=None,
                  circ="", alpha=1e-3):
         """
         The all-at-once system representing multiple timesteps of a time-dependent finite-element problem.
@@ -165,6 +192,7 @@ class AllAtOnceSystem(object):
         else:
             self.reference_state = fd.Function(self.function_space).assign(reference_state)
         self.initial_condition = fd.Function(self.function_space).assign(w0)
+        # need to make copy of bcs too instead of taking a reference
         self.boundary_conditions = bcs
         self.ncomponents = len(self.function_space.subfunctions)
 
@@ -176,6 +204,9 @@ class AllAtOnceSystem(object):
 
         self.form_mass = form_mass
         self.form_function = form_function
+
+        self.linearised_mass = linearised_mass if linearised_mass is not None else form_mass
+        self.linearised_function = linearised_function if linearised_function is not None else form_function
 
         self.circ = circ
         self.alpha = alpha
@@ -499,7 +530,7 @@ class AllAtOnceSystem(object):
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
 
-    def construct_aao_form(self, wall=None, wrecv=None):
+    def construct_aao_form(self, wall=None, wrecv=None, mass=None, function=None):
         """
         Constructs the bilinear form for the all at once system.
         Specific to the theta-centred Crank-Nicholson method
@@ -508,6 +539,10 @@ class AllAtOnceSystem(object):
             Defaults to the AllAtOnceSystem's.
         :arg wrecv: last timestep from previous time slice.
             Defaults to the AllAtOnceSystem's.
+        :arg mass: a function that returns a linear form on w0.function_space()
+            providing the mass operator for the time derivative.
+        :arg function: a function that returns a form on w0.function_space()
+            providing f(w) for the ODE w_t + f(w) = 0.
         """
         if wall is None:
             w_alls = fd.split(self.w_all)
@@ -517,10 +552,17 @@ class AllAtOnceSystem(object):
         if wrecv is None:
             wrecv = self.w_recv
 
+        if mass is None:
+            mass = self.form_mass
+
+        if function is None:
+            function = self.form_function
+
         test_fns = fd.TestFunctions(self.function_space_all)
 
-        dt = fd.Constant(self.dt)
+        dt1 = fd.Constant(1.0/self.dt)
         theta = fd.Constant(self.theta)
+        thetam1 = fd.Constant(1.0 - self.theta)
         alpha = fd.Constant(self.alpha)
 
         def get_step(i):
@@ -554,13 +596,13 @@ class AllAtOnceSystem(object):
 
             # time derivative
             if n == 0:
-                aao_form = (1.0/dt)*self.form_mass(*w1s, *dws)
+                aao_form = dt1*mass(*w1s, *dws)
             else:
-                aao_form += (1.0/dt)*self.form_mass(*w1s, *dws)
-            aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
+                aao_form += dt1*mass(*w1s, *dws)
+            aao_form -= dt1*mass(*w0s, *dws)
 
             # vector field
-            aao_form += theta*self.form_function(*w1s, *dws)
-            aao_form += (1-theta)*self.form_function(*w0s, *dws)
+            aao_form += theta*function(*w1s, *dws)
+            aao_form += thetam1*function(*w0s, *dws)
 
         return aao_form

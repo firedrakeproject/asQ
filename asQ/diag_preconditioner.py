@@ -65,10 +65,10 @@ class DiagFFTPC(object):
         jac_option = f"{prefix}{self.prefix}state"
 
         def jac_state():
-            average = PETSc.Options().getString(jac_option, default='window')
-            if average not in valid_jac_state:
-                raise ValueError(f"{jac_option} must be one of "+" or ".join(valid_jac_state))
-            return average
+            state = PETSc.Options().getString(jac_option, default='window')
+            if state not in valid_jac_state:
+                raise ValueError(f"{state} must be one of "+" or ".join(valid_jac_state))
+            return state
 
         self.jac_state = jac_state
         jac_state = self.jac_state()
@@ -296,6 +296,7 @@ class DiagFFTPC(object):
             cpx.set_real(self.u0, self.aaos.reference_state)
             cpx.set_imag(self.u0, self.aaos.reference_state)
             return
+        # else jac_state in ('window', 'slice')
 
         self.ureduce.assign(0)
 

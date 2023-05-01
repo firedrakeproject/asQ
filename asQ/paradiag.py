@@ -39,30 +39,38 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
 class paradiag(object):
     @memprofile
     def __init__(self, ensemble,
-                 form_function, form_mass, w0, dt, theta,
+                 form_function, form_mass,
+                 w0, dt, theta,
                  alpha, time_partition, bcs=[],
                  solver_parameters={},
                  reference_state=None,
-                 circ="picard",
+                 linearised_function=None,
+                 linearised_mass=None,
+                 circ="",
                  tol=1.0e-6, maxits=10,
                  ctx={}, block_ctx={}, block_mat_type="aij"):
         """A class to implement paradiag timestepping.
 
         :arg ensemble: the ensemble communicator
-        :arg form_function: a function that returns a linear form
+        :arg form_function: a function that returns a form
             on w0.function_space() providing f(w) for the ODE w_t + f(w) = 0.
-        :arg form_mass: a function that returns a linear form
-            on W providing the mass operator for the time derivative.
-        :arg w0: a Function from W containing the initial data
+        :arg form_mass: a function that returns a linear form on
+            w0.function_space providing the mass operator for the time derivative.
+        :arg linearised_function: a function that returns a form
+            on w0.function_space() which will be linearised to approximate
+            derivative(f(w), w) for the ODE w_t + f(w) = 0.
+        :arg linearised_mass: a function that returns a linear form on w0.function_space
+            providing which will be linearised to approximate the form_mass
+        :arg w0: a Function from w0.function_space containing the initial data.
         :arg dt: float, the timestep size.
-        :arg theta: float, implicit timestepping parameter
-        :arg alpha: float, circulant matrix parameter
+        :arg theta: float, implicit timestepping parameter.
+        :arg alpha: float, circulant matrix parameter.
         :arg time_partition: a list of integers, the number of timesteps
-            assigned to each rank
-        :arg bcs: a list of DirichletBC boundary conditions on W
-        :arg solver_parameters: options dictionary for nonlinear solver
+            assigned to each rank.
+        :arg bcs: a list of DirichletBC boundary conditions on w0.function_space.
+        :arg solver_parameters: options dictionary for nonlinear solver.
         :arg reference_state: a Function in W to use as a reference state
-            e.g. in DiagFFTPC
+            e.g. in DiagFFTPC.
         :arg circ: a string describing the option on where to use the
             alpha-circulant modification. "picard" - do a nonlinear wave
             form relaxation method. "quasi" - do a modified Newton
@@ -81,8 +89,11 @@ class paradiag(object):
         self.aaos = AllAtOnceSystem(ensemble, time_partition,
                                     dt, theta,
                                     form_mass, form_function,
-                                    w0, bcs, reference_state,
-                                    circ, alpha)
+                                    w0, bcs=bcs,
+                                    reference_state=reference_state,
+                                    linearised_function=linearised_function,
+                                    linearised_mass=linearised_mass,
+                                    circ=circ, alpha=alpha)
 
         self.ensemble = ensemble
         self.layout = self.aaos.layout
