@@ -39,7 +39,7 @@ PETSc.Sys.Print('')
 
 # time steps
 
-time_partition = [args.slice_length for _ in range(args.nslices)]
+time_partition = tuple((args.slice_length for _ in range(args.nslices)))
 window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
@@ -117,7 +117,7 @@ sparameters_diag = {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-5,
-        'atol': 1e-12,
+        'atol': 1e-0,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
