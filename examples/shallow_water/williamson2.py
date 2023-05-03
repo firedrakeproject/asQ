@@ -10,6 +10,8 @@ from utils.planets import earth
 import utils.shallow_water as swe
 import utils.shallow_water.williamson1992.case2 as case2
 
+Print = PETSc.Sys.Print
+
 PETSc.Sys.popErrorHandler()
 
 # get command arguments
@@ -33,11 +35,11 @@ args = parser.parse_known_args()
 args = args[0]
 
 if args.show_args:
-    PETSc.Sys.Print(args)
+    Print(args)
 
-PETSc.Sys.Print('')
-PETSc.Sys.Print('### === --- Setting up --- === ###')
-PETSc.Sys.Print('')
+Print('')
+Print('### === --- Setting up --- === ###')
+Print('')
 
 # time steps
 
@@ -75,9 +77,6 @@ un.project(case2.velocity_expression(*x))
 etan = case2.elevation_function(*x, V2, name="Elevation")
 hn.assign(H + etan - b)
 
-# reference conditions
-wref = w0.copy(deepcopy=True)
-
 
 # nonlinear swe forms
 
@@ -90,7 +89,6 @@ def form_mass(u, h, v, q):
 
 
 def linearised_function(u, h, v, q):
-    # return swe.nonlinear.form_function(mesh, earth.Gravity, b, f, u, h, v, q)
     return swe.linear.form_function(mesh, earth.Gravity, H, f, u, h, v, q)
 
 
@@ -152,12 +150,13 @@ sparameters = {
     'mg': mg_parameters
 }
 
+atol = 1e0
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-0,
+        'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
         'ksp_ew': None,
@@ -169,23 +168,26 @@ sparameters_diag = {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-5,
-        'atol': 1e-0,
+        'atol': atol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
     'diagfft_state': 'reference',
+    'diagfft_linearisation': 'consistent',
     'aaos_jacobian_state': 'reference',
-    'aaos_jacobian_linearisation': 'user',
+    'aaos_jacobian_linearisation': 'consistent',
 }
 
+# reference conditions
+wref = w0.copy(deepcopy=True)
 uref, href = wref.subfunctions[:]
-uref.assign(0)
-href.assign(case2.H0)
+# uref.assign(0)
+# href.assign(H)
 
-PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
-PETSc.Sys.Print('')
+Print('### === --- Calculating parallel solution --- === ###')
+# Print('')
 
-sparameters_diag['diagfft_block_'] = sparameters
+sparameters_diag['diagfft_block'] = sparameters
 
 # non-petsc information for block solve
 block_ctx = {}
@@ -213,9 +215,9 @@ PD = asQ.paradiag(ensemble=ensemble,
 
 
 def window_preproc(pdg, wndw):
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
-    PETSc.Sys.Print('')
+    Print('')
+    Print(f'### === --- Calculating time-window {wndw} --- === ###')
+    Print('')
 
 
 # check against initial conditions
@@ -255,8 +257,8 @@ def window_postproc(pdg, wndw):
             timestep = wndw*window_length + window_index
             uerr = errors[window_index, 0]
             herr = errors[window_index, 1]
-            PETSc.Sys.Print(f"timestep={timestep}, uerr={uerr}, herr={herr}",
-                            comm=ensemble.comm)
+            Print(f"timestep={timestep}, uerr={uerr}, herr={herr}",
+                  comm=ensemble.comm)
 
 
 PD.solve(nwindows=args.nwindows,

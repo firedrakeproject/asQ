@@ -2,7 +2,9 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 from functools import reduce
 from operator import mul
-from .profiling import memprofile
+from asQ.profiling import memprofile
+from asQ.common import get_option_from_list
+from functools import partial
 
 from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
@@ -20,6 +22,8 @@ class JacobianMatrix(object):
 
         if snes is not None:
             self.snes = snes
+            prefix = snes.getOptionsPrefix()
+            prefix += self.prefix
 
         # function to linearise around, and timestep from end of previous slice
         self.u = fd.Function(self.aaos.function_space_all)
@@ -40,14 +44,9 @@ class JacobianMatrix(object):
             self.linearised_mass = aaos.linearised_mass
             self.linearised_function = aaos.linearised_function
         else:
-            prefix = snes.getOptionsPrefix()
-            prefix += self.prefix
             linear_option = f"{prefix}linearisation"
 
-            linear = PETSc.Options().getString(linear_option, default=valid_linearisations[0])
-            assert linear == valid_linearisations[0]
-            if linear not in valid_linearisations:
-                raise ValueError(f"{linear_option}={linear} but must be one of "+" or ".join(valid_linearisations))
+            linear = get_option_from_list(linear_option, valid_linearisations, default_index=0)
 
             if linear == 'consistent':
                 self.linearised_mass = aaos.form_mass
@@ -72,21 +71,17 @@ class JacobianMatrix(object):
         if snes is None:
             self.jacobian_state = lambda: 'current'
         else:
-            prefix = snes.getOptionsPrefix()
-            prefix += self.prefix
             state_option = f"{prefix}state"
 
-            def jacobian_state():
-                state = PETSc.Options().getString(state_option, default='current')
-                if state not in valid_jacobian_states:
-                    raise ValueError(f"{state_option} must be one of "+" or ".join(valid_jacobian_states))
-                return state
-            self.jacobian_state = jacobian_state
+            self.jacobian_state = partial(get_option_from_list,
+                                          state_option, valid_jacobian_states, default_index=0)
 
         jacobian_state = self.jacobian_state()
 
         if jacobian_state == 'reference' and self.aaos.reference_state is None:
             raise ValueError("AllAtOnceSystem must be provided a reference state to use \'reference\' for aaos_jacobian_state.")
+
+        self.update()
 
     def update(self, X=None):
         # update the state to linearise around from the current all-at-once solution

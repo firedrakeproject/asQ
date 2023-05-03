@@ -141,8 +141,9 @@ class paradiag(object):
 
         self.snes.setFunction(assemble_function, self.F)
 
-        # set up the Jacobian
-        self.jacobian = JacobianMatrix(self.aaos, self.snes)
+        # set up the Jacobian using the provided options
+        with self.opts.inserted_options():
+            self.jacobian = JacobianMatrix(self.aaos, self.snes)
 
         Jacmat = PETSc.Mat().create(comm=ensemble.global_comm)
         Jacmat.setType("python")

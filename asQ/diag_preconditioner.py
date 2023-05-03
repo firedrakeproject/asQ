@@ -6,6 +6,9 @@ from firedrake.petsc import PETSc
 from asQ.pencil import Pencil, Subcomm
 import importlib
 from asQ.profiling import memprofile
+from asQ.common import get_option_from_list
+
+from functools import partial
 
 import asQ.complex_proxy.vector as cpx
 
@@ -64,13 +67,8 @@ class DiagFFTPC(object):
         valid_jac_state = ['window', 'slice', 'linear', 'initial', 'reference']
         jac_option = f"{prefix}{self.prefix}state"
 
-        def jac_state():
-            state = PETSc.Options().getString(jac_option, default='window')
-            if state not in valid_jac_state:
-                raise ValueError(f"{state} must be one of "+" or ".join(valid_jac_state))
-            return state
-
-        self.jac_state = jac_state
+        self.jac_state = partial(get_option_from_list,
+                                 jac_option, valid_jac_state, default_index=0)
         jac_state = self.jac_state()
 
         if jac_state == 'reference' and self.aaos.reference_state is None:
@@ -202,8 +200,19 @@ class DiagFFTPC(object):
 
         #  Building the nonlinear operator
         self.Jsolvers = []
-        form_mass = self.aaos.form_mass
-        form_function = self.aaos.form_function
+
+        # which form to linearise around
+        valid_linearisations = ['consistent', 'user']
+        linear_option = f"{prefix}{self.prefix}linearisation"
+
+        linear = get_option_from_list(linear_option, valid_linearisations, default_index=0)
+
+        if linear == 'consistent':
+            form_mass = self.aaos.form_mass
+            form_function = self.aaos.form_function
+        elif linear == 'user':
+            form_mass = self.aaos.linearised_mass
+            form_function = self.aaos.linearised_function
 
         # Now need to build the block solver
         self.u0 = fd.Function(self.CblockV)  # time average to linearise around
