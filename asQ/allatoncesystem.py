@@ -10,6 +10,26 @@ from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
 class JacobianMatrix(object):
+    """
+    PETSc options:
+
+    'aaos_jacobian_linearisation': <'consistent', 'user'>
+        Which form to linearise when constructing the Jacobian.
+        Default is 'consistent'.
+
+        'consistent': use the same form used in the AllAtOnceSystem residual.
+        'user': use the alternative forms given to the AllAtOnceSystem.
+
+    'aaos_jacobian_state': <'current', 'linear', 'initial', 'reference'>
+        Which state to linearise around when constructing the Jacobian.
+        Default is 'current'.
+
+        'current': use the current state of the AllAtOnceSystem (i.e. current Newton iterate).
+        'linear': the form being linearised is linear, so no update to the state is needed.
+        'initial': use the initial condition is used for all timesteps.
+        'reference': use the reference state of the AllAtOnceSystem for all timesteps.
+        'user': the state will be set manually by the user so no update is needed.
+    """
     prefix = "aaos_jacobian_"
 
     @memprofile
@@ -66,7 +86,7 @@ class JacobianMatrix(object):
         self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
 
         # option for what state to linearise around
-        valid_jacobian_states = ['current', 'linear', 'initial', 'reference']
+        valid_jacobian_states = ['current', 'linear', 'initial', 'reference', 'user']
 
         if snes is None:
             self.jacobian_state = lambda: 'current'
@@ -90,7 +110,7 @@ class JacobianMatrix(object):
         jacobian_state = self.jacobian_state()
 
         if jacobian_state == 'linear':
-            return
+            pass
 
         elif jacobian_state == 'current':
             if X is None:
@@ -108,6 +128,11 @@ class JacobianMatrix(object):
             self.urecv.assign(aaos.reference_state)
             for i in range(aaos.nlocal_timesteps):
                 aaos.set_field(i, aaos.reference_state, f_alls=self.u.subfunctions)
+
+        elif jacobian_state == 'user':
+            pass
+
+        return
 
     @PETSc.Log.EventDecorator()
     @memprofile
@@ -182,17 +207,19 @@ class AllAtOnceSystem(object):
         self.ntimesteps = self.layout.global_size
 
         self.function_space = w0.function_space()
+        self.initial_condition = fd.Function(self.function_space).assign(w0)
+
         if reference_state is None:
             self.reference_state = None
         else:
+            if reference_state.function_space() != w0.function_space():
+                raise ValueError("AllAtOnceSystem reference state must be in the"
+                                 + " same function space as the initial condition.")
             self.reference_state = fd.Function(self.function_space).assign(reference_state)
-        self.initial_condition = fd.Function(self.function_space).assign(w0)
+
         # need to make copy of bcs too instead of taking a reference
         self.boundary_conditions = bcs
         self.ncomponents = len(self.function_space.subfunctions)
-
-        if reference_state is not None and reference_state.function_space() != w0.function_space():
-            raise ValueError("AllAtOnceSystem reference state must be in the same function space as the initial condition.")
 
         self.dt = dt
         self.theta = theta

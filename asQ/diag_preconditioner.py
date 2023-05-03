@@ -14,6 +14,36 @@ import asQ.complex_proxy.vector as cpx
 
 
 class DiagFFTPC(object):
+    """
+    PETSc options:
+
+    'diagfft_linearisation': <'consistent', 'user'>
+        Which form to linearise when constructing the block Jacobians.
+        Default is 'consistent'.
+
+        'consistent': use the same form used in the AllAtOnceSystem residual.
+        'user': use the alternative forms given to the AllAtOnceSystem.
+
+    'diagfft_state': <'window', 'slice', 'linear', 'initial', 'reference'>
+        Which state to linearise around when constructing the block Jacobians.
+        Default is 'window'.
+
+        'window': use the time average over the entire AllAtOnceSystem.
+        'slice': use the time average over timesteps on the local Ensemble member.
+        'linear': the form linearised is already linear, so no update to the state is needed
+        'initial': use the initial condition is used for all timesteps.
+        'reference': use the reference state of the AllAtOnceSystem for all timesteps.
+
+    'diagfft_mass': <LinearSolver options>
+        The solver options for the Riesz map.
+        Default is {'pc_type': 'lu'}
+        Use 'diagfft_mass_fieldsplit' if the single-timestep function space is mixed.
+
+    'diagfft_block_%d': <LinearVariationalSolver options>
+        Default is the Firedrake default options.
+        The solver options for the %d'th block, enumerated globally.
+        Use 'diagfft_block' to set options for all blocks.
+    """
     prefix = "diagfft_"
 
     def __init__(self):
