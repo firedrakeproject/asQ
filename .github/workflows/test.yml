@@ -60,4 +60,4 @@ jobs:
           . /home/firedrake/firedrake/bin/activate
           python --version
           python -m pytest --version
-          python -m pytest -vvv -s -n 4 --durations=0 --timeout=600 --cov=asQ tests/
+          python -m pytest -vvv -s -n 4 --durations=0 --timeout=600 --cov=asQ --cov-report=term tests/
