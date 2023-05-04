@@ -138,8 +138,8 @@ class DiagFFTPC(object):
         assert (self.blockV.dim()*paradiag.nlocal_timesteps == W_all.dim())
 
         # Input/Output wrapper Functions for all-at-once residual being acted on
-        self.xf = fd.Function(W_all)  # input
-        self.yf = fd.Function(W_all)  # output
+        self.xfunc = fd.Function(W_all)  # input
+        self.yfunc = fd.Function(W_all)  # output
 
         # Gamma coefficients
         exponents = np.arange(self.ntimesteps)/self.ntimesteps
@@ -158,8 +158,8 @@ class DiagFFTPC(object):
         C1col[:2] = np.array([1, -1])/dt
         C2col[:2] = np.array([theta, 1-theta])
 
-        self.D1 = np.sqrt(self.ntimesteps)*fft(self.Gam*C1col)
-        self.D2 = np.sqrt(self.ntimesteps)*fft(self.Gam*C2col)
+        self.D1 = fft(self.Gam*C1col, norm='backward')
+        self.D2 = fft(self.Gam*C2col, norm='backward')
 
         # Block system setup
         # First need to build the vector function space version of blockV
@@ -177,12 +177,12 @@ class DiagFFTPC(object):
             self.uwrk = fd.Function(self.blockV)
 
         # input and output functions to the block solve
-        self.Jprob_in = fd.Function(self.CblockV)
-        self.Jprob_out = fd.Function(self.CblockV)
+        self.block_rhs = fd.Function(self.CblockV)
+        self.block_sol = fd.Function(self.CblockV)
 
         # A place to store the real/imag components of the all-at-once residual after fft
-        self.xfi = fd.Function(W_all)
-        self.xfr = fd.Function(W_all)
+        self.xreal = fd.Function(W_all)
+        self.ximag = fd.Function(W_all)
 
         # setting up the FFT stuff
         # construct simply dist array and 1d fftn:
@@ -199,6 +199,7 @@ class DiagFFTPC(object):
         # a0 is the local part of our other fft working array
         self.a1 = np.zeros(self.p1.subshape, complex)
         self.transfer = self.p0.transfer(self.p1, complex)
+        self.cwrk = np.zeros((self.nlocal_timesteps, nlocal), dtype=complex)
 
         # setting up the Riesz map to project residual into complex space
         rmap_rhs = construct_riesz_map(self.blockV,
@@ -235,7 +236,7 @@ class DiagFFTPC(object):
 
             # The rhs
             v = fd.TestFunction(self.CblockV)
-            L = fd.inner(v, self.Jprob_in)*fd.dx
+            L = fd.inner(v, self.block_rhs)*fd.dx
 
             # pass sigma into PC:
             sigma = self.D1[ii]**2/self.D2[ii]
@@ -260,7 +261,7 @@ class DiagFFTPC(object):
                     block_prefix = f"{block_prefix}{str(ii)}_"
                     break
 
-            jprob = fd.LinearVariationalProblem(A, L, self.Jprob_out,
+            jprob = fd.LinearVariationalProblem(A, L, self.block_sol,
                                                 bcs=self.CblockV_bcs)
             Jsolver = fd.LinearVariationalSolver(jprob,
                                                  appctx=appctx_h,
@@ -322,13 +323,15 @@ class DiagFFTPC(object):
 
         # copy petsc vec into Function
         # hopefully this works
-        with self.xf.dat.vec_wo as v:
+        with self.xfunc.dat.vec_wo as v:
             x.copy(v)
 
         # get array of basis coefficients
-        with self.xf.dat.vec_ro as v:
-            parray = v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                        self.blockV.node_set.size))
+        with self.xfunc.dat.vec_ro as v:
+            self.cwrk.real[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
+                                                   self.blockV.node_set.size))
+            self.cwrk.imag[:] = 0
+
         # This produces an array whose rows are time slices
         # and columns are finite element basis coefficients
 
@@ -336,21 +339,24 @@ class DiagFFTPC(object):
         # Diagonalise - scale, transfer, FFT, transfer, Copy
         # Scale
         # is there a better way to do this with broadcasting?
-        parray = (1.0+0.j)*(self.Gam_slice*parray.T).T*np.sqrt(self.ntimesteps)
+
+        self.cwrk[:] = (1.0+0.j)*(self.Gam_slice*self.cwrk.T).T
+
         # transfer forward
-        self.a0[:] = parray[:]
+        self.a0[:] = self.cwrk[:]
         self.transfer.forward(self.a0, self.a1)
         # FFT
         self.a1[:] = fft(self.a1, axis=0)
 
         # transfer backward
         self.transfer.backward(self.a1, self.a0)
-        # Copy into xfi, xfr
-        parray[:] = self.a0[:]
-        with self.xfr.dat.vec_wo as v:
-            v.array[:] = parray.real.reshape(-1)
-        with self.xfi.dat.vec_wo as v:
-            v.array[:] = parray.imag.reshape(-1)
+        # Copy into ximag, xreal
+        self.cwrk[:] = self.a0[:]
+
+        with self.xreal.dat.vec_wo as v:
+            v.array[:] = self.cwrk.real.reshape(-1)
+        with self.ximag.dat.vec_wo as v:
+            v.array[:] = self.cwrk.imag.reshape(-1)
         #####################
 
         # Do the block solves
@@ -359,44 +365,45 @@ class DiagFFTPC(object):
             # copy the data into solver input
             self.riesz_rhs.assign(0.)
 
-            cpx.set_real(self.riesz_rhs, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-            cpx.set_imag(self.riesz_rhs, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+            cpx.set_real(self.riesz_rhs, self.aaos.get_field_components(i, f_alls=self.xreal.subfunctions))
+            cpx.set_imag(self.riesz_rhs, self.aaos.get_field_components(i, f_alls=self.ximag.subfunctions))
 
             # Do a project for Riesz map, to be superceded
             # when we get Cofunction
-            self.riesz_proj.solve(self.Jprob_in, self.riesz_rhs)
+            self.riesz_proj.solve(self.block_rhs, self.riesz_rhs)
 
             # solve the block system
-            self.Jprob_out.assign(0.)
+            self.block_sol.assign(0.)
             self.Jsolvers[i].solve()
 
             # copy the data from solver output
-            cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-            cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+            cpx.get_real(self.block_sol, self.aaos.get_field_components(i, f_alls=self.xreal.subfunctions))
+            cpx.get_imag(self.block_sol, self.aaos.get_field_components(i, f_alls=self.ximag.subfunctions))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
         # get array of basis coefficients
-        with self.xfi.dat.vec_ro as v:
-            parray = 1j*v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                           self.blockV.node_set.size))
-        with self.xfr.dat.vec_ro as v:
-            parray += v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                         self.blockV.node_set.size))
+        with self.ximag.dat.vec_ro as v:
+            self.cwrk[:] = 1j*v.array_r.reshape((self.aaos.nlocal_timesteps,
+                                                 self.blockV.node_set.size))
+        with self.xreal.dat.vec_ro as v:
+            self.cwrk[:] += v.array_r.reshape((self.aaos.nlocal_timesteps,
+                                               self.blockV.node_set.size))
         # transfer forward
-        self.a0[:] = parray[:]
+        self.a0[:] = self.cwrk[:]
         self.transfer.forward(self.a0, self.a1)
         # IFFT
         self.a1[:] = ifft(self.a1, axis=0)
         # transfer backward
         self.transfer.backward(self.a1, self.a0)
-        parray[:] = self.a0[:]
+        self.cwrk[:] = self.a0[:]
         # scale
-        parray = ((1.0/self.Gam_slice)*parray.T).T
-        # Copy into xfi, xfr
-        with self.yf.dat.vec_wo as v:
-            v.array[:] = parray.reshape(-1).real
-        with self.yf.dat.vec_ro as v:
+        self.cwrk[:] = ((1.0/self.Gam_slice)*self.cwrk.T).T
+
+        # Copy into ximag, xreal
+        with self.yfunc.dat.vec_wo as v:
+            v.array[:] = self.cwrk.reshape(-1).real
+        with self.yfunc.dat.vec_ro as v:
             v.copy(y)
         ################
 
