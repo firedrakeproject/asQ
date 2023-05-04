@@ -397,16 +397,17 @@ class DiagFFTPC(object):
             return self.aaos.get_field_components(i, f_alls=x.subfunctions)
 
         for i in range(self.aaos.nlocal_timesteps):
+            self.block_rhs.assign(0.)
+            self.block_sol.assign(0.)
+
             # copy the data into solver input
             cpx.set_real(self.riesz_rhs, get_field(i, xreal))
             cpx.set_imag(self.riesz_rhs, get_field(i, ximag))
 
             # Do a project for Riesz map, to be superceded when we get Cofunction
-            self.block_rhs.assign(0.)
             self.riesz_proj.solve(self.block_rhs, self.riesz_rhs)
 
             # solve the block system
-            self.block_sol.assign(0.)
             self.Jsolvers[i].solve()
 
             # copy the data from solver output
@@ -420,8 +421,7 @@ class DiagFFTPC(object):
         # copy input Vec into Function
         with self.xreal.dat.vec_wo as v:
             x.copy(v)
-        with self.ximag.dat.vec_wo as v:
-            v.array[:] = 0
+        self.ximag.assign(0.)
 
         # forward FFT
         self.to_eigenbasis(self.xreal, self.ximag)
