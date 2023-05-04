@@ -137,10 +137,6 @@ class DiagFFTPC(object):
         # sanity check
         assert (self.blockV.dim()*paradiag.nlocal_timesteps == W_all.dim())
 
-        # Input/Output wrapper Functions for all-at-once residual being acted on
-        self.xfunc = fd.Function(W_all)  # input
-        self.yfunc = fd.Function(W_all)  # output
-
         # Gamma coefficients
         exponents = np.arange(self.ntimesteps)/self.ntimesteps
         self.Gam = paradiag.alpha**exponents
@@ -180,7 +176,7 @@ class DiagFFTPC(object):
         self.block_rhs = fd.Function(self.CblockV)
         self.block_sol = fd.Function(self.CblockV)
 
-        # A place to store the real/imag components of the all-at-once residual after fft
+        # A place to store the real/imag components of the all-at-once residual
         self.xreal = fd.Function(W_all)
         self.ximag = fd.Function(W_all)
 
@@ -199,7 +195,6 @@ class DiagFFTPC(object):
         # a0 is the local part of our other fft working array
         self.a1 = np.zeros(self.p1.subshape, complex)
         self.transfer = self.p0.transfer(self.p1, complex)
-        self.cwrk = np.zeros((self.nlocal_timesteps, nlocal), dtype=complex)
 
         # setting up the Riesz map to project residual into complex space
         rmap_rhs = construct_riesz_map(self.blockV,
@@ -300,7 +295,7 @@ class DiagFFTPC(object):
         an operator that is block diagonal in the 2x2 system coupling
         real and imaginary parts.
         '''
-        self.ureduce.assign(0)
+        self.ureduce.assign(0.)
 
         urs = self.ureduce.subfunctions
         for i in range(self.nlocal_timesteps):
@@ -319,57 +314,95 @@ class DiagFFTPC(object):
 
     @PETSc.Log.EventDecorator()
     @memprofile
-    def apply(self, pc, x, y):
+    def to_eigenbasis(self, xreal, ximag, output='real,imag'):
+        """
+        In-place transform of the complex vector (xreal, ximag) to the preconditioner (block-)eigenbasis.
+        :arg xreal: real part of input and output
+        :arg ximag: real part of input and output
+        """
+        # copy data into working array
+        with xreal.dat.vec_ro as v:
+            self.a0.real[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
+                                                 self.blockV.node_set.size))
+        with ximag.dat.vec_ro as v:
+            self.a0.imag[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
+                                                 self.blockV.node_set.size))
 
-        # copy petsc vec into Function
-        # hopefully this works
-        with self.xfunc.dat.vec_wo as v:
-            x.copy(v)
+        # alpha-weighting
+        self.a0.real[:] = (self.Gam_slice*self.a0.real.T).T
 
-        # get array of basis coefficients
-        with self.xfunc.dat.vec_ro as v:
-            self.cwrk.real[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                                   self.blockV.node_set.size))
-            self.cwrk.imag[:] = 0
-
-        # This produces an array whose rows are time slices
-        # and columns are finite element basis coefficients
-
-        ######################
-        # Diagonalise - scale, transfer, FFT, transfer, Copy
-        # Scale
-        # is there a better way to do this with broadcasting?
-
-        self.cwrk[:] = (1.0+0.j)*(self.Gam_slice*self.cwrk.T).T
-
-        # transfer forward
-        self.a0[:] = self.cwrk[:]
+        # transpose forward
         self.transfer.forward(self.a0, self.a1)
+
         # FFT
         self.a1[:] = fft(self.a1, axis=0)
 
-        # transfer backward
+        # transpose backward
         self.transfer.backward(self.a1, self.a0)
-        # Copy into ximag, xreal
-        self.cwrk[:] = self.a0[:]
 
-        with self.xreal.dat.vec_wo as v:
-            v.array[:] = self.cwrk.real.reshape(-1)
-        with self.ximag.dat.vec_wo as v:
-            v.array[:] = self.cwrk.imag.reshape(-1)
-        #####################
+        # copy back into output
+        if 'real' in output:
+            with xreal.dat.vec_wo as v:
+                v.array[:] = self.a0.real.reshape(-1)
+        if 'imag' in output:
+            with ximag.dat.vec_wo as v:
+                v.array[:] = self.a0.imag.reshape(-1)
 
-        # Do the block solves
+    @PETSc.Log.EventDecorator()
+    @memprofile
+    def from_eigenbasis(self, xreal, ximag, output='real,imag'):
+        """
+        In-place transform of the complex vector (xreal, ximag) from the preconditioner (block-)eigenbasis.
+        :arg xreal: real part of input and output
+        :arg ximag: real part of input and output
+        """
+        # copy data into working array
+        with xreal.dat.vec_ro as v:
+            self.a0.real[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
+                                                 self.blockV.node_set.size))
+        with ximag.dat.vec_ro as v:
+            self.a0.imag[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
+                                                 self.blockV.node_set.size))
+
+        # transpose forward
+        self.transfer.forward(self.a0, self.a1)
+
+        # IFFT
+        self.a1[:] = ifft(self.a1, axis=0)
+
+        # transpose backward
+        self.transfer.backward(self.a1, self.a0)
+
+        # alpha-weighting
+        self.a0[:] = ((1.0/self.Gam_slice)*self.a0.T).T
+
+        # copy back into output
+        if 'real' in output:
+            with xreal.dat.vec_wo as v:
+                v.array[:] = self.a0.real.reshape(-1)
+        if 'imag' in output:
+            with ximag.dat.vec_wo as v:
+                v.array[:] = self.a0.imag.reshape(-1)
+
+    @PETSc.Log.EventDecorator()
+    @memprofile
+    def solve_blocks(self, xreal, ximag):
+        """
+        Solve each of the blocks in the diagonalised preconditioner with
+        complex vector (xreal,ximag) as the right-hand-sides.
+        :arg xreal: real part of input and output
+        :arg ximag: real part of input and output
+        """
+        def get_field(i, x):
+            return self.aaos.get_field_components(i, f_alls=x.subfunctions)
 
         for i in range(self.aaos.nlocal_timesteps):
             # copy the data into solver input
-            self.riesz_rhs.assign(0.)
+            cpx.set_real(self.riesz_rhs, get_field(i, xreal))
+            cpx.set_imag(self.riesz_rhs, get_field(i, ximag))
 
-            cpx.set_real(self.riesz_rhs, self.aaos.get_field_components(i, f_alls=self.xreal.subfunctions))
-            cpx.set_imag(self.riesz_rhs, self.aaos.get_field_components(i, f_alls=self.ximag.subfunctions))
-
-            # Do a project for Riesz map, to be superceded
-            # when we get Cofunction
+            # Do a project for Riesz map, to be superceded when we get Cofunction
+            self.block_rhs.assign(0.)
             self.riesz_proj.solve(self.block_rhs, self.riesz_rhs)
 
             # solve the block system
@@ -377,35 +410,31 @@ class DiagFFTPC(object):
             self.Jsolvers[i].solve()
 
             # copy the data from solver output
-            cpx.get_real(self.block_sol, self.aaos.get_field_components(i, f_alls=self.xreal.subfunctions))
-            cpx.get_imag(self.block_sol, self.aaos.get_field_components(i, f_alls=self.ximag.subfunctions))
+            cpx.get_real(self.block_sol, get_field(i, xreal))
+            cpx.get_imag(self.block_sol, get_field(i, ximag))
 
-        ######################
-        # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
-        # get array of basis coefficients
-        with self.ximag.dat.vec_ro as v:
-            self.cwrk[:] = 1j*v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                                 self.blockV.node_set.size))
+    @PETSc.Log.EventDecorator()
+    @memprofile
+    def apply(self, pc, x, y):
+
+        # copy input Vec into Function
+        with self.xreal.dat.vec_wo as v:
+            x.copy(v)
+        with self.ximag.dat.vec_wo as v:
+            v.array[:] = 0
+
+        # forward FFT
+        self.to_eigenbasis(self.xreal, self.ximag)
+
+        # Do the block solves
+        self.solve_blocks(self.xreal, self.ximag)
+
+        # backward IFFT
+        self.from_eigenbasis(self.xreal, self.ximag, output='real')
+
+        # copy solution into output Vec
         with self.xreal.dat.vec_ro as v:
-            self.cwrk[:] += v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                               self.blockV.node_set.size))
-        # transfer forward
-        self.a0[:] = self.cwrk[:]
-        self.transfer.forward(self.a0, self.a1)
-        # IFFT
-        self.a1[:] = ifft(self.a1, axis=0)
-        # transfer backward
-        self.transfer.backward(self.a1, self.a0)
-        self.cwrk[:] = self.a0[:]
-        # scale
-        self.cwrk[:] = ((1.0/self.Gam_slice)*self.cwrk.T).T
-
-        # Copy into ximag, xreal
-        with self.yfunc.dat.vec_wo as v:
-            v.array[:] = self.cwrk.reshape(-1).real
-        with self.yfunc.dat.vec_ro as v:
             v.copy(y)
-        ################
 
         self._record_diagnostics()
 
