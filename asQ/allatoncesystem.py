@@ -9,6 +9,43 @@ from functools import partial
 from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
+def time_average(aaos, uout, uwrk, uall=None, average='window'):
+    """
+    Compute the time average of an all-at-once function
+    over either entire window or current slice.
+
+    :arg aaos: AllAtOnceSystem describing the function to average.
+    :arg uout: Function to save average into.
+    :arg uwrk: Function to use as working buffer.
+    :arg uall: all-at-once function to average. If None the AllAtOnceSystem's is used.
+    :arg average: range of time-average.
+        'window': compute over all timesteps in all-at-once function.
+        'slice': compute only over timesteps on local ensemble member.
+    """
+    if uall is None:
+        uall = aaos.w_all
+    ualls = uall.subfunctions
+
+    # accumulate over local slice
+    uout.assign(0)
+    uouts = uout.subfunctions
+    for i in range(aaos.nlocal_timesteps):
+        for uo, uc in zip(uouts, aaos.get_field_components(i, f_alls=ualls)):
+            uo.assign(uo + uc)
+
+    if average == 'slice':
+        nsamples = aaos.nlocal_timesteps
+        uout /= fd.Constant(nsamples)
+    elif average == 'window':
+        aaos.ensemble.allreduce(uout, uwrk)
+        nsamples = aaos.ntimesteps
+        uout.assign(uwrk/fd.Constant(nsamples))
+    else:
+        raise ValueError(f"average type must be 'window' or 'slice', not {average}")
+
+    return
+
+
 class JacobianMatrix(object):
     """
     PETSc options:

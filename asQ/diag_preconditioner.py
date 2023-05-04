@@ -7,6 +7,7 @@ from asQ.pencil import Pencil, Subcomm
 import importlib
 from asQ.profiling import memprofile
 from asQ.common import get_option_from_list
+from asQ.allatoncesystem import time_average
 
 from functools import partial
 
@@ -335,21 +336,8 @@ class DiagFFTPC(object):
             cpx.set_real(self.u0, self.aaos.reference_state)
             cpx.set_imag(self.u0, self.aaos.reference_state)
             return
-        # else jac_state in ('window', 'slice')
-
-        self.ureduce.assign(0)
-
-        urs = self.ureduce.subfunctions
-        for i in range(self.nlocal_timesteps):
-            for ur, ui in zip(urs, self.aaos.get_field_components(i)):
-                ur.assign(ur + ui)
-
-        # average only over current time-slice
-        if jac_state == 'slice':
-            self.ureduce /= fd.Constant(self.nlocal_timesteps)
-        else:  # implies jac_state == 'window':
-            self.paradiag.ensemble.allreduce(self.ureduce, self.uwrk)
-            self.ureduce.assign(self.uwrk/fd.Constant(self.ntimesteps))
+        elif jac_state in ('window', 'slice'):
+            time_average(self.aaos, self.ureduce, self.uwrk, average=jac_state)
 
         cpx.set_real(self.u0, self.ureduce)
         cpx.set_imag(self.u0, self.ureduce)
