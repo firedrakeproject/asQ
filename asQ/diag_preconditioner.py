@@ -328,19 +328,21 @@ class DiagFFTPC(object):
         jac_state = self.jac_state()
         if jac_state == 'linear':
             return
+
         elif jac_state == 'initial':
-            cpx.set_real(self.u0, self.aaos.initial_condition)
-            cpx.set_imag(self.u0, self.aaos.initial_condition)
-            return
+            ustate = self.aaos.initial_condition
+
         elif jac_state == 'reference':
-            cpx.set_real(self.u0, self.aaos.reference_state)
-            cpx.set_imag(self.u0, self.aaos.reference_state)
-            return
+            ustate = self.aaos.reference_state
+
         elif jac_state in ('window', 'slice'):
             time_average(self.aaos, self.ureduce, self.uwrk, average=jac_state)
+            ustate = self.ureduce
 
-        cpx.set_real(self.u0, self.ureduce)
-        cpx.set_imag(self.u0, self.ureduce)
+        cpx.set_real(self.u0, ustate)
+        cpx.set_imag(self.u0, ustate)
+
+        return
 
     @PETSc.Log.EventDecorator()
     @memprofile

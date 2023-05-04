@@ -57,11 +57,13 @@ class JacobianMatrix(object):
         'consistent': use the same form used in the AllAtOnceSystem residual.
         'user': use the alternative forms given to the AllAtOnceSystem.
 
-    'aaos_jacobian_state': <'current', 'linear', 'initial', 'reference'>
+    'aaos_jacobian_state': <'current', 'window', 'slice', 'linear', 'initial', 'reference', 'user'>
         Which state to linearise around when constructing the Jacobian.
         Default is 'current'.
 
         'current': use the current state of the AllAtOnceSystem (i.e. current Newton iterate).
+        'window': use the time average over the entire AllAtOnceSystem.
+        'slice': use the time average over timesteps on the local Ensemble member.
         'linear': the form being linearised is linear, so no update to the state is needed.
         'initial': use the initial condition is used for all timesteps.
         'reference': use the reference state of the AllAtOnceSystem for all timesteps.
@@ -94,6 +96,10 @@ class JacobianMatrix(object):
         self.F = fd.Function(self.aaos.function_space_all)
         self.F_prev = fd.Function(self.aaos.function_space_all)
 
+        # working buffers for calculating time average when needed
+        self.ureduce = fd.Function(self.aaos.function_space)
+        self.uwrk = fd.Function(self.aaos.function_space)
+
         # option for what form to linearise
         valid_linearisations = ['consistent', 'user']
 
@@ -123,7 +129,7 @@ class JacobianMatrix(object):
         self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
 
         # option for what state to linearise around
-        valid_jacobian_states = ['current', 'linear', 'initial', 'reference', 'user']
+        valid_jacobian_states = ['current', 'window', 'slice', 'linear', 'initial', 'reference', 'user']
 
         if snes is None:
             self.jacobian_state = lambda: 'current'
@@ -146,6 +152,11 @@ class JacobianMatrix(object):
         aaos = self.aaos
         jacobian_state = self.jacobian_state()
 
+        def uniform_state(u):
+            self.urecv.assign(u)
+            for i in range(aaos.nlocal_timesteps):
+                aaos.set_field(i, u, f_alls=self.u.subfunctions)
+
         if jacobian_state == 'linear':
             pass
 
@@ -156,15 +167,15 @@ class JacobianMatrix(object):
             else:
                 aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
 
+        elif jacobian_state in ('window', 'slice'):
+            time_average(aaos, self.ureduce, self.uwrk, average=jacobian_state)
+            uniform_state(self.ureduce)
+
         elif jacobian_state == 'initial':
-            self.urecv.assign(aaos.initial_condition)
-            for i in range(aaos.nlocal_timesteps):
-                aaos.set_field(i, aaos.initial_condition, f_alls=self.u.subfunctions)
+            uniform_state(aaos.initial_condition)
 
         elif jacobian_state == 'reference':
-            self.urecv.assign(aaos.reference_state)
-            for i in range(aaos.nlocal_timesteps):
-                aaos.set_field(i, aaos.reference_state, f_alls=self.u.subfunctions)
+            uniform_state(aaos.reference_state)
 
         elif jacobian_state == 'user':
             pass
