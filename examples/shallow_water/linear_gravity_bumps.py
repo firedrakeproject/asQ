@@ -115,8 +115,8 @@ sparameters_diag = {
 }
 
 sparameters_diag['diagfft_block'] = sparameters
-#for i in range(window_length):
-#    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
+# for i in range(window_length):
+#     sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,

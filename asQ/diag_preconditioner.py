@@ -10,6 +10,64 @@ from asQ.profiling import memprofile
 import asQ.complex_proxy.vector as cpx
 
 
+def construct_riesz_map(V, W, prefix, riesz_options=None):
+    """
+    Construct projection into W assuming W is a complex-proxy
+    FunctionSpace for the real FunctionSpace V.
+
+    :arg V: a real-valued FunctionSpace.
+    :arg W: a complex-proxy FunctionSpace for V.
+    :arg prefix: the prefix for the PETSc options for the projection solve.
+    :arg riesz_options: PETSc options for the projection solve. Defaults to direct solve.
+    """
+    # default is to solve directly
+    if riesz_options is None:
+        riesz_options = {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor_mat_solver_type': 'mumps',
+            'mat_type': 'aij'
+        }
+
+    # mixed mass matrices are decoupled so solve seperately
+    if isinstance(V.ufl_element(), fd.MixedElement):
+        full_riesz_options = {
+            'ksp_type': 'preonly',
+            'mat_type': 'nest',
+            'pc_type': 'fieldsplit',
+            'pc_field_split_type': 'additive',
+            'fieldsplit': riesz_options
+        }
+    else:
+        full_riesz_options = riesz_options
+
+    # mat types
+    mat_type = PETSc.Options().getString(
+        f"{prefix}mat_type",
+        default=riesz_options['mat_type'])
+
+    sub_mat_type = PETSc.Options().getString(
+        f"{prefix}fieldsplit_mat_type",
+        default=riesz_options['mat_type'])
+
+    # input for riesz map
+    rhs = fd.Function(W)
+
+    # construct forms
+    v = fd.TestFunction(W)
+    u = fd.TrialFunction(W)
+
+    a = fd.assemble(fd.inner(u, v)*fd.dx,
+                    mat_type=mat_type,
+                    sub_mat_type=sub_mat_type)
+
+    # create LinearSolver
+    rmap = fd.LinearSolver(a, solver_parameters=full_riesz_options,
+                           options_prefix=f"{prefix}")
+
+    return rmap, rhs
+
+
 class DiagFFTPC(object):
     prefix = "diagfft_"
 
@@ -142,48 +200,11 @@ class DiagFFTPC(object):
         self.a1 = np.zeros(self.p1.subshape, complex)
         self.transfer = self.p0.transfer(self.p1, complex)
 
-        # setting up the Riesz map
-        default_riesz_method = {
-            'ksp_type': 'preonly',
-            'pc_type': 'lu',
-            'pc_factor_mat_solver_type': 'mumps',
-            'mat_type': 'aij'
-        }
-
-        # mixed mass matrices are decoupled so solve seperately
-        if isinstance(self.blockV.ufl_element(), fd.MixedElement):
-            default_riesz_parameters = {
-                'ksp_type': 'preonly',
-                'mat_type': 'nest',
-                'pc_type': 'fieldsplit',
-                'pc_field_split_type': 'additive',
-                'fieldsplit': default_riesz_method
-            }
-        else:
-            default_riesz_parameters = default_riesz_method
-
-        # we need to pass the mat_types to assemble directly because
-        # it won't pick them up from Options
-
-        riesz_mat_type = PETSc.Options().getString(
-            f"{prefix}{self.prefix}mass_mat_type",
-            default=default_riesz_parameters['mat_type'])
-
-        riesz_sub_mat_type = PETSc.Options().getString(
-            f"{prefix}{self.prefix}mass_fieldsplit_mat_type",
-            default=default_riesz_method['mat_type'])
-
-        # input for the Riesz map
-        self.xtemp = fd.Function(self.CblockV)
-        v = fd.TestFunction(self.CblockV)
-        u = fd.TrialFunction(self.CblockV)
-
-        a = fd.assemble(fd.inner(u, v)*fd.dx,
-                        mat_type=riesz_mat_type,
-                        sub_mat_type=riesz_sub_mat_type)
-
-        self.Proj = fd.LinearSolver(a, solver_parameters=default_riesz_parameters,
-                                    options_prefix=f"{prefix}{self.prefix}mass_")
+        # setting up the Riesz map to project residual into complex space
+        rmap_rhs = construct_riesz_map(self.blockV,
+                                       self.CblockV,
+                                       prefix=f"{prefix}{self.prefix}mass_")
+        self.riesz_proj, self.riesz_rhs = rmap_rhs
 
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system
@@ -336,14 +357,14 @@ class DiagFFTPC(object):
 
         for i in range(self.aaos.nlocal_timesteps):
             # copy the data into solver input
-            self.xtemp.assign(0.)
+            self.riesz_rhs.assign(0.)
 
-            cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-            cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+            cpx.set_real(self.riesz_rhs, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+            cpx.set_imag(self.riesz_rhs, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
             # Do a project for Riesz map, to be superceded
             # when we get Cofunction
-            self.Proj.solve(self.Jprob_in, self.xtemp)
+            self.riesz_proj.solve(self.Jprob_in, self.riesz_rhs)
 
             # solve the block system
             self.Jprob_out.assign(0.)
