@@ -204,7 +204,8 @@ class paradiag(object):
             postproc(self, wndw)
 
             converged_reason = self.snes.getConvergedReason()
-            is_linear = self.flat_solver_parameters['snes_type'] == 'ksponly'
+            is_linear = ('snes_type' in self.flat_solver_parameters
+                         and self.flat_solver_parameters['snes_type'] == 'ksponly')
             if is_linear and (converged_reason == 5):
                 pass
             elif not (1 < converged_reason < 5):
