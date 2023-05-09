@@ -131,19 +131,19 @@ class DiagFFTPC(object):
         self.w_all = self.aaos.w_all
 
         # basic model function space
-        self.blockV = self.aaos.function_space
+        self.function_space = self.aaos.function_space
 
         W_all = self.aaos.function_space_all
         # sanity check
-        assert (self.blockV.dim()*paradiag.nlocal_timesteps == W_all.dim())
+        assert (self.function_space.dim()*paradiag.nlocal_timesteps == W_all.dim())
 
         # Gamma coefficients
         exponents = np.arange(self.ntimesteps)/self.ntimesteps
-        self.Gam = paradiag.alpha**exponents
+        self.gamma = paradiag.alpha**exponents
 
         slice_begin = self.aaos.transform_index(0, from_range='slice', to_range='window')
         slice_end = slice_begin + self.nlocal_timesteps
-        self.Gam_slice = self.Gam[slice_begin:slice_end]
+        self.gamma_slice = self.gamma[slice_begin:slice_end]
 
         # circulant eigenvalues
         C1col = np.zeros(self.ntimesteps)
@@ -154,27 +154,27 @@ class DiagFFTPC(object):
         C1col[:2] = np.array([1, -1])/dt
         C2col[:2] = np.array([theta, 1-theta])
 
-        self.D1 = fft(self.Gam*C1col, norm='backward')
-        self.D2 = fft(self.Gam*C2col, norm='backward')
+        self.D1 = fft(self.gamma*C1col, norm='backward')
+        self.D2 = fft(self.gamma*C2col, norm='backward')
 
         # Block system setup
-        # First need to build the vector function space version of blockV
-        self.CblockV = cpx.FunctionSpace(self.blockV)
+        # First need to build the vector function space version of function_space
+        self.cpx_function_space = cpx.FunctionSpace(self.function_space)
 
         # set the boundary conditions to zero for the residual
-        self.CblockV_bcs = tuple((cb
-                                  for bc in self.aaos.boundary_conditions
-                                  for cb in cpx.DirichletBC(self.CblockV, self.blockV,
-                                                            bc, 0*bc.function_arg)))
+        self.block_bcs = tuple((cb
+                                for bc in self.aaos.boundary_conditions
+                                for cb in cpx.DirichletBC(self.cpx_function_space, self.function_space,
+                                                          bc, 0*bc.function_arg)))
 
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
-            self.ureduce = fd.Function(self.blockV)
-            self.uwrk = fd.Function(self.blockV)
+            self.ureduce = fd.Function(self.function_space)
+            self.uwrk = fd.Function(self.function_space)
 
         # input and output functions to the block solve
-        self.block_rhs = fd.Function(self.CblockV)
-        self.block_sol = fd.Function(self.CblockV)
+        self.block_rhs = fd.Function(self.cpx_function_space)
+        self.block_sol = fd.Function(self.cpx_function_space)
 
         # A place to store the real/imag components of the all-at-once residual
         self.xreal = fd.Function(W_all)
@@ -184,7 +184,7 @@ class DiagFFTPC(object):
         # construct simply dist array and 1d fftn:
         subcomm = Subcomm(self.ensemble.ensemble_comm, [0, 1])
         # dimensions of space-time data in this ensemble_comm
-        nlocal = self.blockV.node_set.size
+        nlocal = self.function_space.node_set.size
         NN = np.array([self.ntimesteps, nlocal], dtype=int)
         # transfer pencil is aligned along axis 1
         self.p0 = Pencil(subcomm, NN, axis=1)
@@ -197,8 +197,8 @@ class DiagFFTPC(object):
         self.transfer = self.p0.transfer(self.p1, complex)
 
         # setting up the Riesz map to project residual into complex space
-        rmap_rhs = construct_riesz_map(self.blockV,
-                                       self.CblockV,
+        rmap_rhs = construct_riesz_map(self.function_space,
+                                       self.cpx_function_space,
                                        prefix=f"{prefix}{self.prefix}mass_")
         self.riesz_proj, self.riesz_rhs = rmap_rhs
 
@@ -211,12 +211,12 @@ class DiagFFTPC(object):
         # This is constructed by cpx.derivative
 
         #  Building the nonlinear operator
-        self.Jsolvers = []
+        self.block_solvers = []
         form_mass = self.aaos.form_mass
         form_function = self.aaos.form_function
 
         # Now need to build the block solver
-        self.u0 = fd.Function(self.CblockV)  # time average to linearise around
+        self.u0 = fd.Function(self.cpx_function_space)  # time average to linearise around
 
         # building the block problem solvers
         for i in range(self.nlocal_timesteps):
@@ -224,13 +224,13 @@ class DiagFFTPC(object):
             d1 = self.D1[ii]
             d2 = self.D2[ii]
 
-            M, D1r, D1i = cpx.BilinearForm(self.CblockV, d1, form_mass, return_z=True)
+            M, D1r, D1i = cpx.BilinearForm(self.cpx_function_space, d1, form_mass, return_z=True)
             K, D2r, D2i = cpx.derivative(d2, form_function, self.u0, return_z=True)
 
             A = M + K
 
             # The rhs
-            v = fd.TestFunction(self.CblockV)
+            v = fd.TestFunction(self.cpx_function_space)
             L = fd.inner(v, self.block_rhs)*fd.dx
 
             # pass sigma into PC:
@@ -256,22 +256,22 @@ class DiagFFTPC(object):
                     block_prefix = f"{block_prefix}{str(ii)}_"
                     break
 
-            jprob = fd.LinearVariationalProblem(A, L, self.block_sol,
-                                                bcs=self.CblockV_bcs)
-            Jsolver = fd.LinearVariationalSolver(jprob,
-                                                 appctx=appctx_h,
-                                                 options_prefix=block_prefix)
+            block_prob = fd.LinearVariationalProblem(A, L, self.block_sol,
+                                                     bcs=self.block_bcs)
+            block_solver = fd.LinearVariationalSolver(block_prob,
+                                                      appctx=appctx_h,
+                                                      options_prefix=block_prefix)
             # multigrid transfer manager
             if 'diag_transfer_managers' in paradiag.block_ctx:
-                # Jsolver.set_transfer_manager(paradiag.block_ctx['diag_transfer_managers'][ii])
+                # block_solver.set_transfer_manager(paradiag.block_ctx['diag_transfer_managers'][ii])
                 tm = paradiag.block_ctx['diag_transfer_managers'][i]
-                Jsolver.set_transfer_manager(tm)
-                tm_set = (Jsolver._ctx.transfer_manager is tm)
+                block_solver.set_transfer_manager(tm)
+                tm_set = (block_solver._ctx.transfer_manager is tm)
 
                 if tm_set is False:
-                    print(f"transfer manager not set on Jsolvers[{ii}]")
+                    print(f"transfer manager not set on block_solvers[{ii}]")
 
-            self.Jsolvers.append(Jsolver)
+            self.block_solvers.append(block_solver)
 
         self.initialized = True
 
@@ -282,7 +282,7 @@ class DiagFFTPC(object):
         Must be called exactly once at the end of each apply()
         """
         for i in range(self.aaos.nlocal_timesteps):
-            its = self.Jsolvers[i].snes.getLinearSolveIterations()
+            its = self.block_solvers[i].snes.getLinearSolveIterations()
             self.paradiag.block_iterations.dlocal[i] += its
 
     @PETSc.Log.EventDecorator()
@@ -319,17 +319,18 @@ class DiagFFTPC(object):
         In-place transform of the complex vector (xreal, ximag) to the preconditioner (block-)eigenbasis.
         :arg xreal: real part of input and output
         :arg ximag: real part of input and output
+        :arg output: which parts of the result to copy the back into xreal and/or ximag.
         """
         # copy data into working array
         with xreal.dat.vec_ro as v:
             self.a0.real[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                                 self.blockV.node_set.size))
+                                                 self.function_space.node_set.size))
         with ximag.dat.vec_ro as v:
             self.a0.imag[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                                 self.blockV.node_set.size))
+                                                 self.function_space.node_set.size))
 
         # alpha-weighting
-        self.a0.real[:] = (self.Gam_slice*self.a0.real.T).T
+        self.a0.real[:] = (self.gamma_slice*self.a0.real.T).T
 
         # transpose forward
         self.transfer.forward(self.a0, self.a1)
@@ -355,14 +356,15 @@ class DiagFFTPC(object):
         In-place transform of the complex vector (xreal, ximag) from the preconditioner (block-)eigenbasis.
         :arg xreal: real part of input and output
         :arg ximag: real part of input and output
+        :arg output: which parts of the result to copy the back into xreal and/or ximag.
         """
         # copy data into working array
         with xreal.dat.vec_ro as v:
             self.a0.real[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                                 self.blockV.node_set.size))
+                                                 self.function_space.node_set.size))
         with ximag.dat.vec_ro as v:
             self.a0.imag[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                                 self.blockV.node_set.size))
+                                                 self.function_space.node_set.size))
 
         # transpose forward
         self.transfer.forward(self.a0, self.a1)
@@ -374,7 +376,7 @@ class DiagFFTPC(object):
         self.transfer.backward(self.a1, self.a0)
 
         # alpha-weighting
-        self.a0[:] = ((1.0/self.Gam_slice)*self.a0.T).T
+        self.a0[:] = ((1.0/self.gamma_slice)*self.a0.T).T
 
         # copy back into output
         if 'real' in output:
@@ -408,7 +410,7 @@ class DiagFFTPC(object):
             self.riesz_proj.solve(self.block_rhs, self.riesz_rhs)
 
             # solve the block system
-            self.Jsolvers[i].solve()
+            self.block_solvers[i].solve()
 
             # copy the data from solver output
             cpx.get_real(self.block_sol, get_field(i, xreal))
