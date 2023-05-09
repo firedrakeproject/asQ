@@ -76,7 +76,7 @@ class ShallowWaterMiniApp(object):
                 g = self.gravity
                 H = self.reference_depth
                 f = self.coriolis
-                return swe.linear.form_function(self.mesh, g, H, f, u, h, v, q ,t)
+                return swe.linear.form_function(self.mesh, g, H, f, u, h, v, q, t)
 
             def form_mass(u, h, v, q):
                 return swe.linear.form_mass(self.mesh, u, h, v, q)
