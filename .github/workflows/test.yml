@@ -43,7 +43,6 @@ jobs:
           . /home/firedrake/firedrake/bin/activate
           python -m pip install pytest-timeout
           python -m pip install pytest-cov
-          python -m pip uninstall --yes pytest-mpi
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
