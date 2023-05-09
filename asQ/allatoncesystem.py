@@ -630,9 +630,8 @@ class AllAtOnceSystem(object):
 
         test_fns = fd.TestFunctions(self.function_space_all)
 
-        dt1 = fd.Constant(1.0/self.dt)
+        dt = fd.Constant(self.dt)
         theta = fd.Constant(self.theta)
-        thetam1 = fd.Constant(1.0 - self.theta)
         alpha = fd.Constant(self.alpha)
 
         def get_step(i):
@@ -666,13 +665,13 @@ class AllAtOnceSystem(object):
 
             # time derivative
             if n == 0:
-                aao_form = dt1*mass(*w1s, *dws)
+                aao_form = (1.0/dt)*mass(*w1s, *dws)
             else:
-                aao_form += dt1*mass(*w1s, *dws)
-            aao_form -= dt1*mass(*w0s, *dws)
+                aao_form += (1.0/dt)*mass(*w1s, *dws)
+            aao_form -= (1.0/dt)*mass(*w0s, *dws)
 
             # vector field
             aao_form += theta*function(*w1s, *dws)
-            aao_form += thetam1*function(*w0s, *dws)
+            aao_form += (1.0 - theta)*function(*w0s, *dws)
 
         return aao_form
