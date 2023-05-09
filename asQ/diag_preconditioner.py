@@ -10,7 +10,7 @@ from asQ.profiling import memprofile
 import asQ.complex_proxy.vector as cpx
 
 
-def construct_riesz_map(V, W, prefix, riesz_options=None):
+def construct_riesz_map(W, prefix, fieldsplit=False, riesz_options=None):
     """
     Construct projection into W assuming W is a complex-proxy
     FunctionSpace for the real FunctionSpace V.
@@ -30,7 +30,7 @@ def construct_riesz_map(V, W, prefix, riesz_options=None):
         }
 
     # mixed mass matrices are decoupled so solve seperately
-    if isinstance(V.ufl_element(), fd.MixedElement):
+    if fieldsplit:
         full_riesz_options = {
             'ksp_type': 'preonly',
             'mat_type': 'nest',
@@ -197,11 +197,26 @@ class DiagFFTPC(object):
         self.transfer = self.p0.transfer(self.p1, complex)
 
         # setting up the Riesz map to project residual into complex space
-        rmap_rhs = construct_riesz_map(self.function_space,
-                                       self.cpx_function_space,
-                                       prefix=f"{prefix}{self.prefix}mass_")
+        is_mixed = isinstance(self.function_space.ufl_element(), fd.MixedElement)
+        rmap_rhs = construct_riesz_map(self.cpx_function_space,
+                                       prefix=f"{prefix}{self.prefix}mass_",
+                                       fieldsplit=is_mixed)
         self.riesz_proj, self.riesz_rhs = rmap_rhs
 
+        # Now need to build the block solvers
+
+        # time-average function to linearise around
+        self.u0 = fd.Function(self.cpx_function_space)
+
+        self.block_solvers = tuple((self._make_block(i, f"{prefix}{self.prefix}")
+                                    for i in range(self.nlocal_timesteps)))
+
+        self.initialized = True
+
+    def _make_block(self, i, prefix):
+        """
+        Construct the LinearVariationalSolver for block index i.
+        """
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system
         # coupling the real and imaginary parts.
@@ -210,70 +225,51 @@ class DiagFFTPC(object):
         # parts and then linearising.
         # This is constructed by cpx.derivative
 
-        #  Building the nonlinear operator
-        self.block_solvers = []
         form_mass = self.aaos.form_mass
         form_function = self.aaos.form_function
 
-        # Now need to build the block solver
-        self.u0 = fd.Function(self.cpx_function_space)  # time average to linearise around
+        ii = self.aaos.transform_index(i, from_range='slice', to_range='window')
+        d1 = self.D1[ii]
+        d2 = self.D2[ii]
 
-        # building the block problem solvers
-        for i in range(self.nlocal_timesteps):
-            ii = self.aaos.transform_index(i, from_range='slice', to_range='window')
-            d1 = self.D1[ii]
-            d2 = self.D2[ii]
+        M, D1r, D1i = cpx.BilinearForm(self.cpx_function_space, d1, form_mass, return_z=True)
+        K, D2r, D2i = cpx.derivative(d2, form_function, self.u0, return_z=True)
 
-            M, D1r, D1i = cpx.BilinearForm(self.cpx_function_space, d1, form_mass, return_z=True)
-            K, D2r, D2i = cpx.derivative(d2, form_function, self.u0, return_z=True)
+        A = M + K
 
-            A = M + K
+        # The rhs
+        v = fd.TestFunction(self.cpx_function_space)
+        L = fd.inner(v, self.block_rhs)*fd.dx
 
-            # The rhs
-            v = fd.TestFunction(self.cpx_function_space)
-            L = fd.inner(v, self.block_rhs)*fd.dx
+        # pass sigma into PC:
+        appctx_h = {}
 
-            # pass sigma into PC:
-            sigma = self.D1[ii]**2/self.D2[ii]
-            sigma_inv = self.D2[ii]**2/self.D1[ii]
-            appctx_h = {}
-            appctx_h["sr"] = fd.Constant(np.real(sigma))
-            appctx_h["si"] = fd.Constant(np.imag(sigma))
-            appctx_h["sinvr"] = fd.Constant(np.real(sigma_inv))
-            appctx_h["sinvi"] = fd.Constant(np.imag(sigma_inv))
-            appctx_h["D2r"] = D2r
-            appctx_h["D2i"] = D2i
-            appctx_h["D1r"] = D1r
-            appctx_h["D1i"] = D1i
+        # Options with prefix 'diagfft_block_' apply to all blocks by default
+        # If any options with prefix 'diagfft_block_{i}' exist, where i is the
+        # block number, then this prefix is used instead (like pc fieldsplit)
 
-            # Options with prefix 'diagfft_block_' apply to all blocks by default
-            # If any options with prefix 'diagfft_block_{i}' exist, where i is the
-            # block number, then this prefix is used instead (like pc fieldsplit)
+        block_prefix = f"{prefix}block_"
+        for k, v in PETSc.Options().getAll().items():
+            if k.startswith(f"{block_prefix}{str(ii)}_"):
+                block_prefix = f"{block_prefix}{str(ii)}_"
+                break
 
-            block_prefix = f"{prefix}{self.prefix}block_"
-            for k, v in PETSc.Options().getAll().items():
-                if k.startswith(f"{block_prefix}{str(ii)}_"):
-                    block_prefix = f"{block_prefix}{str(ii)}_"
-                    break
+        block_prob = fd.LinearVariationalProblem(A, L, self.block_sol,
+                                                 bcs=self.block_bcs)
+        block_solver = fd.LinearVariationalSolver(block_prob,
+                                                  appctx=appctx_h,
+                                                  options_prefix=block_prefix)
+        # multigrid transfer manager
+        if 'diag_transfer_managers' in self.paradiag.block_ctx:
+            # block_solver.set_transfer_manager(self.paradiag.block_ctx['diag_transfer_managers'][ii])
+            tm = self.paradiag.block_ctx['diag_transfer_managers'][i]
+            block_solver.set_transfer_manager(tm)
+            tm_set = (block_solver._ctx.transfer_manager is tm)
 
-            block_prob = fd.LinearVariationalProblem(A, L, self.block_sol,
-                                                     bcs=self.block_bcs)
-            block_solver = fd.LinearVariationalSolver(block_prob,
-                                                      appctx=appctx_h,
-                                                      options_prefix=block_prefix)
-            # multigrid transfer manager
-            if 'diag_transfer_managers' in paradiag.block_ctx:
-                # block_solver.set_transfer_manager(paradiag.block_ctx['diag_transfer_managers'][ii])
-                tm = paradiag.block_ctx['diag_transfer_managers'][i]
-                block_solver.set_transfer_manager(tm)
-                tm_set = (block_solver._ctx.transfer_manager is tm)
+            if tm_set is False:
+                print(f"transfer manager not set on block_solvers[{ii}]")
 
-                if tm_set is False:
-                    print(f"transfer manager not set on block_solvers[{ii}]")
-
-            self.block_solvers.append(block_solver)
-
-        self.initialized = True
+        return block_solver
 
     def _record_diagnostics(self):
         """
