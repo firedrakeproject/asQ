@@ -10,7 +10,7 @@ import argparse
 parser = argparse.ArgumentParser(
     description='Paradiag for Stratigraphic model that simulate formation of sedimentary rock over geological time.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--nx', type=int, default=1000, help='Number of cells along each square side.')
+parser.add_argument('--nx', type=int, default=200, help='Number of cells along each square side.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
@@ -108,6 +108,7 @@ paradiag_parameters = {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
+        'lag_jacobian': -2,
         'rtol': 1e-10,
         'atol': 1e-12,
         'stol': 1e-12,

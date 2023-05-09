@@ -117,7 +117,8 @@ def depth_perturbation(theta, lamda, V):
 
 def depth_expression(x, y, z):
     # set up function spaces
-    mesh = x.ufl_domain()
+    from ufl.domain import extract_unique_domain
+    mesh = extract_unique_domain(x)
     V = default_depth_function_space(mesh)
     W = fd.VectorFunctionSpace(mesh, V.ufl_element())
 

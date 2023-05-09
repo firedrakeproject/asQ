@@ -31,7 +31,7 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
     if nranks % nslices != 0:
         raise ValueError("Number of time slices must be exact factor of number of MPI ranks")
 
-    nspatial_domains = nranks/nslices
+    nspatial_domains = nranks//nslices
 
     return fd.Ensemble(comm, nspatial_domains)
 
@@ -114,11 +114,11 @@ class paradiag(object):
                 appctx["paradiag"] = self
                 solver_parameters["diagfft_context"] = "asQ.paradiag.get_context"
         self.solver_parameters = solver_parameters
-        flat_solver_parameters = flatten_parameters(solver_parameters)
+        self.flat_solver_parameters = flatten_parameters(solver_parameters)
 
         # set up the snes
         self.snes = PETSc.SNES().create(comm=ensemble.global_comm)
-        self.opts = OptionsManager(flat_solver_parameters, '')
+        self.opts = OptionsManager(self.flat_solver_parameters, '')
         self.snes.setOptionsPrefix('')
         self.snes.setFunction(self.aaos._assemble_function, self.F)
 
@@ -194,16 +194,27 @@ class paradiag(object):
         for wndw in range(nwindows):
             preproc(self, wndw)
 
+            with self.aaos.w_all.dat.vec_ro as v:
+                v.copy(self.X)
+
             with self.opts.inserted_options():
                 self.snes.solve(None, self.X)
+
             self.aaos.update(self.X)
 
             self._record_diagnostics()
 
             postproc(self, wndw)
 
-            if not (1 < self.snes.getConvergedReason() < 5):
-                PETSc.Sys.Print(f'SNES diverged with error code {self.snes.getConvergedReason()}. Cancelling paradiag time integration.')
+            converged_reason = self.snes.getConvergedReason()
+            is_linear = (
+                'snes_type' in self.flat_solver_parameters
+                and self.flat_solver_parameters['snes_type'] == 'ksponly'
+            )
+            if is_linear and (converged_reason == 5):
+                pass
+            elif not (1 < converged_reason < 5):
+                PETSc.Sys.Print(f'SNES diverged with error code {converged_reason}. Cancelling paradiag time integration.')
                 return
 
             # don't wipe all-at-once function at last window

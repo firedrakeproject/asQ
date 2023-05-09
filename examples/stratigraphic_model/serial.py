@@ -1,6 +1,5 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
-print = lambda x: PETSc.Sys.Print(x)
 from math import pi
 
 # A toy equation for Stratigraphic modelling.
@@ -37,8 +36,7 @@ if __name__ == "__main__":
     s = fd.Function(Z)
     q = fd.TestFunction(Z)
     x, y = fd.SpatialCoordinate(mesh)
-    print("Z.dim():%s" % Z.dim())
-
+    PETSc.Sys.Print("Z.dim():%s" % Z.dim())
     sp = {
         "snes_max_it": 2000,
         "snes_atol": 1.0e-8,
@@ -72,9 +70,8 @@ if __name__ == "__main__":
     nvproblem = fd.NonlinearVariationalProblem(F_euler, s)
     solver = fd.NonlinearVariationalSolver(nvproblem, solver_parameters=sp)
     outfile = fd.File("s.pvd")
-    while (float(t) < 500*float(dt)):
+    while (float(t) < 128*float(dt)):
         t.assign(float(t+dt))
-        print(t.values())
         solver.solve()
         s0.assign(s)
         outfile.write(s)

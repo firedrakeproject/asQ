@@ -29,7 +29,7 @@ def cart_to_sphere_coords(x, y, z):
     '''
     r = fd.sqrt(x*x + y*y + z*z)
     zr = z/r
-    zr_corr = fd.Min(fd.Max(zr, -1), 1)  # avoid roundoff errors at poles
+    zr_corr = fd.min_value(fd.max_value(zr, -1), 1)  # avoid roundoff errors at poles
     theta = fd.asin(zr_corr)
     lamda = fd.atan_2(y, x)
     return theta, lamda

@@ -4,11 +4,10 @@ from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc
 # from mpi4py_fft.pencil import Pencil, Subcomm
 from asQ.pencil import Pencil, Subcomm
-from operator import mul
-from functools import reduce
 import importlib
-from ufl.classes import MultiIndex, FixedIndex, Indexed
-from .profiling import memprofile
+from asQ.profiling import memprofile
+from functools import partial
+import asQ.complex_proxy.vector as cpx
 
 
 class DiagFFTPC(object):
@@ -108,72 +107,19 @@ class DiagFFTPC(object):
         # Block system setup
         # First need to build the vector function space version of
         # blockV
-        mesh = self.blockV.mesh()
-        Ve = self.blockV.ufl_element()
         self.ncpts = len(self.blockV)
-        V_cpts = self.blockV.split()
-        ComplexCpts = []
-        for V_cpt in V_cpts:
-            rank = V_cpt.rank
-            V_cpt_ele = V_cpt.ufl_element()
-            if rank == 0:  # scalar basis coefficients
-                ComplexCpts.append(fd.VectorElement(V_cpt_ele, dim=2))
-            elif rank == 1:  # vector basis coefficients
-                dim = V_cpt_ele.num_sub_elements()
-                shape = (2, dim)
-                scalar_element = V_cpt_ele.sub_elements()[0]
-                ComplexCpts.append(fd.TensorElement(scalar_element, shape))
-            else:
-                assert (rank > 0)
-                shape = (2,) + V_cpt_ele._shape
-                scalar_element = V_cpt_ele.sub_elements()[0]
-                ComplexCpts.append(fd.TensorElement(scalar_element, shape))
-        self.CblockV = reduce(mul, [fd.FunctionSpace(mesh, ComplexCpt)
-                                    for ComplexCpt in ComplexCpts])
+        self.CblockV = cpx.FunctionSpace(self.blockV)
 
-        # get the boundary conditions
-        self.set_CblockV_bcs()
-
-        # Now need to build the block solver
-        vs = fd.TestFunctions(self.CblockV)
-        uts = fd.TrialFunctions(self.CblockV)
-        self.u0 = fd.Function(self.CblockV)  # we will create a linearisation
-        us = fd.split(self.u0)
+        # set the boundary conditions
+        self.CblockV_bcs = tuple((cb
+                                  for bc in self.aaos.boundary_conditions
+                                  for cb in cpx.DirichletBC(self.CblockV, self.blockV,
+                                                            bc, 0*bc.function_arg)))
 
         # function to do global reduction into for average block jacobian
         if self.jac_average == 'window':
-            self.ureduceC = fd.Function(self.CblockV)
-
-        # extract the real and imaginary parts
-        vsr = []
-        vsi = []
-        utsr = []
-        utsi = []
-        usr = []
-        usi = []
-
-        if isinstance(Ve, fd.MixedElement):
-            N = Ve.num_sub_elements()
-            for i in range(N):
-                part = vs[i]
-                idxs = fd.indices(len(part.ufl_shape) - 1)
-                vsr.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(0), *idxs))), idxs))
-                vsi.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(1), *idxs))), idxs))
-                part = us[i]
-                idxs = fd.indices(len(part.ufl_shape) - 1)
-                usr.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(0), *idxs))), idxs))
-                usi.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(1), *idxs))), idxs))
-                part = uts[i]
-                idxs = fd.indices(len(part.ufl_shape) - 1)
-                utsr.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(0), *idxs))), idxs))
-                utsi.append(fd.as_tensor(Indexed(part, MultiIndex((FixedIndex(1), *idxs))), idxs))
-        else:
-            vsr.append(vs[0])
-            vsi.append(vs[1])
-            usr.append(us[0])
-            usi.append(us[1])
-            utsr.append(uts[0])
-            utsi.append(uts[1])
+            self.ureduce = fd.Function(self.blockV)
+            self.uwrk = fd.Function(self.blockV)
 
         # input and output functions
         self.Jprob_in = fd.Function(self.CblockV)
@@ -182,12 +128,6 @@ class DiagFFTPC(object):
         # A place to store all the inputs to the block problems
         self.xfi = fd.Function(W_all)
         self.xfr = fd.Function(W_all)
-
-        #  Building the nonlinear operator
-        self.Jsolvers = []
-        self.Js = []
-        form_mass = self.aaos.form_mass
-        form_function = self.aaos.form_function
 
         # setting up the FFT stuff
         # construct simply dist array and 1d fftn:
@@ -210,11 +150,11 @@ class DiagFFTPC(object):
             'ksp_type': 'preonly',
             'pc_type': 'lu',
             'pc_factor_mat_solver_type': 'mumps',
-            'mat_type': 'baij'
+            'mat_type': 'aij'
         }
 
         # mixed mass matrices are decoupled so solve seperately
-        if isinstance(Ve, fd.MixedElement):
+        if isinstance(self.blockV.ufl_element(), fd.MixedElement):
             default_riesz_parameters = {
                 'ksp_type': 'preonly',
                 'mat_type': 'nest',
@@ -255,22 +195,27 @@ class DiagFFTPC(object):
         # building the nonlinearity separately for the real and imaginary
         # parts and then linearising.
 
-        Nrr = form_function(*usr, *vsr, self.t_average)
-        Nri = form_function(*usr, *vsi, self.t_average)
-        Nir = form_function(*usi, *vsr, self.t_average)
-        Nii = form_function(*usi, *vsi, self.t_average)
-        Jrr = fd.derivative(Nrr, self.u0)
-        Jri = fd.derivative(Nri, self.u0)
-        Jir = fd.derivative(Nir, self.u0)
-        Jii = fd.derivative(Nii, self.u0)
+        #  Building the nonlinear operator
+        self.Jsolvers = []
+        form_mass = self.aaos.form_mass
+        form_function = partial(self.aaos.form_function, t=self.t_average)
+        # Now need to build the block solver
+        self.u0 = fd.Function(self.CblockV)  # time average to linearise around
 
         # building the block problem solvers
         for i in range(self.nlocal_timesteps):
             ii = self.aaos.transform_index(i, from_range='slice', to_range='window')
-            D1i = fd.Constant(np.imag(self.D1[ii]))
-            D1r = fd.Constant(np.real(self.D1[ii]))
-            D2i = fd.Constant(np.imag(self.D2[ii]))
-            D2r = fd.Constant(np.real(self.D2[ii]))
+            d1 = self.D1[ii]
+            d2 = self.D2[ii]
+
+            M, D1r, D1i = cpx.BilinearForm(self.CblockV, d1, form_mass, return_z=True)
+            K, D2r, D2i = cpx.derivative(d2, form_function, self.u0, return_z=True)
+
+            A = M + K
+
+            # The rhs
+            v = fd.TestFunction(self.CblockV)
+            L = fd.inner(v, self.Jprob_in)*fd.dx
 
             # pass sigma into PC:
             sigma = self.D1[ii]**2/self.D2[ii]
@@ -284,22 +229,6 @@ class DiagFFTPC(object):
             appctx_h["D2i"] = D2i
             appctx_h["D1r"] = D1r
             appctx_h["D1i"] = D1i
-
-            # The linear operator
-            A = (
-                D1r*form_mass(*utsr, *vsr)
-                - D1i*form_mass(*utsi, *vsr)
-                + D2r*Jrr
-                - D2i*Jir
-                + D1r*form_mass(*utsi, *vsi)
-                + D1i*form_mass(*utsr, *vsi)
-                + D2r*Jii
-                + D2i*Jri
-            )
-
-            # The rhs
-            v = fd.TestFunction(self.CblockV)
-            L = fd.inner(v, self.Jprob_in)*fd.dx
 
             # Options with prefix 'diagfft_block_' apply to all blocks by default
             # If any options with prefix 'diagfft_block_{i}' exist, where i is the
@@ -330,23 +259,6 @@ class DiagFFTPC(object):
 
         self.initialized = True
 
-    def set_CblockV_bcs(self):
-        self.CblockV_bcs = []
-        for bc in self.aaos.boundary_conditions:
-            is_mixed_element = isinstance(self.aaos.function_space.ufl_element(),
-                                          fd.MixedElement)
-            for r in range(2):  # Complex coefficient index
-                if is_mixed_element:
-                    i = bc.function_space().index
-                    all_bc = fd.DirichletBC(self.CblockV.sub(i).sub(r),
-                                            0*bc.function_arg,
-                                            bc.sub_domain)
-                else:
-                    all_bc = fd.DirichletBC(self.CblockV.sub(r),
-                                            0*bc.function_arg,
-                                            bc.sub_domain)
-                self.CblockV_bcs.append(all_bc)
-
     def _record_diagnostics(self):
         """
         Update diagnostic information from block linear solvers.
@@ -367,22 +279,22 @@ class DiagFFTPC(object):
         an operator that is block diagonal in the 2x2 system coupling
         real and imaginary parts.
         '''
-        self.u0.assign(0)
+        self.ureduce.assign(0)
+
+        urs = self.ureduce.subfunctions
         for i in range(self.nlocal_timesteps):
-            # copy the data into solver input
-            u0s = self.u0.split()
-            for cpt in range(self.ncpts):
-                wcpt = self.w_all.split()[self.ncpts*i+cpt]
-                for r in range(2):  # real and imaginary parts
-                    u0s[cpt].sub(r).assign(u0s[cpt].sub(r) + wcpt)
+            for ur, ui in zip(urs, self.aaos.get_field_components(i)):
+                ur.assign(ur + ui)
 
         # average only over current time-slice
         if self.jac_average == 'slice':
-            self.u0 /= fd.Constant(self.nlocal_timesteps)
+            self.ureduce /= fd.Constant(self.nlocal_timesteps)
         else:  # implies self.jac_average == 'window':
-            self.paradiag.ensemble.allreduce(self.u0, self.ureduceC)
-            self.u0.assign(self.ureduceC)
-            self.u0 /= fd.Constant(sum(self.time_partition))
+            self.paradiag.ensemble.allreduce(self.ureduce, self.uwrk)
+            self.ureduce.assign(self.uwrk/fd.Constant(self.ntimesteps))
+
+        cpx.set_real(self.u0, self.ureduce)
+        cpx.set_imag(self.u0, self.ureduce)
         self.t_average.assign(self.aaos.t0 + (self.aaos.ntimesteps + 1)*self.aaos.dt/2)
 
     @PETSc.Log.EventDecorator()
@@ -428,11 +340,8 @@ class DiagFFTPC(object):
             # copy the data into solver input
             self.xtemp.assign(0.)
 
-            Jins = self.xtemp.split()
-
-            for cpt in range(self.ncpts):
-                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(0), f_alls=self.xfr.split())
-                self.aaos.get_component(i, cpt, wout=Jins[cpt].sub(1), f_alls=self.xfi.split())
+            cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+            cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
             # Do a project for Riesz map, to be superceded
             # when we get Cofunction
@@ -443,10 +352,8 @@ class DiagFFTPC(object):
             self.Jsolvers[i].solve()
 
             # copy the data from solver output
-            Jpouts = self.Jprob_out.split()
-            for cpt in range(self.ncpts):
-                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(0), f_alls=self.xfr.split())
-                self.aaos.set_component(i, cpt, Jpouts[cpt].sub(1), f_alls=self.xfi.split())
+            cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+            cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
