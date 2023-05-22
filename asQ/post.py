@@ -3,6 +3,14 @@ import firedrake as fd
 
 from pyop2.mpi import MPI
 
+__all__ = ["write_timesteps",
+           "write_timeseries",
+           "write_solver_parameters",
+           "write_paradiag_setup",
+           "write_aaos_solve_metrics",
+           "write_block_solve_metrics",
+           "write_paradiag_metrics"]
+
 
 def write_timesteps(pdg,
                     file_name='paradiag_output',

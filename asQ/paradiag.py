@@ -7,6 +7,8 @@ from .profiling import memprofile
 from asQ.allatoncesystem import AllAtOnceSystem, JacobianMatrix
 from asQ.parallel_arrays import SharedArray
 
+__all__ = ['create_ensemble', 'paradiag']
+
 appctx = {}
 
 

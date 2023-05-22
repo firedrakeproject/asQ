@@ -2,6 +2,8 @@ from pyop2.mpi import MPI
 from numpy import zeros as zero_array
 from numpy import asarray
 
+__all__ = ['DistributedDataLayout1D', 'SharedArray', 'OwnedArray']
+
 
 def in_range(i, length, allow_negative=True, throws=False):
     '''

@@ -13,6 +13,8 @@ from functools import partial
 
 import asQ.complex_proxy.vector as cpx
 
+__all__ = ['DiagFFTPC']
+
 
 class DiagFFTPC(object):
     """
