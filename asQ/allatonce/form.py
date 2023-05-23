@@ -2,6 +2,7 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 
 from asQ.profiling import memprofile
+from asQ.allatonce import AllAtOnceFunction
 from asQ.allatonce.mixin import TimePartitionMixin
 
 __all__ = ['AllAtOnceForm']
@@ -11,8 +12,8 @@ class AllAtOnceForm(TimePartitionMixin):
     @memprofile
     def __init__(self,
                  aaofunc, dt, theta,
-                 form_mass, form_function, bcs=[],
-                 alpha=None):
+                 form_mass, form_function,
+                 bcs=[], alpha=None):
         """
         The all-at-once form representing the implicit theta-method over multiple timesteps of a time-dependent finite-element problem.
 
@@ -29,7 +30,6 @@ class AllAtOnceForm(TimePartitionMixin):
         self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
 
         self.aaofunc = aaofunc
-        self.function = aaofunc.function
 
         self.function_space = aaofunc.function_space
 
@@ -46,7 +46,7 @@ class AllAtOnceForm(TimePartitionMixin):
         self.bcs = self._set_bcs(self.field_bcs)
 
         for bc in self.bcs:
-            bc.apply(self.function)
+            bc.apply(aaofunc.function)
 
         # function to assemble the nonlinear residual into
         self.F = fd.Function(aaofunc.function_space)
@@ -80,13 +80,13 @@ class AllAtOnceForm(TimePartitionMixin):
 
     @PETSc.Log.EventDecorator()
     @memprofile
-    def assemble(self, snes, X, Fvec):
+    def assemble(self, func, tensor=None):
         r"""
         This is the function we pass to the snes to assemble
         the nonlinear residual.
         """
         # set current state
-        self.aaofunc.update(X)
+        self.aaofunc.assign(func, sync=True)
 
         # assembly stage
         fd.assemble(self.form, tensor=self.F)
@@ -96,26 +96,23 @@ class AllAtOnceForm(TimePartitionMixin):
             bc.apply(self.F, u=self.aaofunc.function)
 
         # copy into return buffer
-        with self.F.dat.vec_ro as v:
-            v.copy(Fvec)
+        if isinstance(tensor, AllAtOnceFunction):
+            tensor.function.assign(self.F)
+        elif isinstance(tensor, PETSc.Vec):
+            with self.F.dat.vec_ro as v:
+                v.copy(tensor)
+
+        elif tensor is not None:
+            raise TypeError(f"tensor must be AllAtOnceFunction or PETSc.Vec, not {type(tensor)}")
 
     def _construct_form(self):
         """
         Constructs the bilinear form for the all at once system.
         Specific to the theta-centred Crank-Nicholson method
-
-        :arg wall: all-at-once function to construct the form over.
-            Defaults to the AllAtOnceSystem's.
-        :arg wrecv: last timestep from previous time slice.
-            Defaults to the AllAtOnceSystem's.
-        :arg mass: a function that returns a linear form on w0.function_space()
-            providing the mass operator for the time derivative.
-        :arg function: a function that returns a form on w0.function_space()
-            providing f(w) for the ODE w_t + f(w) = 0.
         """
         aaofunc = self.aaofunc
 
-        funcs = fd.split(self.function)
+        funcs = fd.split(aaofunc.function)
 
         ics = fd.split(aaofunc.initial_condition)
         uprevs = fd.split(aaofunc.uprev)

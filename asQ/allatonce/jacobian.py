@@ -30,7 +30,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
     @memprofile
     def __init__(self, aaofunc, aaoform,
-                 reference_state=None, snes=None):
+                 reference_state=None, options_prefix=""):
         r"""
         Python matrix for the Jacobian of the all at once system
         :param aaofunc: The AllAtOnceSystem object
@@ -38,12 +38,6 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
         self.aaofunc = aaofunc
         self.aaoform = aaoform
-        self.form = aaoform.form
-
-        if snes is not None:
-            self.snes = snes
-            prefix = snes.getOptionsPrefix()
-            prefix += self.prefix
 
         # function to linearise around, and timestep from end of previous slice
         self.u = AllAtOnceFunction(self.ensemble, self.time_partition,
@@ -61,21 +55,22 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.ureduce = fd.Function(aaofunc.field_function_space)
         self.uwrk = fd.Function(aaofunc.field_function_space)
 
-        # Jform without contributions from the previous step
-        self.Jform = fd.derivative(self.aaoform.form, self.u)
-        # Jform contributions from the previous step
-        self.Jform_prev = fd.derivative(self.aaoform.form, self.urecv)
+        # form without contributions from the previous step
+        self.form = fd.derivative(aaoform.form, self.u)
+        # form contributions from the previous step
+        self.form_prev = fd.derivative(aaoform.form, self.urecv)
 
         # option for what state to linearise around
         valid_jacobian_states = ['current', 'window', 'slice', 'linear', 'initial', 'reference', 'user']
 
-        if snes is None:
-            self.jacobian_state = lambda: 'current'
-        else:
-            state_option = f"{prefix}state"
+        if (options_prefix != "") and (not options_prefix.endswith("_")):
+            options_prefix += "_"
 
-            self.jacobian_state = partial(get_option_from_list,
-                                          state_option, valid_jacobian_states, default_index=0)
+        state_option = f"{options_prefix}{self.prefix}state"
+
+        self.jacobian_state = partial(get_option_from_list,
+                                      state_option, valid_jacobian_states,
+                                      default_index=0)
 
         if reference_state is not None:
             self.reference_state = fd.Function(aaofunc.field_function_space)
@@ -92,7 +87,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
     @PETSc.Log.EventDecorator()
     def update(self, X=None):
-        # update the state to linearise around from the current all-at-once solution
+        """
+        Update the state to linearise around from the current all-at-once solution.
+        """
 
         aaofunc = self.aaofunc
         jacobian_state = self.jacobian_state()
@@ -102,9 +99,8 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         elif jacobian_state == 'current':
             if X is None:
-                self.u.assign(aaofunc)
-            else:
-                self.u.update(X, blocking=True)
+                X = aaofunc
+            self.u.assign(X)
 
         elif jacobian_state in ('window', 'slice'):
             time_average(aaofunc, self.ureduce, self.uwrk, average=jacobian_state)
@@ -125,12 +121,12 @@ class AllAtOnceJacobian(TimePartitionMixin):
     @memprofile
     def mult(self, mat, X, Y):
 
-        # we could use nonblocking and overlap comms with assembling Jform
-        self.x.update(X, blocking=True)
+        # we could use nonblocking here and overlap comms with assembling form
+        self.x.assign(X)
 
         # assembly stage
-        fd.assemble(fd.action(self.Jform, self.x.function), tensor=self.F)
-        fd.assemble(fd.action(self.Jform_prev, self.x.uprev),
+        fd.assemble(fd.action(self.form, self.x.function), tensor=self.F)
+        fd.assemble(fd.action(self.form_prev, self.x.uprev),
                     tensor=self.Fprev)
         self.F += self.Fprev
 

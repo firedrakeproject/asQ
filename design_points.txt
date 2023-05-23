@@ -1,0 +1,86 @@
+General
+-------
+
+1. How much do we want to mimic the firedrake api?
+2. How much to expose through PETSc options?
+   a. pc/jacobian alpha?
+   b. pc/jacobian theta??
+2. Mixin? setup method instead of init so can use with objects PETSc creates
+   (e.g. the PC).
+
+
+======================
+
+AllAtOnceFunction
+-----------------
+
+1. Naming:
+   a. `field_function_space` to match `{get,set}_field`
+   b. `function` and `initial_conditions`, or `u` and `ics`?
+2. get/set methods:
+   a. Should there be an option for updating the corresponding section of `vec`?
+      If so should this be the default or not?
+3. `assign` method:
+   a. Combined `assign` and `update` for `AllAtOnceFunction` and `PETSc.Vec`.
+   b. Should it default to updating the halos and syncing `function` and `vec` or not?
+4. `sync_function` method:
+   a. Should it default to updating the time halos or not?
+   b. Should we allow the user to expect that the halos are always consistent?
+
+
+======================
+
+AllAtOnceForm
+-----------------
+
+1. Should `bcs` be attached to `AllAtOnceForm` or `AllAtOnceSolver`?
+2. `assemble` method:
+   a. Prefer firedrake signature over PETSc signature?
+   a. Allow input/output buffers to be either `AllAtOnceFunction` or `PETSc.Vec`?
+   b. Should output buffer be called `tensor`?
+
+
+======================
+
+AllAtOnceJacobian
+-----------------
+
+1. Jacobian just linearises given AllAtOnceForm instead of deciding between
+   linearising consistent nonlinear form or `jacobian_function` and `jacobian_mass`.
+   This decision is instead moved to the AllAtOnceSolver.
+2. `reference_state` attached to AllAtOnceJacobian or grabbed from AllAtOnceFunction?
+
+
+======================
+
+AllAtOnceSolver
+-----------------
+
+1. Do we want this class at all?
+   a. More encapsulation away from `paradiag` manager class vs more moving parts.
+   b. Manage `Function`/`Vec` data movement similarly to firedrake.
+2. Alternative Jacobian form set via Solver arguments:
+   a. Is this how we want to allow this?
+   b. Should we be providing a second `AllAtOnceForm`, or alternative
+      `form_{mass,function}` functions?
+3. Callbacks. Assuming we want them?
+   a. Useful for manually setting the state to linearise Jacobian/pc around.
+   b. Mimics firedrake api.
+   c. What to pass them?
+4. `jacobian_reference_state`:
+   a. Is this where we want to include it?
+5. `solve`:
+   a. Should this do just a single solve (like `firedrake.solve`) or
+      multiple windows with pre/post callbacks (like current `paradiag`)?
+   b. Should aaofunc halos be updated after solve?
+6. PC and Jacobian alphas sent through here?
+
+
+======================
+
+paradiag
+-----------------
+
+1. Can we rename to `Paradiag` in keeping with class naming conventions?
+   a. instances of `Paradiag` renamed from `PD` -> {`paradiag`, `pdg`, `pd`}?
+2. To think about longer term: do we want to keep a monolithic manager class?

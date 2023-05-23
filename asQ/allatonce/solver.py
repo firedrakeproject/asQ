@@ -1,13 +1,17 @@
-import firedrake as fd
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
+
+from asQ.profiling import memprofile
+from asQ.allatonce import AllAtOnceJacobian
+from asQ.allatonce.mixin import TimePartitionMixin
 
 __all__ = ['AllAtOnceSolver']
 
 
 class AllAtOnceSolver(TimePartitionMixin):
+    @memprofile
     def __init__(self, aaoform, aaofunc,
                  solver_parameters={},
-                 options_prefix=None,
+                 options_prefix="",
                  jacobian_form=None,
                  jacobian_reference_state=None,
                  pre_function_callback=None,
@@ -23,9 +27,9 @@ class AllAtOnceSolver(TimePartitionMixin):
         self.jacobian_form = aaoform if jacobian_form is None else jacobian_form
 
         # callbacks
-        self.pre_function_callback = pre_function_callback 
+        self.pre_function_callback = pre_function_callback
         self.post_function_callback = post_function_callback
-        self.pre_jacobian_callback = pre_jacobian_callback 
+        self.pre_jacobian_callback = pre_jacobian_callback
         self.post_jacobian_callback = post_jacobian_callback
 
         # solver options
@@ -41,15 +45,18 @@ class AllAtOnceSolver(TimePartitionMixin):
 
         # snes
         self.snes = PETSc.SNES().create(comm=self.ensemble.global_comm)
+
+        if (options_prefix != "") and (not options_prefix.endswith("_")):
+            options_prefix += "_"
         self.snes.setOptionsPrefix(options_prefix)
 
         # residual function
         self.F = aaofunc.vector.copy()
 
-        def assemble_function(snes, X, Fvec):
-            self.pre_function_callback(X)
-            self.aaoform.assemble(snes, X, Fvec)
-            self.post_function_callback(X, Fvec)
+        def assemble_function(snes, X, F):
+            self.pre_function_callback(self, X)
+            self.aaoform.assemble(X, tensor=F)
+            self.post_function_callback(self, X, F)
 
         self.snes.setFunction(assemble_function, self.F)
 
@@ -57,26 +64,28 @@ class AllAtOnceSolver(TimePartitionMixin):
         with self.options.inserted_options():
             self.jacobian = AllAtOnceJacobian(aaofunc,
                                               self.jacobian_form,
-                                              reference_state=jacobian_reference_state
-                                              snes=snes)
+                                              reference_state=jacobian_reference_state,
+                                              options_prefix=options_prefix)
 
-        mat = PETSc.Mat().create(comm=ensemble.global_comm)
-        mat.setType("python")
-        mat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
-        mat.setPythonContext(self.jacobian)
-        mat.setUp()
-        self.mat = mat
+        jacobian_mat = PETSc.Mat().create(comm=self.ensemble.global_comm)
+        jacobian_mat.setType("python")
+        jacobian_mat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
+        jacobian_mat.setPythonContext(self.jacobian)
+        jacobian_mat.setUp()
+        self.jacobian_mat = jacobian_mat
 
         def form_jacobian(snes, X, J, P):
             # copy the snes state vector into self.X
-            self.pre_jacobian_callback(X)
+            self.pre_jacobian_callback(self, X)
             self.jacobian.update(X)
-            self.post_jacobian_callback(X, J)
+            self.post_jacobian_callback(self, X, J)
             J.assemble()
             P.assemble()
 
-        self.snes.setJacobian(form_jacobian, J=mat, P=mat)
+        self.snes.setJacobian(form_jacobian, J=jacobian_mat, P=jacobian_mat)
 
+    @PETSc.Log.EventDecorator()
+    @memprofile
     def solve(self):
 
         self.aaofunc.sync_vector()

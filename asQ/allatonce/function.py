@@ -244,14 +244,33 @@ class AllAtOnceFunction(TimePartitionMixin):
         return
 
     @PETSc.Log.EventDecorator()
-    def assign(self, aaofunc):
+    @memprofile
+    def assign(self, new, update_halos=True, blocking=True, sync=False):
         """
-        Set value of function from another AllAtOnceFunction.
+        Set value of function from another AllAtOnceFunction or PETSc Vec.
         """
-        dst_funcs = (self.function, self.initial_condition, self.uprev, self.unext)
-        src_funcs = (aaofunc.function, aaofunc.initial_condition, aaofunc.uprev, aaofunc.unext)
-        for dst, src in zip(dst_funcs, src_funcs):
-            dst.assign(src)
+        if isinstance(new, AllAtOnceFunction):
+            dst_funcs = [self.function, self.initial_condition]
+            src_funcs = [new.function, new.initial_condition]
+            # these buffers just will be overwritten if the halos are updated
+            if not update_halos:
+                dst_funcs.extend([self.uprev, self.unext])
+                src_funcs.extend([new.uprev, new.unext])
+            for dst, src in zip(dst_funcs, src_funcs):
+                dst.assign(src)
+
+        elif isinstance(new, PETSc.Vec):
+            with self.function.dat.vec_wo as v:
+                new.copy(v)
+
+        else:
+            raise TypeError(f"new value must be AllAtOnceFunction or PETSc.Vec, not {type(new)}")
+
+        if sync:
+            self.sync_vec()
+
+        if update_halos:
+            return self.update_time_halos(blocking=blocking)
 
     @PETSc.Log.EventDecorator()
     def sync_vec(self):
@@ -262,7 +281,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             fvec.copy(self.vec)
 
     @PETSc.Log.EventDecorator()
-    def sync_function(self, update_halos=False):
+    def sync_function(self, update_halos=True, blocking=True):
         '''
         Update the Function with the values in the PETSc Vec
 
@@ -272,7 +291,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             self.vec.copy(fvec)
 
         if update_halos:
-            self.update_time_halos()
+            return self.update_time_halos(blocking=blocking)
 
     @PETSc.Log.EventDecorator()
     def update_time_halos(self, blocking=True):
@@ -298,17 +317,3 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         return sendrecv(fsend=self.unext, dest=dst, sendtag=rank,
                         frecv=self.uprev, source=src, recvtag=src)
-
-    @PETSc.Log.EventDecorator()
-    @memprofile
-    def update(self, X, blocking=True):
-        '''
-        Update self.function and self.uprev from PETSc Vec X.
-        The local parts of X are copied into self.function
-        and the last step from the previous slice (periodic)
-        is copied into self.uprev
-        '''
-        with self.function.dat.vec_wo as v:
-            X.copy(v)
-
-        return self.update_time_halos(blocking=blocking)
