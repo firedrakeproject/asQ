@@ -31,6 +31,7 @@ class AllAtOnceForm(TimePartitionMixin):
 
         self.aaofunc = aaofunc
 
+        self.field_function_space = aaofunc.field_function_space
         self.function_space = aaofunc.function_space
 
         self.dt = fd.Constant(dt)
@@ -39,9 +40,9 @@ class AllAtOnceForm(TimePartitionMixin):
         self.form_mass = form_mass
         self.form_function = form_function
 
-        self.alpha = fd.Constant(alpha) if alpha is not None else None
+        self.alpha = None if alpha is None else fd.Constant(alpha)
 
-        # need to make copy of bcs too instead of taking a reference
+        # should this make a copy of bcs instead of taking a reference?
         self.field_bcs = bcs
         self.bcs = self._set_bcs(self.field_bcs)
 
@@ -78,6 +79,15 @@ class AllAtOnceForm(TimePartitionMixin):
 
         return bcs_all
 
+    def copy(self, aaofunc=None):
+        if aaofunc is None:
+            aaofunc = AllAtOnceFunction(self.ensemble, self.time_partition,
+                                        self.field_function_space)
+
+        return AllAtOnceForm(aaofunc, self.dt, self.theta,
+                             self.form_mass, self.form_function,
+                             bcs=self.bcs, alpha=self.alpha)
+
     @PETSc.Log.EventDecorator()
     @memprofile
     def assemble(self, func, tensor=None):
@@ -96,14 +106,19 @@ class AllAtOnceForm(TimePartitionMixin):
             bc.apply(self.F, u=self.aaofunc.function)
 
         # copy into return buffer
+
         if isinstance(tensor, AllAtOnceFunction):
             tensor.function.assign(self.F)
+
+        elif isinstance(tensor, fd.Function):
+            tensor.assign(self.F)
+
         elif isinstance(tensor, PETSc.Vec):
             with self.F.dat.vec_ro as v:
                 v.copy(tensor)
 
         elif tensor is not None:
-            raise TypeError(f"tensor must be AllAtOnceFunction or PETSc.Vec, not {type(tensor)}")
+            raise TypeError(f"tensor must be AllAtOnceFunction, Function, or PETSc.Vec, not {type(tensor)}")
 
     def _construct_form(self):
         """
@@ -120,17 +135,17 @@ class AllAtOnceForm(TimePartitionMixin):
         form_mass = self.form_mass
         form_function = self.form_function
 
-        test_fns = fd.TestFunctions(aaofunc.function_space)
+        test_funcs = fd.TestFunctions(aaofunc.function_space)
 
         dt = self.dt
         theta = self.theta
         alpha = self.alpha
 
         def get_step(i):
-            return aaofunc.get_field_components(i, f_alls=funcs)
+            return aaofunc.get_field_components(i, funcs=funcs)
 
         def get_test(i):
-            return aaofunc.get_field_components(i, f_alls=test_fns)
+            return aaofunc.get_field_components(i, funcs=test_funcs)
 
         for n in range(self.nlocal_timesteps):
 

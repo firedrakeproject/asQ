@@ -29,19 +29,19 @@ class AllAtOnceJacobian(TimePartitionMixin):
     prefix = "aaos_jacobian_"
 
     @memprofile
-    def __init__(self, aaofunc, aaoform,
+    def __init__(self, aaoform, current_state,
                  reference_state=None, options_prefix=""):
-        r"""
-        Python matrix for the Jacobian of the all at once system
-        :param aaofunc: The AllAtOnceSystem object
         """
-        self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
-        self.aaofunc = aaofunc
-        self.aaoform = aaoform
+        Python matrix for the Jacobian of the all at once system
+        :arg aaofunc: The AllAtOnceSystem object
+        """
+        self.time_partition_setup(aaoform.ensemble, aaoform.time_partition)
 
-        # function to linearise around, and timestep from end of previous slice
-        self.u = AllAtOnceFunction(self.ensemble, self.time_partition,
-                                   aaofunc.field_function_space)
+        aaofunc = aaoform.aaofunc
+        self.aaoform = aaoform
+        self.aaofunc = aaofunc
+
+        self.current_state = current_state
 
         # function the Jacobian acts on, and contribution from timestep at end of previous slice
         self.x = AllAtOnceFunction(self.ensemble, self.time_partition,
@@ -56,9 +56,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.uwrk = fd.Function(aaofunc.field_function_space)
 
         # form without contributions from the previous step
-        self.form = fd.derivative(aaoform.form, self.u)
+        self.form = fd.derivative(aaoform.form, aaofunc.function)
         # form contributions from the previous step
-        self.form_prev = fd.derivative(aaoform.form, self.urecv)
+        self.form_prev = fd.derivative(aaoform.form, aaofunc.uprev)
 
         # option for what state to linearise around
         valid_jacobian_states = ['current', 'window', 'slice', 'linear', 'initial', 'reference', 'user']
@@ -76,12 +76,12 @@ class AllAtOnceJacobian(TimePartitionMixin):
             self.reference_state = fd.Function(aaofunc.field_function_space)
             self.reference_state.assign(reference_state)
         else:
-            reference_state = None
+            self.reference_state = None
 
         jacobian_state = self.jacobian_state()
 
         if jacobian_state == 'reference' and self.reference_state is None:
-            raise ValueError("AllAtOnceSystem must be provided a reference state to use \'reference\' for aaofunc_jacobian_state.")
+            raise ValueError("AllAtOnceJacobian must be provided a reference state to use \'reference\' for aaos_jacobian_state.")
 
         self.update()
 
@@ -99,18 +99,18 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         elif jacobian_state == 'current':
             if X is None:
-                X = aaofunc
-            self.u.assign(X)
+                X = self.current_state
+            self.aaofunc.assign(X)
 
         elif jacobian_state in ('window', 'slice'):
-            time_average(aaofunc, self.ureduce, self.uwrk, average=jacobian_state)
-            self.u.set_all_fields(self.ureduce)
+            time_average(self.current_state, self.ureduce, self.uwrk, average=jacobian_state)
+            aaofunc.set_all_fields(self.ureduce)
 
         elif jacobian_state == 'initial':
-            self.u.set_all_fields(aaofunc.initial_condition)
+            aaofunc.set_all_fields(self.current_state.initial_condition)
 
         elif jacobian_state == 'reference':
-            self.u.set_all_fields(self.reference_state)
+            aaofunc.set_all_fields(self.reference_state)
 
         elif jacobian_state == 'user':
             pass
