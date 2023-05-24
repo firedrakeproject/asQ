@@ -108,7 +108,6 @@ paradiag_parameters = {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'lag_jacobian': -2,
         'rtol': 1e-10,
         'atol': 1e-12,
         'stol': 1e-12,
