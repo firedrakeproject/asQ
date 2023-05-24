@@ -62,7 +62,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         self.function_space = reduce(mul, (self.field_function_space
                                            for _ in range(self.nlocal_timesteps)))
 
-        self.ncomponents = len(self.field_function_space.split())
+        self.ncomponents = len(self.field_function_space.subfunctions)
 
         self.function = fd.Function(self.function_space)
         self.initial_condition = fd.Function(self.field_function_space)
@@ -72,25 +72,18 @@ class AllAtOnceFunction(TimePartitionMixin):
         self.uprev = fd.Function(self.field_function_space)
         self.unext = fd.Function(self.field_function_space)
 
+        self.nlocal_dofs = self.function_space.node_set.size
+        self.nglobal_dofs = self.ntimesteps*self.field_function_space.dim()
+
         self._vec = self._aao_vec()
 
     def _aao_vec(self):
         """
         Return a PETSc Vec representing the all-at-once function over the global comm
         """
-        nlocal_space_dofs = self.field_function_space.node_set.size
-        nspace_dofs = self.field_function_space.dim()
-
-        nlocal_time_dofs = self.nlocal_timesteps
-        ntime_dofs = self.ntimesteps
-
-        nlocal = nlocal_time_dofs*nlocal_space_dofs  # local times x local space
-        nglobal = ntime_dofs*nspace_dofs  # global times x global space
-
         X = PETSc.Vec().create(comm=self.ensemble.global_comm)
-        X.setSizes((nlocal, nglobal))
+        X.setSizes((self.nlocal_dofs, self.nglobal_dofs))
         X.setFromOptions()
-
         return X
 
     def copy(self):
@@ -330,10 +323,7 @@ class AllAtOnceFunction(TimePartitionMixin):
     @contextlib.contextmanager
     def global_vec(self):
         """
-        Context manager for the global PETSc Vec.
-
-        The all-at-once firedrake Function data is copied into the Vec before
-        yielding, and the Vec data is copied back into the Function at exit.
+        Context manager for the global PETSc Vec with read/write access.
         """
         with self.function.dat.vec as fvec:
             self._vec.placeArray(fvec.array)
@@ -342,6 +332,9 @@ class AllAtOnceFunction(TimePartitionMixin):
 
     @contextlib.contextmanager
     def global_vec_ro(self):
+        """
+        Context manager for the global PETSc Vec with read only access.
+        """
         with self.function.dat.vec_ro as fvec:
             self._vec.placeArray(fvec.array)
             yield self._vec
@@ -349,6 +342,9 @@ class AllAtOnceFunction(TimePartitionMixin):
 
     @contextlib.contextmanager
     def global_vec_wo(self):
+        """
+        Context manager for the global PETSc Vec with write only access.
+        """
         with self.function.dat.vec_wo as fvec:
             self._vec.placeArray(fvec.array)
             yield self._vec

@@ -37,12 +37,6 @@ class AllAtOnceSolver(TimePartitionMixin):
         self.flat_solver_parameters = flatten_parameters(solver_parameters)
         self.options = OptionsManager(self.flat_solver_parameters, '')
 
-        # dof counts
-        nlocal_space_dofs = self.field_function_space.node_set.size
-        nspace_dofs = self.field_function_space.dim()
-        nlocal = self.nlocal_timesteps*nlocal_space_dofs  # local times x local space
-        nglobal = self.ntimesteps*nspace_dofs  # global times x global space
-
         # snes
         self.snes = PETSc.SNES().create(comm=self.ensemble.global_comm)
 
@@ -51,7 +45,7 @@ class AllAtOnceSolver(TimePartitionMixin):
         self.snes.setOptionsPrefix(options_prefix)
 
         # residual function
-        self.F = aaofunc.vector.copy()
+        self.F = aaofunc._vec.copy()
 
         def assemble_function(snes, X, F):
             self.pre_function_callback(self, X)
@@ -69,7 +63,8 @@ class AllAtOnceSolver(TimePartitionMixin):
 
         jacobian_mat = PETSc.Mat().create(comm=self.ensemble.global_comm)
         jacobian_mat.setType("python")
-        jacobian_mat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
+        sizes = (aaofunc.nlocal_dofs, aaofunc.nglobal_dofs)
+        jacobian_mat.setSizes((sizes, sizes))
         jacobian_mat.setPythonContext(self.jacobian)
         jacobian_mat.setUp()
         self.jacobian_mat = jacobian_mat
