@@ -708,7 +708,6 @@ def test_solve_para_form(bc_opt, extruded):
     # checks that the all-at-once system is the same as solving
     # timesteps sequentially using the NONLINEAR heat equation as an example by
     # solving the all-at-once system and comparing with the sequential
-    # solution
 
     # set up the ensemble communicator for space-time parallelism
     nspatial_domains = 2

@@ -91,13 +91,15 @@ class AllAtOnceForm(TimePartitionMixin):
 
     @PETSc.Log.EventDecorator()
     @memprofile
-    def assemble(self, func, tensor=None):
+    def assemble(self, func=None, tensor=None):
         r"""
         This is the function we pass to the snes to assemble
         the nonlinear residual.
         """
         # set current state
-        self.aaofunc.assign(func)
+        if func is not None:
+            self.aaofunc.assign(func, update_halos=False)
+        self.aaofunc.update_time_halos()
 
         # assembly stage
         fd.assemble(self.form, tensor=self.F.function)
