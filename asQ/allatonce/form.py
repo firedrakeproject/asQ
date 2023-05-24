@@ -50,7 +50,8 @@ class AllAtOnceForm(TimePartitionMixin):
             bc.apply(aaofunc.function)
 
         # function to assemble the nonlinear residual into
-        self.F = fd.Function(aaofunc.function_space)
+        self.F = aaofunc.copy()
+        self.F.set_all_fields(0)
 
         self.form = self._construct_form()
 
@@ -96,25 +97,25 @@ class AllAtOnceForm(TimePartitionMixin):
         the nonlinear residual.
         """
         # set current state
-        self.aaofunc.assign(func, sync=True)
+        self.aaofunc.assign(func)
 
         # assembly stage
-        fd.assemble(self.form, tensor=self.F)
+        fd.assemble(self.form, tensor=self.F.function)
 
         # apply boundary conditions
         for bc in self.bcs:
-            bc.apply(self.F, u=self.aaofunc.function)
+            bc.apply(self.F.function, u=self.aaofunc.function)
 
         # copy into return buffer
 
         if isinstance(tensor, AllAtOnceFunction):
-            tensor.function.assign(self.F)
-
-        elif isinstance(tensor, fd.Function):
             tensor.assign(self.F)
 
+        elif isinstance(tensor, fd.Function):
+            tensor.assign(self.F.function)
+
         elif isinstance(tensor, PETSc.Vec):
-            with self.F.dat.vec_ro as v:
+            with self.F.global_vec_ro as v:
                 v.copy(tensor)
 
         elif tensor is not None:
