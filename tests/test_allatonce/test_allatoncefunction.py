@@ -6,6 +6,17 @@ from functools import reduce
 from operator import mul
 
 
+def random_aaof(aaof, v):
+    for dat in v.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+    aaof.initial_condition.assign(v)
+    for step in range(aaof.nlocal_timesteps):
+        for dat in v.dat:
+            dat.data[:] = np.random.rand(*(dat.data.shape))
+        aaof.set_field(step, v)
+    aaof.update_time_halos()
+
+
 max_ncpts = 3
 ncpts = [i for i in range(1, max_ncpts + 1)]
 
@@ -156,7 +167,7 @@ def test_transform_index(ensemble, W):
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_set_component(ensemble, mesh, W):
+def test_set_get_component(ensemble, W):
     '''
     test setting a specific component of a timestep
     '''
@@ -166,218 +177,106 @@ def test_set_component(ensemble, mesh, W):
     nslices = fd.COMM_WORLD.size//2
     time_partition = [slice_length for _ in range(nslices)]
 
+    aaof = asQ.AllAtOnceFunction(ensemble, time_partition, W)
+
+    ncpts = aaof.ncomponents
+
+    vc = fd.Function(W, name="vc")
     v0 = fd.Function(W, name="v0")
     v1 = fd.Function(W, name="v1")
 
     # two random solutions
     np.random.seed(572046)
 
-    for dat in v0.dat:
+    for dat in aaof.function.dat:
         dat.data[:] = np.random.rand(*(dat.data.shape))
-    for dat in v1.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
-
-    aaof = asQ.AllAtOnceFunction(ensemble, time_partition, W)
-
-    ncpts = aaof.ncomponents
 
     for slice_index in range(aaof.nlocal_timesteps):
         window_index = aaof.transform_index(slice_index, from_range='slice', to_range='window')
 
         for cpt in range(ncpts):
-            vcheck = aaof.function.subfunctions[ncpts*slice_index + cpt]
+            for dat in v0.dat:
+                dat.data[:] = np.random.rand(*(dat.data.shape))
+            for dat in v1.dat:
+                dat.data[:] = np.random.rand(*(dat.data.shape))
 
             # set component using slice index
-            aaof.set_component(slice_index, cpt, v1.subfunctions[cpt], index_range='slice')
-            assert (fd.errornorm(v1.subfunctions[cpt], vcheck) < 1e-12)
+            vc.assign(0)
+            aaof.set_component(slice_index, cpt, v0.subfunctions[cpt], index_range='slice')
+            aaof.get_component(slice_index, cpt, vc.subfunctions[cpt], index_range='slice')
+            assert (fd.errornorm(v0.subfunctions[cpt], vc.subfunctions[cpt]) < 1e-12)
 
             # set component using window index
-            aaof.set_component(window_index, cpt, v0.subfunctions[cpt], index_range='window')
-            assert (fd.errornorm(v0.subfunctions[cpt], vcheck) < 1e-12)
+            vc.assign(0)
+            aaof.set_component(window_index, cpt, v1.subfunctions[cpt], index_range='window')
+            aaof.get_component(window_index, cpt, vc.subfunctions[cpt], index_range='window')
+            assert (fd.errornorm(v1.subfunctions[cpt], vc.subfunctions[cpt]) < 1e-12)
+
+            # get handle to component index in aaof.function
+            vcpt = aaof.get_component(slice_index, cpt)
+            for datcpt, dat0 in zip(vcpt.dat, v0.subfunctions[cpt].dat):
+                datcpt.data[:] = dat0.data[:]
+            aaof.get_component(slice_index, cpt, vc.subfunctions[cpt], index_range='slice')
+            assert (fd.errornorm(v0.subfunctions[cpt], vc.subfunctions[cpt]) < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_get_component(ensemble, mesh, W):
+def test_set_get_field(ensemble, W):
     '''
-    test getting a specific component of a timestep
-    only valid if test_set_component passes
+    test getting a specific timestep
+    only valid if test_set_field passes
     '''
-
     # prep aaof setup
     slice_length = 2
     nslices = fd.COMM_WORLD.size//2
     time_partition = [slice_length for _ in range(nslices)]
 
-    v0 = fd.Function(W, name="v0")
-    v1 = fd.Function(W, name="v1")
-
-    # two random solutions
-    np.random.seed(572046)
-
-    for dat in v0.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
-    for dat in v1.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
-
     aaof = asQ.AllAtOnceFunction(ensemble, time_partition, W)
-    aaof.set_all_fields(v0)
 
     ncpts = aaof.ncomponents
 
-    vcheck = fd.Function(W)
-
-    # get each component using slice index
-    for step in range(aaof.nlocal_timesteps):
-        for cpt in range(ncpts):
-            aaof.get_component(step, cpt, index_range='slice', uout=vcheck.subfunctions[cpt])
-
-            err = fd.errornorm(v0.subfunctions[cpt], vcheck.subfunctions[cpt])
-            assert (err < 1e-12)
-
-            v2 = aaof.get_component(step, cpt, index_range='slice', deepcopy=True)
-            err = fd.errornorm(v2, v0.subfunctions[cpt])
-            assert (err < 1e-12)
-
-            v2 = aaof.get_component(step, cpt, index_range='slice')
-            assert v2 is aaof.function.subfunctions[step*ncpts + cpt]
-
-    # get each component using window index
-    for slice_index in range(aaof.nlocal_timesteps):
-        aaof.set_field(slice_index, v1, index_range='slice')
-
-        window_index = aaof.transform_index(slice_index, from_range='slice', to_range='window')
-
-        for cpt in range(ncpts):
-            aaof.get_component(window_index, cpt, index_range='window', uout=vcheck.subfunctions[cpt])
-            err = fd.errornorm(v1.subfunctions[cpt], vcheck.subfunctions[cpt])
-            assert (err < 1e-12)
-
-            v2 = aaof.get_component(window_index, cpt, index_range='window', deepcopy=True)
-            err = fd.errornorm(v2, v1.subfunctions[cpt])
-            assert (err < 1e-12)
-
-            v2 = aaof.get_component(window_index, cpt, index_range='window')
-            assert v2 is aaof.function.subfunctions[slice_index*ncpts + cpt]
-
-
-@pytest.mark.parallel(nprocs=4)
-def test_set_field(ensemble, mesh, W,
-                   form_function, form_mass):
-    '''
-    test setting a specific timestep
-    '''
-
-    # prep paradiag setup
-    M = [2, 2]
-    dt = 1
-    theta = 0.5
-
-    v0 = fd.Function(W, name="v0")
+    vc = fd.Function(W, name="vc")
+    v0 = fd.Function(W, name="v1")
     v1 = fd.Function(W, name="v1")
 
     # two random solutions
     np.random.seed(572046)
 
-    for dat in v0.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
-    for dat in v1.dat:
+    for dat in aaof.function.dat:
         dat.data[:] = np.random.rand(*(dat.data.shape))
 
-    aaos = asQ.AllAtOnceSystem(ensemble, M,
-                               dt, theta,
-                               form_function, form_mass,
-                               w0=v0)
-
-    vcheck = fd.Function(W)
-    vchecks = vcheck.subfunctions
-
-    # set each step using window index
-    rank = aaos.time_rank
-    ncpt = aaos.ncomponents
-
-    for slice_index in range(aaos.time_partition[rank]):
-        window_index = aaos.transform_index(slice_index,
-                                            from_range='slice',
-                                            to_range='window')
-        aaos.set_field(window_index, v1, index_range='window')
-        for i in range(ncpt):
-            vchecks[i].assign(aaos.w_alls[ncpt*slice_index+i])
-        err = fd.errornorm(v1, vcheck)
-        assert (err < 1e-12)
-
-    # set each step using slice index
-    for step in range(aaos.time_partition[rank]):
-        aaos.set_field(step, v0, index_range='slice')
-
-        for i in range(ncpt):
-            vchecks[i].assign(aaos.w_alls[ncpt*step+i])
-
-        err = fd.errornorm(v0, vcheck)
-        assert (err < 1e-12)
-
-
-@pytest.mark.parallel(nprocs=4)
-def test_get_field(ensemble, mesh, W,
-                   form_function, form_mass):
-    '''
-    test getting a specific timestep
-    only valid if test_set_field passes
-    '''
-
-    # prep paradiag setup
-    M = [2, 2]
-    dt = 1
-    theta = 0.5
-
-    v0 = fd.Function(W, name="v0")
-    v1 = fd.Function(W, name="v1")
-
-    # two random solutions
-    np.random.seed(572046)
-
-    for dat in v0.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
-    for dat in v1.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
-
-    aaos = asQ.AllAtOnceSystem(ensemble, M,
-                               dt, theta,
-                               form_function, form_mass,
-                               w0=v0)
-
-    # set each step using window index
-    rank = aaos.time_rank
-
-    vcheck = fd.Function(W)
     # get each step using slice index
-    for step in range(aaos.time_partition[rank]):
-        aaos.get_field(step, index_range='slice', wout=vcheck)
-        err = fd.errornorm(v0, vcheck)
+    for step in range(aaof.nlocal_timesteps):
+        windx = aaof.transform_index(step, from_range='slice', to_range='window')
+
+        for dat in v0.dat:
+            dat.data[:] = np.random.rand(*(dat.data.shape))
+        for dat in v1.dat:
+            dat.data[:] = np.random.rand(*(dat.data.shape))
+
+        aaof.set_field(step, v0, index_range='slice')
+        aaof.get_field(step, vc, index_range='slice')
+        err = fd.errornorm(v0, vc)
         assert (err < 1e-12)
 
-        v2 = aaos.get_field(step, index_range='slice')
-        err = fd.errornorm(v2, v0)
+        aaof.set_field(step, v1, index_range='slice')
+        v = aaof.get_field(step, index_range='slice')
+        err = fd.errornorm(v1, v)
         assert (err < 1e-12)
 
-    # get each step using window index
-    for slice_index in range(aaos.time_partition[rank]):
-        window_index = aaos.transform_index(slice_index,
-                                            from_range='slice',
-                                            to_range='window')
-
-        aaos.set_field(window_index, v1, index_range='window')
-
-        aaos.get_field(window_index, index_range='window', wout=vcheck)
-        err = fd.errornorm(v1, vcheck)
+        aaof.set_field(windx, v0, index_range='window')
+        aaof.get_field(windx, vc, index_range='window')
+        err = fd.errornorm(v0, vc)
         assert (err < 1e-12)
 
-        v2 = aaos.get_field(window_index, index_range='window')
-        err = fd.errornorm(v2, v1)
+        aaof.set_field(windx, v1, index_range='window')
+        v = aaof.get_field(windx, index_range='window')
+        err = fd.errornorm(v1, v)
         assert (err < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_set_all_fields(ensemble, mesh, W):
+def test_set_all_fields(ensemble, W):
     """
     test setting all timesteps/ics to given function.
     """
@@ -415,53 +314,188 @@ def test_set_all_fields(ensemble, mesh, W):
     assert (err < 1e-12)
 
 
-def test_assign(): pass
+@pytest.mark.parallel(nprocs=4)
+def test_copy(ensemble, W):
+    """
+    test setting all timesteps/ics to given function.
+    """
 
+    # prep aaof setup
+    slice_length = 2
+    nslices = fd.COMM_WORLD.size//2
+    time_partition = [slice_length for _ in range(nslices)]
 
-def test_sync_vec(): pass
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
 
+    # two random solutions
+    np.random.seed(572046)
 
-def test_sync_function(): pass
+    for dat in v0.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+
+    aaof0 = asQ.AllAtOnceFunction(ensemble, time_partition, W)
+
+    # set next window from new solution
+    random_aaof(aaof0, v0)
+    aaof1 = aaof0.copy()
+
+    # check all timesteps == v0
+
+    for step in range(aaof0.nlocal_timesteps):
+        err = fd.errornorm(aaof0.get_field(step, uout=v0),
+                           aaof1.get_field(step, uout=v1))
+        assert (err < 1e-12)
+
+    err = fd.errornorm(aaof0.initial_condition, aaof1.initial_condition)
+    assert (err < 1e-12)
+
+    err = fd.errornorm(aaof0.uprev, aaof1.uprev)
+    assert (err < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_update_time_halos(ensemble, mesh, V,
-                           form_function, form_mass):
-    # prep aaos setup
-    M = [2, 2]
-    dt = 1
-    theta = 0.5
+def test_assign(ensemble, W):
+    """
+    test setting all timesteps/ics to given function.
+    """
+
+    # prep aaof setup
+    slice_length = 2
+    nslices = fd.COMM_WORLD.size//2
+    time_partition = [slice_length for _ in range(nslices)]
+
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
+
+    # two random solutions
+    np.random.seed(572046)
+
+    aaof0 = asQ.AllAtOnceFunction(ensemble, time_partition, W)
+    aaof1 = asQ.AllAtOnceFunction(ensemble, time_partition, W)
+
+    # assign from another aaof
+    random_aaof(aaof0, v0)
+    aaof1.assign(aaof0)
+
+    for step in range(aaof0.nlocal_timesteps):
+        err = fd.errornorm(aaof0.get_field(step, v0),
+                           aaof1.get_field(step, v1))
+        assert (err < 1e-12)
+
+    err = fd.errornorm(aaof0.initial_condition,
+                       aaof1.initial_condition)
+    assert (err < 1e-12)
+
+    err = fd.errornorm(aaof0.uprev, aaof1.uprev)
+    assert (err < 1e-12)
+
+    # set from PETSc Vec
+    random_aaof(aaof0, v0)
+    aaof0.sync_vec()
+    aaof1.assign(aaof0.vec)
+
+    for step in range(aaof0.nlocal_timesteps):
+        err = fd.errornorm(aaof0.get_field(step, v0),
+                           aaof1.get_field(step, v1))
+        assert (err < 1e-12)
+
+    err = fd.errornorm(aaof0.uprev, aaof1.uprev)
+    assert (err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_sync_vec(ensemble, W):
+    """
+    test synchronising the global Vec with the local Functions
+    """
+
+    # prep aaof setup
+    slice_length = 2
+    nslices = fd.COMM_WORLD.size//2
+    time_partition = [slice_length for _ in range(nslices)]
+
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
+
+    aaof0 = asQ.AllAtOnceFunction(ensemble, time_partition, W)
+    aaof1 = asQ.AllAtOnceFunction(ensemble, time_partition, W)
+    mvec = aaof0._aao_vec()
+
+    # random solutions
+    np.random.seed(572046)
+    random_aaof(aaof0, v0)
+    aaof0.sync_vec()
+    aaof1.assign(aaof0.vec)
+
+    for step in range(aaof0.nlocal_timesteps):
+        err = fd.errornorm(aaof0.get_field(step, v0),
+                           aaof1.get_field(step, v1))
+        assert (err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_sync_function(ensemble, W):
+    """
+    test synchronising the global Vec with the local Functions
+    """
+
+    # prep aaof setup
+    slice_length = 2
+    nslices = fd.COMM_WORLD.size//2
+    time_partition = [slice_length for _ in range(nslices)]
+
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
+
+    aaof0 = asQ.AllAtOnceFunction(ensemble, time_partition, W)
+    aaof1 = asQ.AllAtOnceFunction(ensemble, time_partition, W)
+    mvec = aaof0._aao_vec()
+
+    # random solutions
+    np.random.seed(572046)
+
+    random_aaof(aaof0, v0)
+    aaof0.sync_vec()
+    aaof0.vec.copy(aaof1.vec)
+    aaof1.sync_function()
+
+    for step in range(aaof0.nlocal_timesteps):
+        err = fd.errornorm(aaof0.get_field(step, v0),
+                           aaof1.get_field(step, v1))
+        assert (err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_update_time_halos(ensemble, W):
+    """
+    test updating the time halo functions
+    """
+
+    # prep aaof setup
+    slice_length = 2
+    nslices = fd.COMM_WORLD.size//2
+    time_partition = [slice_length for _ in range(nslices)]
+
+    v0 = fd.Function(W, name="v0")
+    v1 = fd.Function(W, name="v1")
+
+    aaof = asQ.AllAtOnceFunction(ensemble, time_partition, W)
+
+    # test updating own halos
+    aaof.set_all_fields(0)
 
     rank = ensemble.ensemble_comm.rank
     size = ensemble.ensemble_comm.size
 
-    v0 = fd.Function(V).assign(-1)
-    v1 = fd.Function(V).assign(rank)
-
-    aaos = asQ.AllAtOnceSystem(ensemble, M,
-                               dt, theta,
-                               form_function, form_mass,
-                               w0=v0)
-
-    # test updating own halos
-    for step in range(aaos.time_partition[rank]):
-        aaos.set_field(step, v1)
-
-    aaos.update_time_halos()
-
+    # solution on this slice
+    v0.assign(rank)
     # solution on previous slice
-    v0.assign((rank - 1) % size)
+    v1.assign((rank - 1) % size)
 
-    assert (fd.errornorm(aaos.w_recv, v0) < 1e-12)
+    # set last field from each slice
+    aaof.set_field(-1, v0, index_range='slice')
 
-    wsend = fd.Function(aaos.function_space).assign(-1)
-    wrecv = fd.Function(aaos.function_space).assign(-1)
-    wall = fd.Function(aaos.function_space_all)
-    walls = wall.subfunctions
+    aaof.update_time_halos()
 
-    for step in range(aaos.time_partition[rank]):
-        walls[step].assign(v1)
-
-    aaos.update_time_halos(wsend=wsend, wrecv=wrecv, walls=walls)
-
-    assert (fd.errornorm(wrecv, v0) < 1e-12)
+    assert (fd.errornorm(aaof.uprev, v1) < 1e-12)

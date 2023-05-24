@@ -88,6 +88,15 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         return X
 
+    def copy(self):
+        """
+        Return a deep copy of the AllAtOnceFunction.
+        """
+        new = AllAtOnceFunction(self.ensemble, self.time_partition,
+                                self.field_function_space)
+        new.assign(self)
+        return new
+
     def transform_index(self, i, cpt=None, from_range='slice', to_range='slice'):
         '''
         Shift timestep or component index from one range to another, and accounts for -ve indices.
@@ -142,7 +151,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         funcs[aao_index].assign(usrc)
 
     @PETSc.Log.EventDecorator()
-    def get_component(self, step, cpt, index_range='slice', uout=None, funcs=None, name=None, deepcopy=False):
+    def get_component(self, step, cpt, uout=None, index_range='slice', funcs=None, name=None, deepcopy=False):
         '''
         Get component of solution at a timestep
 
@@ -207,7 +216,7 @@ class AllAtOnceFunction(TimePartitionMixin):
                                index_range=index_range, funcs=funcs)
 
     @PETSc.Log.EventDecorator()
-    def get_field(self, step, index_range='slice', uout=None, name=None, funcs=None):
+    def get_field(self, step, uout=None, index_range='slice', name=None, funcs=None):
         '''
         Get solution at a timestep
 
@@ -219,7 +228,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             If None, self.function.subfunctions is used
         '''
         if uout is None:
-            uget = fd.Function(self.function_space, name=name)
+            uget = fd.Function(self.field_function_space, name=name)
         else:
             uget = uout
 
@@ -263,6 +272,22 @@ class AllAtOnceFunction(TimePartitionMixin):
         return
 
     @PETSc.Log.EventDecorator()
+    def _local_to_global_vec(self, lvec, gvec):
+        """
+        Copy values from PETSc Vec on ensemble.comm to Vec on ensemble.global_comm
+        """
+        # lvec.copy(gvec)
+        gvec.array[:] = lvec.array_r
+
+    @PETSc.Log.EventDecorator()
+    def _global_to_local_vec(self, lvec, gvec):
+        """
+        Copy values from PETSc Vec on ensemble.global_comm to Vec on ensemble.comm
+        """
+        # gvec.copy(lvec)
+        lvec.array[:] = gvec.array_r
+
+    @PETSc.Log.EventDecorator()
     @memprofile
     def assign(self, src, update_halos=True, blocking=True, sync_vec=False):
         """
@@ -280,7 +305,7 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         elif isinstance(src, PETSc.Vec):
             with self.function.dat.vec_wo as v:
-                src.copy(v)
+                self._global_to_local_vec(v, src)
 
         else:
             raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec, not {type(src)}")
@@ -297,7 +322,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         Update the PETSc Vec with the values in the Function.
         '''
         with self.function.dat.vec_ro as fvec:
-            fvec.copy(self.vec)
+            self._local_to_global_vec(fvec, self.vec)
 
     @PETSc.Log.EventDecorator()
     def sync_function(self, update_halos=True, blocking=True):
@@ -307,7 +332,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg update_halos: If True, self.uprev is updated as well as self.function
         '''
         with self.function.dat.vec_wo as fvec:
-            self.vec.copy(fvec)
+            self._global_to_local_vec(fvec, self.vec)
 
         if update_halos:
             return self.update_time_halos(blocking=blocking)
