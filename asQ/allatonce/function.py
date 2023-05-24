@@ -2,6 +2,7 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 from functools import reduce
 from operator import mul
+import contextlib
 
 from asQ.profiling import memprofile
 from asQ.parallel_arrays import in_range
@@ -71,7 +72,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         self.uprev = fd.Function(self.field_function_space)
         self.unext = fd.Function(self.field_function_space)
 
-        self.vec = self._aao_vec()
+        self._vec = self._aao_vec()
 
     def _aao_vec(self):
         """
@@ -79,8 +80,12 @@ class AllAtOnceFunction(TimePartitionMixin):
         """
         nlocal_space_dofs = self.field_function_space.node_set.size
         nspace_dofs = self.field_function_space.dim()
-        nlocal = self.nlocal_timesteps*nlocal_space_dofs  # local times x local space
-        nglobal = self.ntimesteps*nspace_dofs  # global times x global space
+
+        nlocal_time_dofs = self.nlocal_timesteps
+        ntime_dofs = self.ntimesteps
+
+        nlocal = nlocal_time_dofs*nlocal_space_dofs  # local times x local space
+        nglobal = ntime_dofs*nspace_dofs  # global times x global space
 
         X = PETSc.Vec().create(comm=self.ensemble.global_comm)
         X.setSizes((nlocal, nglobal))
@@ -272,72 +277,6 @@ class AllAtOnceFunction(TimePartitionMixin):
         return
 
     @PETSc.Log.EventDecorator()
-    def _local_to_global_vec(self, lvec, gvec):
-        """
-        Copy values from PETSc Vec on ensemble.comm to Vec on ensemble.global_comm
-        """
-        # lvec.copy(gvec)
-        gvec.array[:] = lvec.array_r
-
-    @PETSc.Log.EventDecorator()
-    def _global_to_local_vec(self, lvec, gvec):
-        """
-        Copy values from PETSc Vec on ensemble.global_comm to Vec on ensemble.comm
-        """
-        # gvec.copy(lvec)
-        lvec.array[:] = gvec.array_r
-
-    @PETSc.Log.EventDecorator()
-    @memprofile
-    def assign(self, src, update_halos=True, blocking=True, sync_vec=False):
-        """
-        Set value of function from another AllAtOnceFunction or PETSc Vec.
-        """
-        if isinstance(src, AllAtOnceFunction):
-            dst_funcs = [self.function, self.initial_condition]
-            src_funcs = [src.function, src.initial_condition]
-            # these buffers just will be overwritten if the halos are updated
-            if not update_halos:
-                dst_funcs.extend([self.uprev, self.unext])
-                src_funcs.extend([src.uprev, src.unext])
-            for dst, src in zip(dst_funcs, src_funcs):
-                dst.assign(src)
-
-        elif isinstance(src, PETSc.Vec):
-            with self.function.dat.vec_wo as v:
-                self._global_to_local_vec(v, src)
-
-        else:
-            raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec, not {type(src)}")
-
-        if sync_vec:
-            self.sync_vec()
-
-        if update_halos:
-            return self.update_time_halos(blocking=blocking)
-
-    @PETSc.Log.EventDecorator()
-    def sync_vec(self):
-        '''
-        Update the PETSc Vec with the values in the Function.
-        '''
-        with self.function.dat.vec_ro as fvec:
-            self._local_to_global_vec(fvec, self.vec)
-
-    @PETSc.Log.EventDecorator()
-    def sync_function(self, update_halos=True, blocking=True):
-        '''
-        Update the Function with the values in the PETSc Vec
-
-        :arg update_halos: If True, self.uprev is updated as well as self.function
-        '''
-        with self.function.dat.vec_wo as fvec:
-            self._global_to_local_vec(fvec, self.vec)
-
-        if update_halos:
-            return self.update_time_halos(blocking=blocking)
-
-    @PETSc.Log.EventDecorator()
     def update_time_halos(self, blocking=True):
         '''
         Update uprev with the last step from the previous slice (periodic) of walls
@@ -361,3 +300,56 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         return sendrecv(fsend=self.unext, dest=dst, sendtag=rank,
                         frecv=self.uprev, source=src, recvtag=src)
+
+    @PETSc.Log.EventDecorator()
+    @memprofile
+    def assign(self, src, update_halos=True, blocking=True):
+        """
+        Set value of function from another AllAtOnceFunction or PETSc Vec.
+        """
+        if isinstance(src, AllAtOnceFunction):
+            dst_funcs = [self.function, self.initial_condition]
+            src_funcs = [src.function, src.initial_condition]
+            # these buffers just will be overwritten if the halos are updated
+            if not update_halos:
+                dst_funcs.extend([self.uprev, self.unext])
+                src_funcs.extend([src.uprev, src.unext])
+            for dst, src in zip(dst_funcs, src_funcs):
+                dst.assign(src)
+
+        elif isinstance(src, PETSc.Vec):
+            with self.global_vec_wo() as gvec:
+                src.copy(gvec)
+
+        else:
+            raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec, not {type(src)}")
+
+        if update_halos:
+            return self.update_time_halos(blocking=blocking)
+
+    @contextlib.contextmanager
+    def global_vec(self):
+        """
+        Context manager for the global PETSc Vec.
+
+        The all-at-once firedrake Function data is copied into the Vec before
+        yielding, and the Vec data is copied back into the Function at exit.
+        """
+        with self.function.dat.vec as fvec:
+            self._vec.placeArray(fvec.array)
+            yield self._vec
+            self._vec.resetArray()
+
+    @contextlib.contextmanager
+    def global_vec_ro(self):
+        with self.function.dat.vec_ro as fvec:
+            self._vec.placeArray(fvec.array)
+            yield self._vec
+            self._vec.resetArray()
+
+    @contextlib.contextmanager
+    def global_vec_wo(self):
+        with self.function.dat.vec_wo as fvec:
+            self._vec.placeArray(fvec.array)
+            yield self._vec
+            self._vec.resetArray()

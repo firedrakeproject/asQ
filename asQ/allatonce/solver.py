@@ -87,10 +87,5 @@ class AllAtOnceSolver(TimePartitionMixin):
     @PETSc.Log.EventDecorator()
     @memprofile
     def solve(self):
-
-        self.aaofunc.sync_vector()
-
-        with self.options.inserted_options():
-            self.snes.solve(None, self.aaofunc.vector)
-
-        self.aaofunc.sync_function()
+        with self.aaofunc.global_vec as gvec, self.options.inserted_options():
+            self.snes.solve(None, gvec)
