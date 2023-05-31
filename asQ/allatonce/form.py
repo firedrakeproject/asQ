@@ -82,12 +82,11 @@ class AllAtOnceForm(TimePartitionMixin):
 
     def copy(self, aaofunc=None):
         if aaofunc is None:
-            aaofunc = AllAtOnceFunction(self.ensemble, self.time_partition,
-                                        self.field_function_space)
+            aaofunc = self.aaofunc.copy()
 
         return AllAtOnceForm(aaofunc, self.dt, self.theta,
                              self.form_mass, self.form_function,
-                             bcs=self.bcs, alpha=self.alpha)
+                             bcs=self.field_bcs, alpha=self.alpha)
 
     @PETSc.Log.EventDecorator()
     @memprofile

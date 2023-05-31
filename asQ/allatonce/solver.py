@@ -11,9 +11,12 @@ class AllAtOnceSolver(TimePartitionMixin):
     @memprofile
     def __init__(self, aaoform, aaofunc,
                  solver_parameters={},
+                 appctx={},
                  options_prefix="",
                  jacobian_form=None,
                  jacobian_reference_state=None,
+                 pc_mass=None,
+                 pc_function=None,
                  pre_function_callback=None,
                  post_function_callback=None,
                  pre_jacobian_callback=None,
@@ -24,7 +27,8 @@ class AllAtOnceSolver(TimePartitionMixin):
         self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
         self.aaofunc = aaofunc
         self.aaoform = aaoform
-        self.jacobian_form = aaoform if jacobian_form is None else jacobian_form
+
+        self.appctx = appctx
 
         # callbacks
         self.pre_function_callback = pre_function_callback
@@ -44,7 +48,7 @@ class AllAtOnceSolver(TimePartitionMixin):
             options_prefix += "_"
         self.snes.setOptionsPrefix(options_prefix)
 
-        # residual function
+        # residual function and snes rhs
         self.F = aaofunc._vec.copy()
 
         def assemble_function(snes, X, F):
@@ -59,7 +63,8 @@ class AllAtOnceSolver(TimePartitionMixin):
             self.jacobian = AllAtOnceJacobian(self.jacobian_form,
                                               current_state=aaofunc,
                                               reference_state=jacobian_reference_state,
-                                              options_prefix=options_prefix)
+                                              options_prefix=options_prefix,
+                                              appctx=appctx)
 
         jacobian_mat = PETSc.Mat().create(comm=self.ensemble.global_comm)
         jacobian_mat.setType("python")
@@ -81,6 +86,10 @@ class AllAtOnceSolver(TimePartitionMixin):
 
     @PETSc.Log.EventDecorator()
     @memprofile
-    def solve(self):
-        with self.aaofunc.global_vec as gvec, self.options.inserted_options():
-            self.snes.solve(None, gvec)
+    def solve(self, rhs=None):
+        with self.aaofunc.global_vec() as gvec, self.options.inserted_options():
+            if rhs is None:
+                self.snes.solve(None, gvec)
+            else:
+                with rhs.global_vec_ro() as rvec:
+                    self.snes.solve(rvec, gvec)

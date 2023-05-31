@@ -30,7 +30,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
     @memprofile
     def __init__(self, aaoform, current_state,
-                 reference_state=None, options_prefix=""):
+                 reference_state=None,
+                 options_prefix="",
+                 appctx={}):
         """
         Python matrix for the Jacobian of the all at once system
         :arg aaofunc: The AllAtOnceSystem object
@@ -42,6 +44,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.aaofunc = aaofunc
 
         self.current_state = current_state
+
+        default_ctx = {
+            'form_mass': aaoform.form_mass,
+            'form_function': aaoform.form_function
+        }
+        for k, v in default_ctx.items():
+            if k not in appctx:
+                appctx[k] = v
+
+        self.appctx = appctx
 
         # function the Jacobian acts on, and contribution from timestep at end of previous slice
         self.x = AllAtOnceFunction(self.ensemble, self.time_partition,
