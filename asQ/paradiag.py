@@ -215,7 +215,6 @@ class paradiag(object):
         """
 
         for wndw in range(nwindows):
-
             preproc(self, wndw)
 
             with self.aaos.w_all.dat.vec_ro as v:

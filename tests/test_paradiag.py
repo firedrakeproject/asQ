@@ -56,12 +56,12 @@ def test_galewsky_timeseries():
     h_initial.project(galewsky.depth_expression(*x))
 
     # shallow water equation forms
-    def form_function(u, h, v, q):
+    def form_function(u, h, v, q, t):
         return swe.nonlinear.form_function(mesh,
                                            gravity,
                                            topography,
                                            coriolis,
-                                           u, h, v, q)
+                                           u, h, v, q, t)
 
     def form_mass(u, h, v, q):
         return swe.nonlinear.form_mass(mesh, u, h, v, q)
@@ -205,6 +205,122 @@ def test_galewsky_timeseries():
 
 
 @pytest.mark.parallel(nprocs=4)
+def test_Nitsche_heat_timeseries():
+    from utils.serial import ComparisonMiniapp
+    from copy import deepcopy
+
+    nwindows = 1
+    nslices = 2
+    slice_length = 2
+    alpha = 0.0001
+    dt = 0.5
+    theta = 0.5
+
+    time_partition = [slice_length for _ in range(nslices)]
+    ensemble = asQ.create_ensemble(time_partition)
+    nx = 10
+    mesh = fd.UnitSquareMesh(nx, nx, comm=ensemble.comm)
+    x, y = fd.SpatialCoordinate(mesh)
+    n = fd.FacetNormal(mesh)
+
+    W = fd.FunctionSpace(mesh, 'CG', 1)
+
+    # initial conditions
+    w_initial = fd.Function(W)
+    w_initial.interpolate(fd.exp(0.5*x + y))
+
+    # Heat equaion with Nitsch BCs.
+    def form_function(u, v, t):
+        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx - fd.inner(v, fd.inner(fd.grad(u), n))*fd.ds - fd.inner(u-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(v), n))*fd.ds + 20*nx*fd.inner(u-fd.exp(0.5*x + y + 1.25*t), v)*fd.ds
+
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    block_sparameters = {
+        'ksp_type': 'preonly',
+        'ksp': {
+            'atol': 1e-5,
+            'rtol': 1e-5,
+        },
+        'pc_type': 'lu',
+    }
+
+    snes_sparameters = {
+        'monitor': None,
+        'converged_reason': None,
+        'atol': 1e-10,
+        'rtol': 1e-12,
+        'stol': 1e-12,
+    }
+
+    # solver parameters for serial method
+    serial_sparameters = {
+        'snes': snes_sparameters
+    }
+    serial_sparameters.update(deepcopy(block_sparameters))
+    serial_sparameters['ksp']['monitor'] = None
+    serial_sparameters['ksp']['converged_reason'] = None
+
+    # solver parameters for parallel method
+    parallel_sparameters = {
+        'snes': snes_sparameters,
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'ksp': {
+            'monitor': None,
+            'converged_reason': None,
+        },
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
+
+    for i in range(sum(time_partition)):
+        parallel_sparameters['diagfft_block_'+str(i)] = block_sparameters
+
+    block_ctx = {}
+
+    miniapp = ComparisonMiniapp(ensemble, time_partition,
+                                form_mass,
+                                form_function,
+                                w_initial,
+                                dt, theta, alpha,
+                                serial_sparameters,
+                                parallel_sparameters,
+                                circ=None, block_ctx=block_ctx)
+
+    norm0 = fd.norm(w_initial)
+
+    def preproc(serial_app, paradiag, wndw):
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print(f'### === --- Time window {wndw} --- === ###')
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print('=== --- Parallel solve --- ===')
+        PETSc.Sys.Print('')
+
+    def parallel_postproc(pdg, wndw):
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print('=== --- Serial solve --- ===')
+        PETSc.Sys.Print('')
+        return
+
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
+
+    errors = miniapp.solve(nwindows=nwindows,
+                           preproc=preproc,
+                           parallel_postproc=parallel_postproc)
+
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('### === --- Errors --- === ###')
+
+    for it, err in enumerate(errors):
+        PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
+
+    for err in errors:
+        assert err/norm0 < 1e-5
+
+
+@pytest.mark.parallel(nprocs=4)
 def test_steady_swe():
     # test that steady-state is maintained for shallow water eqs
     import utils.units as units
@@ -245,8 +361,8 @@ def test_steady_swe():
 
     # finite element forms
 
-    def form_function(u, h, v, q):
-        return swe.form_function(mesh, g, b, f, u, h, v, q)
+    def form_function(u, h, v, q, t):
+        return swe.form_function(mesh, g, b, f, u, h, v, q, t)
 
     def form_mass(u, h, v, q):
         return swe.form_mass(mesh, u, h, v, q)
@@ -315,6 +431,80 @@ def test_steady_swe():
         assert (abs(uerr) < utol)
 
 
+@pytest.mark.parallel(nprocs=4)
+def test_Nitsche_BCs():
+    # test the linear equation u_t - Delta u = 0, with u_ex = exp(0.5*x + y + 1.25*t) and weakly imposing Dirichlet BCs
+    nspatial_domains = 2
+    degree = 1
+    nx = 10
+    dx = 1/nx
+    dt = dx
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.UnitSquareMesh(nx, nx, quadrilateral=False, comm=ensemble.comm)
+
+    x, y = fd.SpatialCoordinate(mesh)
+    n = fd.FacetNormal(mesh)
+    V = fd.FunctionSpace(mesh, "CG", degree)
+
+    w0 = fd.Function(V)
+    w0.interpolate(fd.exp(0.5*x + y))
+
+    def form_mass(q, phi):
+        return phi*q*fd.dx
+
+    def form_function(q, phi, t):
+        return fd.inner(fd.grad(q), fd.grad(phi))*fd.dx - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds - fd.inner(q-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(phi), n))*fd.ds + 20*nx*fd.inner(q-fd.exp(0.5*x + y + 1.25*t), phi)*fd.ds
+
+    # Parameters for the diag
+    sparameters = {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'}
+
+    solver_parameters_diag = {
+        "snes_linesearch_type": "basic",
+        'snes_atol': 1e-8,
+        # 'snes_monitor': None,
+        # 'snes_converged_reason': None,
+        'ksp_rtol': 1e-8,
+        # 'ksp_monitor': None,
+        # 'ksp_converged_reason': None,
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
+
+    M = [2, 2]
+    solver_parameters_diag["diagfft_block_"] = sparameters
+
+    alpha = 1.0e-3
+    theta = 0.5
+
+    PD = asQ.paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, w0=w0,
+                      dt=dt, theta=theta,
+                      alpha=alpha,
+                      time_partition=M, bcs=[], solver_parameters=solver_parameters_diag,
+                      circ=None, tol=1.0e-6, maxits=None,
+                      ctx={}, block_mat_type="aij")
+    PD.solve()
+
+    # check against initial conditions
+    time = tuple(fd.Constant(0) for _ in range(2))
+    q_exact = tuple(fd.Function(V) for _ in range(2))
+    for n in range(2):
+        time[n].assign(time[n] + dt*(PD.aaos.transform_index(n, from_range='slice', to_range='window') + 1))
+        q_exact[n].interpolate(fd.exp(.5*x + y + 1.25*time[n]))
+
+    walls = PD.aaos.w_all.split()
+    for step in range(2):
+        qp = walls[step]
+        qerr = fd.errornorm(qp, q_exact[step])
+        assert (qerr < (dx)**(3/2))
+
+
 @pytest.mark.parallel(nprocs=6)
 def test_jacobian_heat_equation():
     # tests the basic snes setup
@@ -345,7 +535,7 @@ def test_jacobian_heat_equation():
                          # 'snes_view': None
                          }
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v)) * fd.dx
 
     def form_mass(u, v):
@@ -383,11 +573,16 @@ def test_set_para_form():
     theta = 0.5
     alpha = 0.001
     M = [2, 2, 2]
+    Ml = np.sum(M)
+    time = tuple(fd.Constant(0) for _ in range(Ml))
+    for i in range(Ml):
+        time[i].assign(fd.Constant(i*dt))
+
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
@@ -404,11 +599,11 @@ def test_set_para_form():
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
-    WFull = V * V * V * V * V * V * V * V
+    WFull = reduce(mul, (V for _ in range(Ml)))
     ufull = fd.Function(WFull)
     np.random.seed(132574)
     ufull_list = ufull.subfunctions
-    for i in range(8):
+    for i in range(6):
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
@@ -424,14 +619,14 @@ def test_set_para_form():
     vfull = fd.TestFunction(WFull)
     ufulls = fd.split(ufull)
     vfulls = fd.split(vfull)
-    for i in range(8):
+    for i in range(Ml):
         if i == 0:
             un = u0
         else:
             un = ufulls[i-1]
         unp1 = ufulls[i]
         v = vfulls[i]
-        tform = form_mass(unp1 - un, v/dt) + form_function((unp1+un)/2, v)
+        tform = form_mass(unp1 - un, v/dt) + form_function(unp1/2, v, time[i]) + form_function(un/2, v, time[i]-dt)
         if i == 0:
             fullform = tform
         else:
@@ -473,11 +668,16 @@ def test_set_para_form_mixed_parallel():
     theta = 0.5
     alpha = 0.001
     M = [2, 2, 2]
+    Ml = np.sum(M)
+    time = tuple(fd.Constant(0) for _ in range(Ml))
+    for i in range(Ml):
+        time[i].assign(fd.Constant(i*dt))
+
     solver_parameters = {'ksp_type': 'gmres', 'pc_type': 'none',
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
 
-    def form_function(uu, up, vu, vp):
+    def form_function(uu, up, vu, vp, t):
         return (fd.div(vu)*up - fd.div(uu)*vp)*fd.dx
 
     def form_mass(uu, up, vu, vp):
@@ -494,11 +694,11 @@ def test_set_para_form_mixed_parallel():
                       ctx={}, block_mat_type="aij")
 
     # sequential assembly
-    WFull = W * W * W * W * W * W * W * W
+    WFull = reduce(mul, (W for _ in range(Ml)))
     ufull = fd.Function(WFull)
     np.random.seed(132574)
     ufull_list = ufull.subfunctions
-    for i in range((2*8)):
+    for i in range((2*6)):
         ufull_list[i].dat.data[:] = np.random.randn(*(ufull_list[i].dat.data.shape))
 
     rT = ensemble.ensemble_comm.rank
@@ -518,7 +718,7 @@ def test_set_para_form_mixed_parallel():
     ufulls = fd.split(ufull)
     vfulls = fd.split(vfull)
 
-    for i in range(8):
+    for i in range(Ml):
         if i == 0:
             un = u0
             pn = p0
@@ -531,7 +731,8 @@ def test_set_para_form_mixed_parallel():
         vp = vfulls[2 * i + 1]
         # forms have 2 components and 2 test functions: (u, h, w, phi)
         tform = form_mass(unp1 - un, pnp1 - pn, vu / dt, vp / dt) \
-            + form_function((unp1 + un) / 2, (pnp1 + pn) / 2, vu, vp)
+            + form_function(unp1 / 2, pnp1 / 2, vu, vp, time[i])\
+            + form_function(un / 2, pn / 2, vu, vp, time[i] - dt)
         if i == 0:
             fullform = tform
         else:
@@ -565,11 +766,15 @@ def test_jacobian_mixed_parallel():
     u0 = w0.subfunctions[0]
     p0 = w0.subfunctions[1]
     p0.interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
-    dt = 0.01
-    theta = 0.5
-    alpha = 0.001
     M = [2, 2, 2]
     Ml = np.sum(M)
+    dt = 0.01
+    time = tuple(fd.Constant(0) for _ in range(Ml))
+    for i in range(Ml):
+        time[i].assign(fd.Constant(i*dt))
+
+    theta = 0.5
+    alpha = 0.001
     c = fd.Constant(0.1)
     eps = fd.Constant(0.001)
 
@@ -577,7 +782,7 @@ def test_jacobian_mixed_parallel():
                          'ksp_rtol': 1.0e-8, 'ksp_atol': 1.0e-8,
                          'ksp_monitor': None}
 
-    def form_function(uu, up, vu, vp):
+    def form_function(uu, up, vu, vp, t):
         return (fd.div(vu) * up
                 + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
                 - fd.div(uu) * vp) * fd.dx
@@ -669,8 +874,8 @@ def test_jacobian_mixed_parallel():
         vu, vp = tfulls[2*i: 2*i + 2]
 
         tform = form_mass(unp1 - un, pnp1 - pn, vu / dt, vp / dt) \
-            + 0.5*form_function(unp1, pnp1, vu, vp) \
-            + 0.5*form_function(un, pn, vu, vp)
+            + 0.5*form_function(unp1, pnp1, vu, vp, time[i]) \
+            + 0.5*form_function(un, pn, vu, vp, time[i] - dt)
         if i == 0:
             fullform = tform
         else:
@@ -730,6 +935,7 @@ def test_solve_para_form(bc_opt, extruded):
     c = fd.Constant(1)
     M = [2, 2, 2]
     Ml = np.sum(M)
+    time = 0.01
 
     # Parameters for the diag
     sparameters = {
@@ -753,7 +959,7 @@ def test_solve_para_form(bc_opt, extruded):
     for i in range(sum(M)):
         solver_parameters_diag[f"diagfft_block_{i}_"] = sparameters
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
@@ -783,10 +989,9 @@ def test_solve_para_form(bc_opt, extruded):
 
     un.assign(u0)
     v = fd.TestFunction(V)
-
     eqn = (unp1 - un)*v*fd.dx
-    eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
-    eqn += fd.Constant(dt*theta)*form_function(unp1, v)
+    eqn += fd.Constant(dt*(1-theta))*form_function(un, v, time - dt)
+    eqn += fd.Constant(dt*theta)*form_function(unp1, v, time)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1, bcs=bcs)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
@@ -801,6 +1006,7 @@ def test_solve_para_form(bc_opt, extruded):
 
     for i in range(Ml):
         ssolver.solve()
+        time += dt
         vfull_list[i].assign(unp1)
         un.assign(unp1)
 
@@ -871,6 +1077,7 @@ def test_solve_para_form_mixed(extruded):
 
     M = [2, 2, 2]
     Ml = np.sum(M)
+    time = 0.01
 
     # Parameters for the diag
     sparameters = {
@@ -892,7 +1099,7 @@ def test_solve_para_form_mixed(extruded):
 
     solver_parameters_diag["diagfft_block_"] = sparameters
 
-    def form_function(uu, up, vu, vp):
+    def form_function(uu, up, vu, vp, t):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
                 - fd.div(uu) * vp) * fd.dx
 
@@ -919,9 +1126,9 @@ def test_solve_para_form_mixed(extruded):
     eqn = form_mass(*(fd.split(unp1)), *(fd.split(v)))
     eqn -= form_mass(*(fd.split(un)), *(fd.split(v)))
     eqn += fd.Constant(dt*(1-theta))*form_function(*(fd.split(un)),
-                                                   *(fd.split(v)))
+                                                   *(fd.split(v)), time - dt)
     eqn += fd.Constant(dt*theta)*form_function(*(fd.split(unp1)),
-                                               *(fd.split(v)))
+                                               *(fd.split(v)), time)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu',
@@ -940,6 +1147,7 @@ def test_solve_para_form_mixed(extruded):
 
     for i in range(Ml):
         ssolver.solve()
+        time += dt
         for k in range(2):
             vfull.sub(2*i+k).assign(unp1.sub(k))
         un.assign(unp1)
@@ -986,7 +1194,7 @@ def test_diagnostics():
     for i in range(np.sum(M)):
         diag_sparameters["diagfft_block_" + str(i) + "_"] = block_sparameters
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
