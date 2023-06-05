@@ -116,7 +116,7 @@ class AllAtOnceForm(TimePartitionMixin):
             tensor.assign(self.F.function)
 
         elif isinstance(tensor, PETSc.Vec):
-            with self.F.global_vec_ro as v:
+            with self.F.global_vec_ro() as v:
                 v.copy(tensor)
 
         elif tensor is not None:
@@ -141,7 +141,7 @@ class AllAtOnceForm(TimePartitionMixin):
 
         dt = self.dt
         theta = self.theta
-        alpha = self.alpha
+        alpha = fd.Constant(0) if self.alpha is None else self.alpha
 
         def get_step(i):
             return aaofunc.get_field_components(i, funcs=funcs)
@@ -153,11 +153,7 @@ class AllAtOnceForm(TimePartitionMixin):
 
             if n == 0:  # previous timestep is ic or is on previous slice
                 if self.time_rank == 0:
-                    if alpha is None:
-                        uns = ics
-                    else:
-                        uns = tuple((ics[i] + alpha*uprevs[i]
-                                     for i in range(self.ncomponents)))
+                    uns = tuple((ic + alpha*up for ic, up in zip(ics, uprevs)))
                 else:
                     uns = uprevs
             else:

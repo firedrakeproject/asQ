@@ -333,7 +333,13 @@ def test_copy(aaof):
     random_aaof(aaof, v0)
     aaof1 = aaof.copy()
 
+    # layout is the same
+    assert aaof.nlocal_timesteps == aaof1.nlocal_timesteps
+    assert aaof.ntimesteps == aaof1.ntimesteps
+
     # check all timesteps == v0
+
+    assert aaof.function_space == aaof1.function_space
 
     for step in range(aaof.nlocal_timesteps):
         err = fd.errornorm(aaof.get_field(step, uout=v0),

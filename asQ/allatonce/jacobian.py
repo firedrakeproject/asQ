@@ -5,7 +5,7 @@ from functools import partial
 from asQ.profiling import memprofile
 from asQ.common import get_option_from_list
 from asQ.allatonce.mixin import TimePartitionMixin
-from asQ.allatonce.function import time_average, AllAtOnceFunction
+from asQ.allatonce.function import time_average
 
 __all__ = ['AllAtOnceJacobian']
 
@@ -56,8 +56,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.appctx = appctx
 
         # function the Jacobian acts on, and contribution from timestep at end of previous slice
-        self.x = AllAtOnceFunction(self.ensemble, self.time_partition,
-                                   aaofunc.field_function_space)
+        self.x = aaofunc.copy()
 
         # output residual, and contribution from timestep at end of previous slice
         self.F = fd.Function(aaofunc.function_space)
@@ -134,12 +133,14 @@ class AllAtOnceJacobian(TimePartitionMixin):
     def mult(self, mat, X, Y):
 
         # we could use nonblocking here and overlap comms with assembling form
-        self.x.assign(X)
+        self.x.assign(X, update_halos=True, blocking=True)
 
         # assembly stage
         fd.assemble(fd.action(self.form, self.x.function), tensor=self.F)
-        fd.assemble(fd.action(self.form_prev, self.x.uprev),
-                    tensor=self.Fprev)
+
+        action = fd.action(self.form_prev, self.x.uprev)
+        fd.assemble(action, tensor=self.Fprev)
+
         self.F += self.Fprev
 
         # Apply boundary conditions

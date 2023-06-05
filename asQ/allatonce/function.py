@@ -75,16 +75,12 @@ class AllAtOnceFunction(TimePartitionMixin):
         self.nlocal_dofs = self.function_space.node_set.size
         self.nglobal_dofs = self.ntimesteps*self.field_function_space.dim()
 
-        self._vec = self._aao_vec()
-
-    def _aao_vec(self):
-        """
-        Return a PETSc Vec representing the all-at-once function over the global comm
-        """
-        X = PETSc.Vec().create(comm=self.ensemble.global_comm)
-        X.setSizes((self.nlocal_dofs, self.nglobal_dofs))
-        X.setFromOptions()
-        return X
+        with self.function.dat.vec as fvec:
+            sizes = (self.nlocal_dofs, self.nglobal_dofs)
+            self._vec = PETSc.Vec().createWithArray(fvec.array,
+                                                    size=sizes,
+                                                    comm=ensemble.global_comm)
+            self._vec.setFromOptions()
 
     def copy(self):
         """
@@ -325,27 +321,30 @@ class AllAtOnceFunction(TimePartitionMixin):
         """
         Context manager for the global PETSc Vec with read/write access.
         """
-        with self.function.dat.vec as fvec:
-            self._vec.placeArray(fvec.array)
+        # fvec shares the same storage as _vec, so we need this context
+        # manager to make sure that the data gets copied to/from the
+        # Function.dat storage and _vec.
+        with self.function.dat.vec as fvec:  # noqa: F841
             yield self._vec
-            self._vec.resetArray()
 
     @contextlib.contextmanager
     def global_vec_ro(self):
         """
         Context manager for the global PETSc Vec with read only access.
         """
-        with self.function.dat.vec_ro as fvec:
-            self._vec.placeArray(fvec.array)
+        # fvec shares the same storage as _vec, so we need this context
+        # manager to make sure that the data gets copied into _vec from
+        # the Function.dat storage.
+        with self.function.dat.vec_ro as fvec:  # noqa: F841
             yield self._vec
-            self._vec.resetArray()
 
     @contextlib.contextmanager
     def global_vec_wo(self):
         """
         Context manager for the global PETSc Vec with write only access.
         """
-        with self.function.dat.vec_wo as fvec:
-            self._vec.placeArray(fvec.array)
+        # fvec shares the same storage as _vec, so we need this context
+        # manager to make sure that the data gets copied back into the
+        # Function.dat storage from _vec.
+        with self.function.dat.vec_wo as fvec:  # noqa: F841
             yield self._vec
-            self._vec.resetArray()

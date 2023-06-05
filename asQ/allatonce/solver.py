@@ -17,10 +17,10 @@ class AllAtOnceSolver(TimePartitionMixin):
                  jacobian_reference_state=None,
                  pc_mass=None,
                  pc_function=None,
-                 pre_function_callback=None,
-                 post_function_callback=None,
-                 pre_jacobian_callback=None,
-                 post_jacobian_callback=None):
+                 pre_function_callback=lambda solver, X: None,
+                 post_function_callback=lambda solver, X, F: None,
+                 pre_jacobian_callback=lambda solver, X, J: None,
+                 post_jacobian_callback=lambda solver, X, J: None):
         """
         Solves an all-at-once form over an all-at-once function.
         """
@@ -29,6 +29,8 @@ class AllAtOnceSolver(TimePartitionMixin):
         self.aaoform = aaoform
 
         self.appctx = appctx
+
+        self.jacobian_form = aaoform if jacobian_form is None else jacobian_form
 
         # callbacks
         self.pre_function_callback = pre_function_callback
@@ -39,7 +41,7 @@ class AllAtOnceSolver(TimePartitionMixin):
         # solver options
         self.solver_parameters = solver_parameters
         self.flat_solver_parameters = flatten_parameters(solver_parameters)
-        self.options = OptionsManager(self.flat_solver_parameters, '')
+        self.options = OptionsManager(self.flat_solver_parameters, options_prefix)
 
         # snes
         self.snes = PETSc.SNES().create(comm=self.ensemble.global_comm)
@@ -48,8 +50,8 @@ class AllAtOnceSolver(TimePartitionMixin):
             options_prefix += "_"
         self.snes.setOptionsPrefix(options_prefix)
 
-        # residual function and snes rhs
-        self.F = aaofunc._vec.copy()
+        # residual vector
+        self.F = aaofunc._vec.duplicate()
 
         def assemble_function(snes, X, F):
             self.pre_function_callback(self, X)
@@ -76,13 +78,16 @@ class AllAtOnceSolver(TimePartitionMixin):
 
         def form_jacobian(snes, X, J, P):
             # copy the snes state vector into self.X
-            self.pre_jacobian_callback(self, X)
+            self.pre_jacobian_callback(self, X, J)
             self.jacobian.update(X)
             self.post_jacobian_callback(self, X, J)
             J.assemble()
             P.assemble()
 
         self.snes.setJacobian(form_jacobian, J=jacobian_mat, P=jacobian_mat)
+
+        # complete the snes setup
+        self.options.set_from_options(self.snes)
 
     @PETSc.Log.EventDecorator()
     @memprofile

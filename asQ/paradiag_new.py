@@ -106,9 +106,7 @@ class paradiag(TimePartitionMixin):
         if jacobian_mass is None:
             jacobian_mass = form_mass
 
-        self.jacobian_aaofunc = AllAtOnceFunction(ensemble, time_partition,
-                                                  function_space)
-        self.jacobian_aaofunc.assign(self.aaofunc)
+        self.jacobian_aaofunc = aaofunc.copy()
 
         self.jacobian_form = AllAtOnceForm(self.jacobian_aaofunc, dt, theta,
                                            jacobian_mass, jacobian_function,
