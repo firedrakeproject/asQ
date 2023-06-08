@@ -241,21 +241,14 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg usrc: solution to set all timesteps to.
         :arg index: index of timestep to use current solution for new value.
                     Must be in window range. Ignored if usrc is not None.
-                    NotImplemented yet.
         """
         if usrc is not None:  # use given function
             self.initial_condition.assign(usrc)
 
         else:  # last rank broadcasts final timestep
-            if index is not None:
-                raise ValueError("Setting AllAtOnceFunction from given index not implemented yet")
-
-            end_rank = self.ensemble.ensemble_comm.size - 1
-
-            if self.time_rank == end_rank:
-                self.get_field(-1, uout=self.initial_condition, index_range='window')
-
-            self.ensemble.bcast(self.initial_condition, root=end_rank)
+            if index is None:
+                index = -1
+            self.bcast_field(index, self.initial_condition)
 
         # persistence forecast
         for i in range(self.nlocal_timesteps):
@@ -264,6 +257,24 @@ class AllAtOnceFunction(TimePartitionMixin):
         self.uprev.assign(self.initial_condition)
 
         return
+
+    @PETSc.Log.EventDecorator()
+    def bcast_field(self, step, u):
+        """
+        Broadcast solution at given timestep to all time-ranks.
+
+        :arg step: window index of field to broadcast.
+        :arg u: fd.Function to place field into.
+        """
+        # find which rank step is on.
+        root = self.layout.rank_of(step)
+
+        # get u if step on this rank
+        if self.time_rank == root:
+            self.get_field(step, uout=u, index_range='window')
+
+        # bcast u
+        self.ensemble.bcast(u, root=root)
 
     @PETSc.Log.EventDecorator()
     def update_time_halos(self, blocking=True):

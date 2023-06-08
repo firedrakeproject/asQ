@@ -211,10 +211,7 @@ for i in range(args.nwindows):
 
     # restart timeseries using final timestep as new
     # initial conditions and the initial guess.
-    aaofunc.get_field(-1, w)
-    ensemble.bcast(w, root=len(time_partition)-1)
-    aaofunc.set_all_fields(w)
-
+    aaofunc.set_all_fields(index=-1)
 
 # Print out some iteration counts
 

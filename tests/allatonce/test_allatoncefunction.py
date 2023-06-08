@@ -6,14 +6,11 @@ from functools import reduce
 from operator import mul
 
 
-def random_aaof(aaof, v):
-    for dat in v.dat:
+def random_aaof(aaof):
+    for dat in aaof.initial_condition.dat:
         dat.data[:] = np.random.rand(*(dat.data.shape))
-    aaof.initial_condition.assign(v)
-    for step in range(aaof.nlocal_timesteps):
-        for dat in v.dat:
-            dat.data[:] = np.random.rand(*(dat.data.shape))
-        aaof.set_field(step, v)
+    for dat in aaof.function.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
     aaof.update_time_halos()
 
 
@@ -204,9 +201,7 @@ def test_set_get_component(aaof):
 
     # two random solutions
     np.random.seed(572046)
-
-    for dat in aaof.function.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
+    random_aaof(aaof)
 
     for slice_index in range(aaof.nlocal_timesteps):
         window_index = aaof.transform_index(slice_index, from_range='slice', to_range='window')
@@ -250,9 +245,7 @@ def test_set_get_field(aaof):
 
     # two random solutions
     np.random.seed(572046)
-
-    for dat in aaof.function.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
+    random_aaof(aaof)
 
     # get each step using slice index
     for step in range(aaof.nlocal_timesteps):
@@ -316,6 +309,27 @@ def test_set_all_fields(aaof):
 
 
 @pytest.mark.parallel(nprocs=nprocs)
+def test_bcast_field(aaof):
+    '''
+    test broadcasting the solution at a particular timestep to all ensemble ranks
+    '''
+    u = fd.Function(aaof.field_function_space, name="u")
+    v = fd.Function(aaof.field_function_space, name="v")
+
+    # solution at timestep i is i
+    for slice_index in range(aaof.nlocal_timesteps):
+        window_index = aaof.transform_index(slice_index, from_range='slice', to_range='window')
+        v.assign(window_index)
+        aaof.set_field(slice_index, v)
+
+    for i in range(aaof.ntimesteps):
+        v.assign(-1)
+        u.assign(i)
+        aaof.bcast_field(i, v)
+        assert (fd.errornorm(v, u) < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=nprocs)
 def test_copy(aaof):
     """
     test setting all timesteps/ics to given function.
@@ -330,7 +344,7 @@ def test_copy(aaof):
         dat.data[:] = np.random.rand(*(dat.data.shape))
 
     # set next window from new solution
-    random_aaof(aaof, v0)
+    random_aaof(aaof)
     aaof1 = aaof.copy()
 
     # layout is the same
@@ -367,7 +381,7 @@ def test_assign(aaof):
     aaof1 = aaof.copy()
 
     # assign from another aaof
-    random_aaof(aaof, v0)
+    random_aaof(aaof)
     aaof1.assign(aaof)
 
     for step in range(aaof.nlocal_timesteps):
@@ -383,7 +397,7 @@ def test_assign(aaof):
     assert (err < 1e-12)
 
     # set from PETSc Vec
-    random_aaof(aaof, v0)
+    random_aaof(aaof)
     with aaof.global_vec() as gvec0:
         aaof1.assign(gvec0)
 
