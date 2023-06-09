@@ -18,7 +18,7 @@ nprocs = 4
 
 
 max_ncpts = 3
-ncpts = [i for i in range(1, max_ncpts + 1)]
+ncpts = [pytest.param(i, id=f"{i}component") for i in range(1, max_ncpts+1)]
 
 
 @pytest.fixture

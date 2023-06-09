@@ -5,9 +5,12 @@ import pytest
 from functools import reduce
 from operator import mul
 
+bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
+
 
 @pytest.mark.parallel(nprocs=4)
-def test_heat_form():
+@pytest.mark.parametrize("bc_opt", bc_opts)
+def test_heat_form(bc_opt):
     """
     Test that assembling the AllAtOnceForm is the same as assembling the
     slice-local part of an all-at-once form for the whole timeseries.
@@ -41,12 +44,31 @@ def test_heat_form():
     def form_mass(u, v):
         return u*v*fd.dx
 
+    if bc_opt == "inhomogeneous_bcs":
+        bc_val = fd.sin(2*fd.pi*x)
+        bc_domain = "on_boundary"
+        bcs = [fd.DirichletBC(V, bc_val, bc_domain)]
+    elif bc_opt == "homogeneous_bcs":
+        bc_val = 0.
+        bc_domain = 1
+        bcs = [fd.DirichletBC(V, bc_val, bc_domain)]
+    else:
+        bcs = []
+
     aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
-                                form_mass, form_function)
+                                form_mass, form_function,
+                                bcs=bcs)
 
     # on each time-slice, build the form for the entire timeseries
     full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))
     ufull = fd.Function(full_function_space)
+
+    if bc_opt == "no_bcs":
+        bcs_full = []
+    else:
+        bcs_full = []
+        for i in range(sum(time_partition)):
+            bcs_full.append(fd.DirichletBC(full_function_space.sub(i), bc_val, bc_domain))
 
     vfull = fd.TestFunction(full_function_space)
     ufulls = fd.split(ufull)
@@ -79,6 +101,8 @@ def test_heat_form():
     # assemble and compare
     aaoform.assemble()
     Ffull = fd.assemble(fullform)
+    for bc in bcs_full:
+        bc.apply(Ffull, u=ufull)
 
     for step in range(aaofunc.nlocal_timesteps):
         windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
@@ -88,8 +112,9 @@ def test_heat_form():
         assert (err < 1e-12)
 
 
+@pytest.mark.parametrize("bc_opt", bc_opts)
 @pytest.mark.parallel(nprocs=4)
-def test_mixed_heat_form():
+def test_mixed_heat_form(bc_opt):
     """
     Test that assembling the AllAtOnceForm is the same as assembling the
     slice-local part of an all-at-once form for the whole timeseries.
@@ -124,12 +149,33 @@ def test_mixed_heat_form():
     def form_mass(u, p, v, q):
         return (fd.inner(u, v) + p*q)*fd.dx
 
+    if bc_opt == "inhomogeneous_bcs":
+        bc_val = fd.as_vector([fd.sin(2*fd.pi*x), -fd.cos(fd.pi*y)])
+        bc_domain = "on_boundary"
+        bcs = [fd.DirichletBC(V.sub(0), bc_val, bc_domain)]
+    elif bc_opt == "homogeneous_bcs":
+        bc_val = fd.as_vector([0., 0.])
+        bc_domain = "on_boundary"
+        bcs = [fd.DirichletBC(V.sub(0), bc_val, bc_domain)]
+    else:
+        bcs = []
+
     aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
-                                form_mass, form_function)
+                                form_mass, form_function,
+                                bcs=bcs)
 
     # on each time-slice, build the form for the entire timeseries
     full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))
     ufull = fd.Function(full_function_space)
+
+    if bc_opt == "no_bcs":
+        bcs_full = []
+    else:
+        bcs_full = []
+        for i in range(sum(time_partition)):
+            bcs_full.append(fd.DirichletBC(full_function_space.sub(2*i),
+                                           bc_val,
+                                           bc_domain))
 
     vfull = fd.TestFunction(full_function_space)
     ufulls = fd.split(ufull)
@@ -165,6 +211,8 @@ def test_mixed_heat_form():
     # assemble and compare
     aaoform.assemble()
     Ffull = fd.assemble(fullform)
+    for bc in bcs_full:
+        bc.apply(Ffull, u=ufull)
 
     for step in range(aaofunc.nlocal_timesteps):
         for cpt in range(2):
