@@ -59,7 +59,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.x = aaofunc.copy()
 
         # output residual, and contribution from timestep at end of previous slice
-        self.F = fd.Function(aaofunc.function_space)
+        self.F = aaofunc.copy()
         self.Fprev = fd.Function(aaofunc.function_space)
 
         # working buffers for calculating time average when needed
@@ -136,20 +136,17 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.x.assign(X, update_halos=True, blocking=True)
 
         # assembly stage
-        fd.assemble(fd.action(self.form, self.x.function), tensor=self.F)
-
-        action = fd.action(self.form_prev, self.x.uprev)
-        fd.assemble(action, tensor=self.Fprev)
-
-        self.F += self.Fprev
+        fd.assemble(fd.action(self.form, self.x.function), tensor=self.F.function)
+        fd.assemble(fd.action(self.form_prev, self.x.uprev), tensor=self.Fprev)
+        self.F.function += self.Fprev
 
         # Apply boundary conditions
         # For Jacobian action we should just return the values in X
         # at boundary nodes
         for bc in self.aaoform.bcs:
             bc.homogenize()
-            bc.apply(self.F, u=self.x.function)
+            bc.apply(self.F.function, u=self.x.function)
             bc.restore()
 
-        with self.F.dat.vec_ro as v:
+        with self.F.global_vec_ro() as v:
             v.copy(Y)
