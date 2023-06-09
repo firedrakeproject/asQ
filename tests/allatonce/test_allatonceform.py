@@ -39,7 +39,9 @@ def test_heat_form(bc_opt):
     theta = fd.Constant(0.75)
 
     def form_function(u, v):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+        c = fd.Constant(0.1)
+        nu = fd.Constant(1) + c*fd.inner(u, u)
+        return fd.inner(nu*fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
         return u*v*fd.dx
