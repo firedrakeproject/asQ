@@ -1,22 +1,12 @@
 import firedrake as fd
-from firedrake.petsc import flatten_parameters
-from firedrake.petsc import PETSc, OptionsManager
-from functools import partial
+from firedrake.petsc import PETSc
 from .profiling import memprofile
 
-from asQ.allatoncesystem import AllAtOnceSystem, JacobianMatrix
+from asQ.allatonce import AllAtOnceFunction, AllAtOnceForm, AllAtOnceSolver
+from asQ.allatonce.mixin import TimePartitionMixin
 from asQ.parallel_arrays import SharedArray
 
-__all__ = ['create_ensemble', 'paradiag']
-
-appctx = {}
-
-
-def context_callback(pc, context):
-    return context
-
-
-get_context = partial(context_callback, context=appctx)
+__all__ = ['create_ensemble', 'Paradiag']
 
 
 def create_ensemble(time_partition, comm=fd.COMM_WORLD):
@@ -38,38 +28,40 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
     return fd.Ensemble(comm, nspatial_domains)
 
 
-class paradiag(object):
+class Paradiag(TimePartitionMixin):
     @memprofile
     def __init__(self, ensemble,
                  form_function, form_mass,
-                 w0, dt, theta,
-                 alpha, time_partition, bcs=[],
+                 ics, dt, theta,
+                 time_partition,
                  solver_parameters={},
+                 appctx={}, bcs=[],
+                 options_prefix="",
                  reference_state=None,
-                 linearised_function=None,
-                 linearised_mass=None,
-                 circ="",
-                 tol=1.0e-6, maxits=10,
-                 ctx={}, block_ctx={}, block_mat_type="aij"):
+                 function_alpha=None, jacobian_alpha=None,
+                 jacobian_function=None, jacobian_mass=None,
+                 pc_function=None, pc_mass=None,
+                 pre_function_callback=None, post_function_callback=None,
+                 pre_jacobian_callback=None, post_jacobian_callback=None):
         """A class to implement paradiag timestepping.
 
         :arg ensemble: the ensemble communicator
         :arg form_function: a function that returns a form
-            on w0.function_space() providing f(w) for the ODE w_t + f(w) = 0.
+            on ics.function_space() providing f(w) for the ODE w_t + f(w) = 0.
         :arg form_mass: a function that returns a linear form on
-            w0.function_space providing the mass operator for the time derivative.
+            ics.function_space providing the mass operator for the time derivative.
         :arg linearised_function: a function that returns a form
-            on w0.function_space() which will be linearised to approximate
+            on ics.function_space() which will be linearised to approximate
             derivative(f(w), w) for the ODE w_t + f(w) = 0.
-        :arg linearised_mass: a function that returns a linear form on w0.function_space
+        :arg linearised_mass: a function that returns a linear form on ics.function_space
             providing which will be linearised to approximate the form_mass
-        :arg w0: a Function from w0.function_space containing the initial data.
+        :arg ics: a Function from ics.function_space containing the initial data.
         :arg dt: float, the timestep size.
         :arg theta: float, implicit timestepping parameter.
         :arg alpha: float, circulant matrix parameter.
         :arg time_partition: a list of integers, the number of timesteps
             assigned to each rank.
-        :arg bcs: a list of DirichletBC boundary conditions on w0.function_space.
+        :arg bcs: a list of DirichletBC boundary conditions on ics.function_space.
         :arg solver_parameters: options dictionary for nonlinear solver.
         :arg reference_state: a Function in W to use as a reference state
             e.g. in DiagFFTPC.
@@ -82,91 +74,45 @@ class paradiag(object):
         :arg tol: float, the tolerance for the relaxation method (if used)
         :arg maxits: integer, the maximum number of iterations for the
             relaxation method, if used.
-        :arg ctx: application context for solvers.
         :arg block_ctx: non-petsc context for solvers.
         :arg block_mat_type: set the type of the diagonal block systems.
             Default is aij.
         """
+        self.time_partition_setup(ensemble, time_partition)
 
-        self.aaos = AllAtOnceSystem(ensemble, time_partition,
-                                    dt, theta,
-                                    form_mass, form_function,
-                                    w0, bcs=bcs,
-                                    reference_state=reference_state,
-                                    linearised_function=linearised_function,
-                                    linearised_mass=linearised_mass,
-                                    circ=circ, alpha=alpha)
+        # all-at-once function and form
 
-        self.ensemble = ensemble
-        self.layout = self.aaos.layout
-        self.time_partition = self.aaos.time_partition
-        self.time_rank = self.aaos.time_rank
-        self.nlocal_timesteps = self.aaos.nlocal_timesteps
-        self.ntimesteps = self.aaos.ntimesteps
-        self.alpha = self.aaos.alpha
-        self.tol = tol
-        self.maxits = maxits
-        self.circ = self.aaos.circ
-        self.ctx = ctx
-        self.block_ctx = block_ctx
+        function_space = ics.function_space()
+        self.aaofunc = AllAtOnceFunction(ensemble, time_partition,
+                                         function_space)
+        self.aaofunc.set_all_fields(ics)
 
-        # set up the PETSc Vecs (X for coeffs and F for residuals)
-        W = self.aaos.function_space
+        self.aaoform = AllAtOnceForm(self.aaofunc, dt, theta,
+                                     form_mass, form_function,
+                                     bcs=bcs, alpha=function_alpha)
 
-        nlocal = self.nlocal_timesteps*W.node_set.size  # local times x local space
-        nglobal = self.ntimesteps*W.dim()  # global times x global space
+        # all-at-once jacobian
+        if jacobian_mass is None:
+            jacobian_mass = form_mass
+        if jacobian_function is None:
+            jacobian_function = form_function
 
-        self.X = PETSc.Vec().create(comm=ensemble.global_comm)
-        self.X.setSizes((nlocal, nglobal))
-        self.X.setFromOptions()
-        # copy initial data into the PETSc vec
-        with self.aaos.w_all.dat.vec_ro as v:
-            v.copy(self.X)
-        self.F = self.X.copy()
+        self.jacobian_aaofunc = self.aaofunc.copy()
 
-        # sort out the appctx
-        if "pc_python_type" in solver_parameters:
-            if solver_parameters["pc_python_type"] == "asQ.DiagFFTPC":
-                appctx["paradiag"] = self
-                solver_parameters["diagfft_context"] = "asQ.paradiag.get_context"
-        self.solver_parameters = solver_parameters
-        self.flat_solver_parameters = flatten_parameters(solver_parameters)
+        self.jacobian_form = AllAtOnceForm(self.jacobian_aaofunc, dt, theta,
+                                           jacobian_mass, jacobian_function,
+                                           bcs=bcs, alpha=jacobian_alpha)
 
-        # set up the snes
-        self.snes = PETSc.SNES().create(comm=ensemble.global_comm)
-        self.opts = OptionsManager(self.flat_solver_parameters, '')
-        self.snes.setOptionsPrefix('')
+        self.solver = AllAtOnceSolver(self.aaoform, self.aaofunc,
+                                      solver_parameters=solver_parameters,
+                                      options_prefix=options_prefix, appctx=appctx,
+                                      jacobian_form=self.jacobian_form,
+                                      jacobian_reference_state=reference_state)
 
-        # set up the residual function
-        def assemble_function(snes, X, Fvec):
-            self.aaos._assemble_function(snes, X, Fvec)
-
-        self.snes.setFunction(assemble_function, self.F)
-
-        # set up the Jacobian using the provided options
-        with self.opts.inserted_options():
-            self.jacobian = JacobianMatrix(self.aaos, self.snes)
-
-        Jacmat = PETSc.Mat().create(comm=ensemble.global_comm)
-        Jacmat.setType("python")
-        Jacmat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
-        Jacmat.setPythonContext(self.jacobian)
-        Jacmat.setUp()
-        self.Jacmat = Jacmat
-
-        def form_jacobian(snes, X, J, P):
-            # copy the snes state vector into self.X
-            X.copy(self.X)
-            self.aaos.update(X)
-            self.jacobian.update()
-            J.assemble()
-            P.assemble()
-
-        self.snes.setJacobian(form_jacobian, J=Jacmat, P=Jacmat)
-
-        # complete the snes setup
-        self.opts.set_from_options(self.snes)
         # iteration counts
+        self.block_iterations = SharedArray(self.time_partition,
+                                            dtype=int,
+                                            comm=self.ensemble.ensemble_comm)
         self.reset_diagnostics()
 
     def reset_diagnostics(self):
@@ -177,9 +123,7 @@ class paradiag(object):
         self.nonlinear_iterations = 0
         self.total_timesteps = 0
         self.total_windows = 0
-        self.block_iterations = SharedArray(self.time_partition,
-                                            dtype=int,
-                                            comm=self.ensemble.ensemble_comm)
+        self.block_iterations.data()[:] = 0
 
     def _record_diagnostics(self):
         """
@@ -187,8 +131,8 @@ class paradiag(object):
 
         Must be called exactly once after each snes solve.
         """
-        self.linear_iterations += self.snes.getLinearSolveIterations()
-        self.nonlinear_iterations += self.snes.getIterationNumber()
+        self.linear_iterations += self.solver.snes.getLinearSolveIterations()
+        self.nonlinear_iterations += self.solver.snes.getIterationNumber()
         self.total_timesteps += sum(self.time_partition)
         self.total_windows += 1
 
@@ -198,14 +142,17 @@ class paradiag(object):
 
         Until this method is called, diagnostic information is not guaranteed to be valid.
         """
-        self.block_iterations.synchronise()
+        pc_block_iterations = self.solver.jacobian.pc.block_iterations
+        pc_block_iterations.synchronise()
+        self.block_iterations.data()[:] = pc_block_iterations.data()
 
     @PETSc.Log.EventDecorator()
     @memprofile
     def solve(self,
               nwindows=1,
-              preproc=lambda pdg, w: None,
-              postproc=lambda pdg, w: None,
+              preproc=lambda pdg, w, rhs: None,
+              postproc=lambda pdg, w, rhs: None,
+              rhs=None,
               verbose=False):
         """
         Solve the system (either in one shot or as a relaxation method).
@@ -218,24 +165,15 @@ class paradiag(object):
 
         for wndw in range(nwindows):
 
-            preproc(self, wndw)
-
-            with self.aaos.w_all.dat.vec_ro as v:
-                v.copy(self.X)
-
-            with self.opts.inserted_options():
-                self.snes.solve(None, self.X)
-
-            self.aaos.update(self.X)
-
+            preproc(self, wndw, rhs)
+            self.solver.solve(rhs=rhs)
             self._record_diagnostics()
+            postproc(self, wndw, rhs)
 
-            postproc(self, wndw)
-
-            converged_reason = self.snes.getConvergedReason()
+            converged_reason = self.solver.snes.getConvergedReason()
             is_linear = (
-                'snes_type' in self.flat_solver_parameters
-                and self.flat_solver_parameters['snes_type'] == 'ksponly'
+                'snes_type' in self.solver.flat_solver_parameters
+                and self.solver.flat_solver_parameters['snes_type'] == 'ksponly'
             )
             if is_linear and (converged_reason == 5):
                 pass
@@ -245,6 +183,6 @@ class paradiag(object):
 
             # don't wipe all-at-once function at last window
             if wndw != nwindows-1:
-                self.aaos.next_window()
+                self.aaofunc.set_all_fields(index=-1)
 
         self.sync_diagnostics()

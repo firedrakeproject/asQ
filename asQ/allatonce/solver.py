@@ -30,7 +30,7 @@ class AllAtOnceSolver(TimePartitionMixin):
 
         self.appctx = appctx
 
-        self.jacobian_form = aaoform if jacobian_form is None else jacobian_form
+        self.jacobian_form = aaoform.copy() if jacobian_form is None else jacobian_form
 
         # callbacks
         self.pre_function_callback = pre_function_callback
@@ -42,12 +42,11 @@ class AllAtOnceSolver(TimePartitionMixin):
         self.solver_parameters = solver_parameters
         self.flat_solver_parameters = flatten_parameters(solver_parameters)
         self.options = OptionsManager(self.flat_solver_parameters, options_prefix)
+        options_prefix = self.options.options_prefix
 
         # snes
         self.snes = PETSc.SNES().create(comm=self.ensemble.global_comm)
 
-        if (options_prefix != "") and (not options_prefix.endswith("_")):
-            options_prefix += "_"
         self.snes.setOptionsPrefix(options_prefix)
 
         # residual vector

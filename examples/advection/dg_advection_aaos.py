@@ -2,7 +2,6 @@
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from math import pi, cos, sin
-from copy import deepcopy
 
 import firedrake as fd
 from firedrake.petsc import PETSc
@@ -135,7 +134,7 @@ block_parameters = {
 # the blocks then the outer Krylov method must be either flexible
 # or Richardson).
 
-paradiag_parameters = {
+solver_parameters = {
     'snes_type': 'ksponly',
     'snes': {
         'monitor': None,
@@ -159,10 +158,7 @@ paradiag_parameters = {
 # We need to add a block solver parameters dictionary for each block.
 # Here they are all the same but they could be different.
 for i in range(aaofunc.ntimesteps):
-    paradiag_parameters['diagfft_block_'+str(i)+'_'] = block_parameters
-
-solver_parameters = deepcopy(paradiag_parameters)
-solver_parameters['pc_python_type'] = 'asQ.ParaDiagPC'
+    solver_parameters['diagfft_block_'+str(i)+'_'] = block_parameters
 
 # Create a solver object to set up and solve the (possibly nonlinear) problem
 # for the timeseries in the all-at-once function.

@@ -38,6 +38,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         :arg aaofunc: The AllAtOnceSystem object
         """
         self.time_partition_setup(aaoform.ensemble, aaoform.time_partition)
+        prefix = self.prefix + options_prefix
 
         aaofunc = aaoform.aaofunc
         self.aaoform = aaoform
@@ -74,10 +75,10 @@ class AllAtOnceJacobian(TimePartitionMixin):
         # option for what state to linearise around
         valid_jacobian_states = ['current', 'window', 'slice', 'linear', 'initial', 'reference', 'user']
 
-        if (options_prefix != "") and (not options_prefix.endswith("_")):
-            options_prefix += "_"
+        if (prefix != "") and (not prefix.endswith("_")):
+            prefix += "_"
 
-        state_option = f"{options_prefix}{self.prefix}state"
+        state_option = f"{prefix}state"
 
         self.jacobian_state = partial(get_option_from_list,
                                       state_option, valid_jacobian_states,
