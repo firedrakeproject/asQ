@@ -21,7 +21,6 @@ def test_galewsky_timeseries():
     nwindows = 1
     nslices = 2
     slice_length = 2
-    alpha = 0.0001
     dt = 0.5
     theta = 0.5
     degree = swe.default_degree()
@@ -147,7 +146,8 @@ def test_galewsky_timeseries():
             'converged_reason': None,
         },
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.ParaDiagPC',
+        'diagfft_alpha': 1e-3,
     }
 
     for i in range(sum(time_partition)):
@@ -164,7 +164,7 @@ def test_galewsky_timeseries():
                                 form_mass,
                                 form_function,
                                 w_initial,
-                                dt, theta, alpha,
+                                dt, theta,
                                 serial_sparameters,
                                 parallel_sparameters,
                                 circ=None, block_ctx=block_ctx)
@@ -213,11 +213,15 @@ def test_steady_swe():
     import utils.shallow_water.williamson1992.case2 as case2
 
     # set up the ensemble communicator for space-time parallelism
-    nspatial_domains = 2
     ref_level = 2
     degree = 1
 
-    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    nslices = fd.COMM_WORLD.size//2
+    slice_length = 2
+
+    time_partition = tuple((slice_length for _ in range(nslices)))
+    ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+
     mesh = fd.IcosahedralSphereMesh(radius=earth.radius,
                                     refinement_level=ref_level,
                                     degree=degree,
@@ -268,41 +272,37 @@ def test_steady_swe():
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
-        'diagfft_state': 'initial',
+        'pc_python_type': 'asQ.ParaDiagPC',
         'aaos_jacobian_state': 'initial',
+        'diagfft_state': 'initial',
+        'diagfft_alpha': 1e-3,
     }
 
-    M = [2, 2]
     solver_parameters_diag["diagfft_block_"] = sparameters
     solver_parameters_diag["diagfft_block_0_"] = sparameters
 
     dt = 0.2*units.hour
 
-    alpha = 1.0e-3
     theta = 0.5
 
-    PD = asQ.paradiag(ensemble=ensemble,
-                      form_function=form_function,
-                      form_mass=form_mass, w0=w0,
-                      dt=dt, theta=theta,
-                      alpha=alpha,
-                      time_partition=M, solver_parameters=solver_parameters_diag,
-                      circ=None, tol=1.0e-6, maxits=None,
-                      ctx={}, block_mat_type="aij")
-    PD.solve()
+    pdg = asQ.Paradiag(ensemble=ensemble,
+                       form_function=form_function,
+                       form_mass=form_mass,
+                       ics=w0, dt=dt, theta=theta,
+                       time_partition=time_partition,
+                       solver_parameters=solver_parameters_diag)
+    pdg.solve()
 
     # check against initial conditions
-    walls = PD.aaos.w_all.subfunctions
     hn.assign(hn - H + b)
 
     hmag = fd.norm(hn)
     umag = fd.norm(un)
 
-    for step in range(M[PD.time_rank]):
+    for step in range(pdg.nlocal_timesteps):
 
-        up = walls[2*step]
-        hp = walls[2*step+1]
+        up = pdg.aaofunc.get_component(step, 0, index_range='slice')
+        hp = pdg.aaofunc.get_component(step, 1, index_range='slice')
         hp.assign(hp-H+b)
 
         herr = fd.errornorm(hn, hp)/hmag
@@ -315,6 +315,7 @@ def test_steady_swe():
         assert (abs(uerr) < utol)
 
 
+@pytest.mark.skip(reason="Tested by AllAtOnceSolver")
 @pytest.mark.parallel(nprocs=6)
 def test_jacobian_heat_equation():
     # tests the basic snes setup
@@ -351,7 +352,7 @@ def test_jacobian_heat_equation():
     def form_mass(u, v):
         return u * v * fd.dx
 
-    PD = asQ.paradiag(ensemble=ensemble,
+    PD = asQ.Paradiag(ensemble=ensemble,
                       form_function=form_function,
                       form_mass=form_mass, w0=u0,
                       dt=dt, theta=theta,
@@ -365,6 +366,7 @@ def test_jacobian_heat_equation():
     assert (1 < PD.snes.getConvergedReason() < 5)
 
 
+@pytest.mark.skip(reason="Tested by AllAtOnceForm")
 @pytest.mark.parallel(nprocs=6)
 def test_set_para_form():
     # checks that the all-at-once system is the same as solving
@@ -393,7 +395,7 @@ def test_set_para_form():
     def form_mass(u, v):
         return u*v*fd.dx
 
-    PD = asQ.paradiag(ensemble=ensemble,
+    PD = asQ.Paradiag(ensemble=ensemble,
                       form_function=form_function,
                       form_mass=form_mass, w0=u0,
                       dt=dt, theta=theta,
@@ -449,6 +451,7 @@ def test_set_para_form():
     assert (fd.errornorm(Ffull.sub(rT * 2 + 1), PD_Ff.sub(1)) < 1.0e-12)
 
 
+@pytest.mark.skip(reason="Tested by AllAtOnceForm")
 @pytest.mark.parallel(nprocs=6)
 def test_set_para_form_mixed_parallel():
     # checks that the all-at-once system is the same as solving
@@ -483,7 +486,7 @@ def test_set_para_form_mixed_parallel():
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up*vp)*fd.dx
 
-    PD = asQ.paradiag(ensemble=ensemble,
+    PD = asQ.Paradiag(ensemble=ensemble,
                       form_function=form_function,
                       form_mass=form_mass, w0=w0,
                       dt=dt, theta=theta,
@@ -551,6 +554,7 @@ def test_set_para_form_mixed_parallel():
     assert (fd.errornorm(Ffull.sub(rT*4+3), PD_F.sub(3)) < 1.0e-12)
 
 
+@pytest.mark.skip(reason="Tested by AllAtOnceJacobian")
 @pytest.mark.parallel(nprocs=6)
 def test_jacobian_mixed_parallel():
     ensemble = fd.Ensemble(fd.COMM_WORLD, 2)
@@ -585,7 +589,7 @@ def test_jacobian_mixed_parallel():
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up * vp) * fd.dx
 
-    PD = asQ.paradiag(ensemble=ensemble,
+    PD = asQ.Paradiag(ensemble=ensemble,
                       form_function=form_function,
                       form_mass=form_mass, w0=w0,
                       dt=dt, theta=theta,
@@ -710,8 +714,11 @@ def test_solve_para_form(bc_opt, extruded):
     # solving the all-at-once system and comparing with the sequential
 
     # set up the ensemble communicator for space-time parallelism
-    nspatial_domains = 2
-    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    nslices = fd.COMM_WORLD.size//2
+    slice_length = 2
+
+    time_partition = tuple((slice_length for _ in range(nslices)))
+    ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
     if extruded:
         mesh1D = fd.UnitIntervalMesh(4, comm=ensemble.comm)
@@ -725,10 +732,9 @@ def test_solve_para_form(bc_opt, extruded):
     u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
     dt = 0.01
     theta = 0.5
-    alpha = 0.001
     c = fd.Constant(1)
-    M = [2, 2, 2]
-    Ml = np.sum(M)
+    time_partition = [2, 2, 2]
+    ntimesteps = sum(time_partition)
 
     # Parameters for the diag
     sparameters = {
@@ -746,10 +752,10 @@ def test_solve_para_form(bc_opt, extruded):
         'ksp_type': 'gmres',
         'ksp_monitor': None,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.ParaDiagPC',
     }
 
-    for i in range(sum(M)):
+    for i in range(ntimesteps):
         solver_parameters_diag[f"diagfft_block_{i}_"] = sparameters
 
     def form_function(u, v):
@@ -765,16 +771,13 @@ def test_solve_para_form(bc_opt, extruded):
     else:
         bcs = []
 
-    PD = asQ.paradiag(ensemble=ensemble,
-                      form_function=form_function,
-                      form_mass=form_mass, w0=u0,
-                      dt=dt, theta=theta,
-                      alpha=alpha,
-                      time_partition=M, bcs=bcs,
-                      solver_parameters=solver_parameters_diag,
-                      circ="quasi", tol=1.0e-6, maxits=None,
-                      ctx={}, block_mat_type="aij")
-    PD.solve()
+    pdg = asQ.Paradiag(ensemble=ensemble,
+                       form_function=form_function,
+                       form_mass=form_mass,
+                       ics=u0, dt=dt, theta=theta,
+                       time_partition=time_partition, bcs=bcs,
+                       solver_parameters=solver_parameters_diag)
+    pdg.solve()
 
     # sequential solver
     un = fd.Function(V)
@@ -793,28 +796,25 @@ def test_solve_para_form(bc_opt, extruded):
                                             solver_parameters=solver_parameters)
 
     # Calculation of time slices in serial:
-    VFull = reduce(mul, (V for _ in range(Ml)))
+    VFull = reduce(mul, (V for _ in range(ntimesteps)))
     vfull = fd.Function(VFull)
     vfull_list = vfull.subfunctions
-    rT = ensemble.ensemble_comm.rank
 
-    for i in range(Ml):
+    for i in range(ntimesteps):
         ssolver.solve()
         vfull_list[i].assign(unp1)
         un.assign(unp1)
 
-    nM = M[rT]
-    for i in range(nM):
-        # sum over the entries of M until rT determines left position left
-        left = np.sum(M[:rT], dtype=int)
-        ind1 = left + i
-        assert (fd.errornorm(vfull.sub(ind1), PD.aaos.w_all.sub(i)) < 1.0e-9)
+    for i in range(pdg.nlocal_timesteps):
+        fidx = pdg.aaofunc.transform_index(i, from_range='slice', to_range='window')
+        assert (fd.errornorm(vfull.sub(fidx), pdg.aaofunc.get_field(i, index_range='slice')) < 1.0e-9)
 
 
 extruded_primal = [pytest.param(False, id="standard_mesh"),
                    pytest.param(True, id="extruded_mesh")]
 
 
+@pytest.mark.skip(reason="Tested by AllAtOnceSolver")
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("extruded", extruded_primal)
 def test_solve_para_form_mixed(extruded):
@@ -898,7 +898,7 @@ def test_solve_para_form_mixed(extruded):
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up * vp) * fd.dx
 
-    PD = asQ.paradiag(ensemble=ensemble,
+    PD = asQ.Paradiag(ensemble=ensemble,
                       form_function=form_function,
                       form_mass=form_mass, w0=w0, dt=dt,
                       theta=theta, alpha=alpha, time_partition=M,
@@ -965,8 +965,7 @@ def test_diagnostics():
     u0 = fd.Function(V).interpolate(fd.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5 ** 2))
     dt = 0.01
     theta = 0.5
-    alpha = 0.001
-    M = [2, 2, 2]
+    time_partition = [2, 2, 2]
 
     block_sparameters = {
         "ksp_type": "preonly",
@@ -979,10 +978,11 @@ def test_diagnostics():
         'ksp_converged_reason': None,
         'ksp_type': 'preonly',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC'
+        'pc_python_type': 'asQ.ParaDiagPC',
+        'diagfft_alpha': 1e-3,
     }
 
-    for i in range(np.sum(M)):
+    for i in range(sum(time_partition)):
         diag_sparameters["diagfft_block_" + str(i) + "_"] = block_sparameters
 
     def form_function(u, v):
@@ -991,26 +991,24 @@ def test_diagnostics():
     def form_mass(u, v):
         return u*v*fd.dx
 
-    pdg = asQ.paradiag(ensemble=ensemble,
+    pdg = asQ.Paradiag(ensemble=ensemble,
                        form_function=form_function,
-                       form_mass=form_mass, w0=u0,
-                       dt=dt, theta=theta,
-                       alpha=alpha,
-                       time_partition=M,
-                       solver_parameters=diag_sparameters,
-                       circ=None)
+                       form_mass=form_mass,
+                       ics=u0, dt=dt, theta=theta,
+                       time_partition=time_partition,
+                       solver_parameters=diag_sparameters)
 
     pdg.solve(nwindows=1)
 
     pdg.sync_diagnostics()
 
-    assert pdg.total_timesteps == sum(M)
+    assert pdg.total_timesteps == pdg.ntimesteps
     assert pdg.total_windows == 1
-    assert pdg.linear_iterations == pdg.snes.getLinearSolveIterations()
-    assert pdg.nonlinear_iterations == pdg.snes.getIterationNumber()
+    assert pdg.linear_iterations == pdg.solver.snes.getLinearSolveIterations()
+    assert pdg.nonlinear_iterations == pdg.solver.snes.getIterationNumber()
 
     # direct block solve
-    for i in range(sum(M)):
+    for i in range(pdg.ntimesteps):
         assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations
 
     linear_iterations0 = pdg.linear_iterations
@@ -1018,10 +1016,10 @@ def test_diagnostics():
 
     pdg.solve(nwindows=1)
 
-    assert pdg.total_timesteps == 2*sum(M)
+    assert pdg.total_timesteps == 2*pdg.ntimesteps
     assert pdg.total_windows == 2
-    assert pdg.linear_iterations == linear_iterations0 + pdg.snes.getLinearSolveIterations()
-    assert pdg.nonlinear_iterations == nonlinear_iterations0 + pdg.snes.getIterationNumber()
+    assert pdg.linear_iterations == linear_iterations0 + pdg.solver.snes.getLinearSolveIterations()
+    assert pdg.nonlinear_iterations == nonlinear_iterations0 + pdg.solver.snes.getIterationNumber()
 
-    for i in range(sum(M)):
+    for i in range(pdg.ntimesteps):
         assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations

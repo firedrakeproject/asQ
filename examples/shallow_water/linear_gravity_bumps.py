@@ -110,14 +110,14 @@ sparameters_diag = {
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    'ksp_rtol': 1e-10,
-    'ksp_atol': 1-0,
     'ksp': {
         'monitor': None,
         'converged_reason': None,
+        'rtol': 1e-10,
+        'atol': 1-0,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
+    'pc_python_type': 'asQ.ParaDiagPC',
     'diagfft_state': 'linear',
     'aaos_jacobian_state': 'linear',
 }
@@ -145,6 +145,8 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename)
 
+paradiag = miniapp.paradiag
+
 
 def window_preproc(swe_app, pdg, wndw):
     PETSc.Sys.Print('')
@@ -153,9 +155,9 @@ def window_preproc(swe_app, pdg, wndw):
 
 
 def window_postproc(swe_app, pdg, wndw):
-    if miniapp.aaos.layout.is_local(miniapp.save_step):
+    if pdg.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
-        time = nt*miniapp.aaos.dt
+        time = nt*pdg.aaoform.dt
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)
         PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
@@ -170,19 +172,19 @@ miniapp.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
 from asQ import write_paradiag_metrics
-write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
+write_paradiag_metrics(paradiag, directory=args.metrics_dir)
 
 PETSc.Sys.Print('')
 
-nw = miniapp.paradiag.total_windows
-nt = miniapp.paradiag.total_timesteps
+nw = paradiag.total_windows
+nt = paradiag.total_timesteps
 PETSc.Sys.Print(f'windows: {nw}')
 PETSc.Sys.Print(f'timesteps: {nt}')
 PETSc.Sys.Print('')
 
-lits = miniapp.paradiag.linear_iterations
-nlits = miniapp.paradiag.nonlinear_iterations
-blits = miniapp.paradiag.block_iterations._data
+lits = paradiag.linear_iterations
+nlits = paradiag.nonlinear_iterations
+blits = paradiag.block_iterations.data(deepcopy=False)
 
 PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
 PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')

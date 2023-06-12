@@ -144,7 +144,7 @@ class Paradiag(TimePartitionMixin):
         """
         pc_block_iterations = self.solver.jacobian.pc.block_iterations
         pc_block_iterations.synchronise()
-        self.block_iterations.data()[:] = pc_block_iterations.data()
+        self.block_iterations.data(deepcopy=False)[:] = pc_block_iterations.data(deepcopy=False)
 
     @PETSc.Log.EventDecorator()
     @memprofile

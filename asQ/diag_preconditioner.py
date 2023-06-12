@@ -42,13 +42,25 @@ class ParaDiagPC(TimePartitionMixin):
 
     'diagfft_mass': <LinearSolver options>
         The solver options for the Riesz map.
-        Default is {'pc_type': 'lu'}
         Use 'diagfft_mass_fieldsplit' if the single-timestep function space is mixed.
+        Default is {'pc_type': 'lu'}
 
     'diagfft_block_%d': <LinearVariationalSolver options>
-        Default is the Firedrake default options.
         The solver options for the %d'th block, enumerated globally.
         Use 'diagfft_block' to set options for all blocks.
+        Default is the Firedrake default options.
+
+    'diagfft_dt': <float>
+        The timestep size to use in the preconditioning matrix.
+        Defaults to the timestep size used in the Jacobian.
+
+    'diagfft_theta': <float>
+        The implicit theta method parameter to use in the preconditioning matrix.
+        Defaults to the implicit theta method parameter used in the Jacobian.
+
+    'diagfft_alpha': <float>
+        The circulant parameter to use in the preconditioning matrix.
+        Defaults to 1e-3.
     """
     prefix = "diagfft_"
 
@@ -71,12 +83,12 @@ class ParaDiagPC(TimePartitionMixin):
             raise ValueError("Expecting PC type python")
 
         prefix = pc.getOptionsPrefix()
+        prefix = prefix + self.prefix
 
         A, _ = pc.getOperators()
         jacobian = A.getPythonContext()
         self.jacobian = jacobian
-        self.time_partition_setup(jacobian.ensemble,
-                                  jacobian.time_partition)
+        self.time_partition_setup(jacobian.ensemble, jacobian.time_partition)
 
         jacobian.pc = self
         aaofunc = jacobian.current_state
@@ -85,12 +97,11 @@ class ParaDiagPC(TimePartitionMixin):
         aaoform = jacobian.aaoform
         self.aaoform = aaoform
 
-        self.alpha = PETSc.Options().getReal(
-            f"{prefix}{self.prefix}alpha", default=1e-3)
+        appctx = jacobian.appctx
 
         # option for whether to use slice or window average for block jacobian
         valid_jac_state = ['window', 'slice', 'linear', 'initial', 'reference']
-        jac_option = f"{prefix}{self.prefix}state"
+        jac_option = f"{prefix}state"
 
         self.jac_state = partial(get_option_from_list,
                                  jac_option, valid_jac_state, default_index=0)
@@ -106,9 +117,23 @@ class ParaDiagPC(TimePartitionMixin):
         self.xf = fd.Function(aaofunc.function_space)  # input
         self.yf = fd.Function(aaofunc.function_space)  # output
 
+        # diagonalisation options
+        self.dt = PETSc.Options().getReal(
+            f"{prefix}dt", default=aaoform.dt)
+
+        self.theta = PETSc.Options().getReal(
+            f"{prefix}theta", default=aaoform.theta)
+
+        self.alpha = PETSc.Options().getReal(
+            f"{prefix}alpha", default=1e-3)
+
+        dt = self.dt
+        theta = self.theta
+        alpha = self.alpha
+
         # Gamma coefficients
         exponents = np.arange(self.ntimesteps)/self.ntimesteps
-        self.Gam = self.alpha**exponents
+        self.Gam = alpha**exponents
 
         slice_begin = aaofunc.transform_index(0, from_range='slice', to_range='window')
         slice_end = slice_begin + self.nlocal_timesteps
@@ -118,8 +143,6 @@ class ParaDiagPC(TimePartitionMixin):
         C1col = np.zeros(self.ntimesteps)
         C2col = np.zeros(self.ntimesteps)
 
-        dt = aaoform.dt
-        theta = aaoform.theta
         C1col[:2] = np.array([1, -1])/dt
         C2col[:2] = np.array([theta, 1-theta])
 
@@ -189,11 +212,11 @@ class ParaDiagPC(TimePartitionMixin):
         # it won't pick them up from Options
 
         riesz_mat_type = PETSc.Options().getString(
-            f"{prefix}{self.prefix}mass_mat_type",
+            f"{prefix}mass_mat_type",
             default=default_riesz_parameters['mat_type'])
 
         riesz_sub_mat_type = PETSc.Options().getString(
-            f"{prefix}{self.prefix}mass_fieldsplit_mat_type",
+            f"{prefix}mass_fieldsplit_mat_type",
             default=default_riesz_method['mat_type'])
 
         # input for the Riesz map
@@ -206,7 +229,7 @@ class ParaDiagPC(TimePartitionMixin):
                         sub_mat_type=riesz_sub_mat_type)
 
         self.Proj = fd.LinearSolver(a, solver_parameters=default_riesz_parameters,
-                                    options_prefix=f"{prefix}{self.prefix}mass_")
+                                    options_prefix=f"{prefix}mass_")
 
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system
@@ -221,16 +244,25 @@ class ParaDiagPC(TimePartitionMixin):
 
         # which form to linearise around
         valid_linearisations = ['consistent', 'user']
-        linear_option = f"{prefix}{self.prefix}linearisation"
+        linearisation_option = f"{prefix}linearisation"
 
-        linear = get_option_from_list(linear_option, valid_linearisations, default_index=0)
+        linearisation = get_option_from_list(linearisation_option,
+                                             valid_linearisations,
+                                             default_index=0)
 
-        if linear == 'consistent':
+        if linearisation == 'consistent':
             form_mass = aaoform.form_mass
             form_function = aaoform.form_function
-        elif linear == 'user':
-            form_mass = aaoform.form_mass
-            form_function = aaoform.form_function
+        elif linearisation == 'user':
+            try:
+                form_mass = appctx['pc_form_mass']
+                form_function = appctx['pc_form_function']
+            except KeyError as err:
+                err_msg = "appctx must contain 'pc_form_mass' and 'pc_form_function' if " \
+                          + f"{linearisation_option} = 'user'"
+                raise type(err)(err_msg) from err
+        self.form_mass = form_mass
+        self.form_function = form_function
 
         # Now need to build the block solver
         self.u0 = fd.Function(self.CblockV)  # time average to linearise around
@@ -267,7 +299,7 @@ class ParaDiagPC(TimePartitionMixin):
             # If any options with prefix 'diagfft_block_{i}' exist, where i is the
             # block number, then this prefix is used instead (like pc fieldsplit)
 
-            block_prefix = f"{prefix}{self.prefix}block_"
+            block_prefix = f"{prefix}block_"
             for k, v in PETSc.Options().getAll().items():
                 if k.startswith(f"{block_prefix}{str(ii)}_"):
                     block_prefix = f"{block_prefix}{str(ii)}_"
@@ -279,9 +311,9 @@ class ParaDiagPC(TimePartitionMixin):
                                                  appctx=appctx_h,
                                                  options_prefix=block_prefix)
             # multigrid transfer manager
-            if f'{self.prefix}transfer_managers' in jacobian.appctx:
+            if f'{self.prefix}transfer_managers' in appctx:
                 # Jsolver.set_transfer_manager(jacobian.appctx['diagfft_transfer_managers'][ii])
-                tm = jacobian.appctx[f'{self.prefix}transfer_managers'][i]
+                tm = appctx[f'{self.prefix}transfer_managers'][i]
                 Jsolver.set_transfer_manager(tm)
                 tm_set = (Jsolver._ctx.transfer_manager is tm)
 

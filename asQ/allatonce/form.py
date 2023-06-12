@@ -34,8 +34,8 @@ class AllAtOnceForm(TimePartitionMixin):
         self.field_function_space = aaofunc.field_function_space
         self.function_space = aaofunc.function_space
 
-        self.dt = fd.Constant(dt)
-        self.theta = fd.Constant(theta)
+        self.dt = dt
+        self.theta = theta
 
         self.form_mass = form_mass
         self.form_function = form_function
@@ -139,8 +139,8 @@ class AllAtOnceForm(TimePartitionMixin):
 
         test_funcs = fd.TestFunctions(aaofunc.function_space)
 
-        dt = self.dt
-        theta = self.theta
+        dt = fd.Constant(self.dt)
+        theta = fd.Constant(self.theta)
         alpha = fd.Constant(0) if self.alpha is None else self.alpha
 
         def get_step(i):
