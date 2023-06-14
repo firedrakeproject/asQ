@@ -99,32 +99,34 @@ sparameters = {
     'mg': mg_parameters
 }
 
+rtol = 1e-10
+atol = 1e0
 sparameters_diag = {
     'snes_type': 'ksponly',
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
-        'atol': 1e-0,
+        'rtol': rtol,
+        'atol': atol,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
-        'atol': 1-0,
+        'rtol': rtol,
+        'atol': atol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.ParaDiagPC',
+    'diagfft_alpha': args.alpha,
     'diagfft_state': 'linear',
     'aaos_jacobian_state': 'linear',
 }
 
-sparameters_diag['diagfft_block'] = sparameters
-# for i in range(window_length):
-#     sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
+for i in range(window_length):
+    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
@@ -141,7 +143,7 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   create_mesh=create_mesh,
                                   linear=True,
                                   dt=dt, theta=0.5,
-                                  alpha=args.alpha, time_partition=time_partition,
+                                  time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename)
 

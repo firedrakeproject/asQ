@@ -120,12 +120,14 @@ sparameters_diag = {
         'atol': 1e-0,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
+    'pc_python_type': 'asQ.ParaDiagPC',
+    'diagfft_alpha': args.alpha,
     'diagfft_state': 'window',
     'aaos_jacobian_state': 'current'
 }
 
-sparameters_diag['diagfft_block_'] = sparameters
+for i in range(window_length):
+    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
@@ -142,15 +144,16 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   reference_state=True,
                                   create_mesh=create_mesh,
                                   dt=dt, theta=0.5,
-                                  alpha=args.alpha, time_partition=time_partition,
+                                  time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename)
 
 
-ics = miniapp.aaos.initial_condition
-miniapp.aaos.reference_state.assign(ics)
-miniapp.aaos.reference_state.subfunctions[0].assign(0)
-miniapp.aaos.reference_state.subfunctions[1].assign(galewsky.H0)
+ics = miniapp.aaofunc.initial_condition
+reference_state = miniapp.solver.jacobian.reference_state
+reference_state.assign(ics)
+reference_state.subfunctions[0].assign(0)
+reference_state.subfunctions[1].assign(galewsky.H0)
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -160,9 +163,9 @@ def window_preproc(swe_app, pdg, wndw):
 
 
 def window_postproc(swe_app, pdg, wndw):
-    if miniapp.aaos.layout.is_local(miniapp.save_step):
+    if miniapp.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
-        time = nt*miniapp.aaos.dt
+        time = nt*pdg.aaoform.dt
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)
         PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
@@ -190,7 +193,7 @@ PETSc.Sys.Print('')
 
 lits = miniapp.paradiag.linear_iterations
 nlits = miniapp.paradiag.nonlinear_iterations
-blits = miniapp.paradiag.block_iterations._data
+blits = miniapp.paradiag.block_iterations.data()
 
 PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
 PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')

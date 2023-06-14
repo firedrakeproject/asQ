@@ -1,5 +1,4 @@
 
-import firedrake as fd
 from petsc4py import PETSc
 
 from utils import units
@@ -25,6 +24,7 @@ parser.add_argument('--slice_length', type=int, default=2, help='Number of times
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--filename', type=str, default='w5diag', help='Name of output vtk files')
+parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -41,61 +41,99 @@ PETSc.Sys.Print('')
 
 time_partition = [args.slice_length for _ in range(args.nslices)]
 window_length = sum(time_partition)
-nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
 
 # parameters for the implicit diagonal solve in step-(b)
+patch_parameters = {
+    'pc_patch': {
+        'save_operators': True,
+        'partition_of_unity': True,
+        'sub_mat_type': 'seqdense',
+        'construct_dim': 0,
+        'construct_type': 'vanka',
+        'local_type': 'additive',
+        'precompute_element_tensors': True,
+        'symmetrise_sweep': False
+    },
+    'sub': {
+        'ksp_type': 'preonly',
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_detect_saddle_point': None,
+        'pc_fieldsplit_schur_fact_type': 'full',
+        'pc_fieldsplit_schur_precondition': 'full',
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
+    }
+}
+
+mg_parameters = {
+    'levels': {
+        'ksp_type': 'gmres',
+        'ksp_max_it': 5,
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.PatchPC',
+        'patch': patch_parameters
+    },
+    'coarse': {
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.AssembledPC',
+        'assembled_pc_type': 'lu',
+        'assembled_pc_factor_mat_solver_type': 'mumps'
+    }
+}
+
 sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    'ksp_atol': 1e-8,
-    'ksp_rtol': 1e-8,
-    'ksp_max_it': 400,
+    'ksp': {
+        'atol': 1e-5,
+        'rtol': 1e-5,
+        'max_it': 60
+    },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
+    'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
-    'mg_levels_ksp_type': 'gmres',
-    'mg_levels_ksp_max_it': 5,
-    'mg_levels_pc_type': 'python',
-    'mg_levels_pc_python_type': 'firedrake.PatchPC',
-    'mg_levels_patch_pc_patch_save_operators': True,
-    'mg_levels_patch_pc_patch_partition_of_unity': True,
-    'mg_levels_patch_pc_patch_sub_mat_type': 'seqdense',
-    'mg_levels_patch_pc_patch_construct_dim': 0,
-    'mg_levels_patch_pc_patch_construct_type': 'vanka',
-    'mg_levels_patch_pc_patch_local_type': 'additive',
-    'mg_levels_patch_pc_patch_precompute_element_tensors': True,
-    'mg_levels_patch_pc_patch_symmetrise_sweep': False,
-    'mg_levels_patch_sub_ksp_type': 'preonly',
-    'mg_levels_patch_sub_pc_type': 'lu',
-    'mg_levels_patch_sub_pc_factor_shift_type': 'nonzero',
-    'mg_coarse_pc_type': 'python',
-    'mg_coarse_pc_python_type': 'firedrake.AssembledPC',
-    'mg_coarse_assembled_pc_type': 'lu',
-    'mg_coarse_assembled_pc_factor_mat_solver_type': 'mumps',
+    'mg': mg_parameters
 }
 
+atol = 1e0
 sparameters_diag = {
-    'snes_linesearch_type': 'basic',
-    'snes_monitor': None,
-    'snes_converged_reason': None,
-    'snes_atol': 1e-0,
-    'snes_rtol': 1e-12,
-    'snes_stol': 1e-12,
-    'snes_max_it': 100,
+    'snes': {
+        'linesearch_type': 'basic',
+        'monitor': None,
+        'converged_reason': None,
+        'atol': atol,
+        'rtol': 1e-10,
+        'stol': 1e-12,
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
+    },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    'ksp_monitor': None,
-    'ksp_converged_reason': None,
+    'ksp': {
+        'monitor': None,
+        'converged_reason': None,
+        'rtol': 1e-5,
+        'atol': atol,
+    },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'}
+    'pc_python_type': 'asQ.ParaDiagPC',
+    'diagfft_alpha': args.alpha,
+    'diagfft_state': 'window',
+    'diagfft_linearisation': 'consistent',
+    'aaos_jacobian_state': 'current',
+    'aaos_jacobian_linearisation': 'consistent',
+}
 
-sparameters_diag['diagfft_block_'] = sparameters
+for i in range(window_length):
+    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
-    ref_level=args.ref_level)
+    ref_level=args.ref_level,
+    coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
 
 # initial conditions
 b_exp = case5.topography_expression
@@ -116,28 +154,11 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   depth_expression=h_exp,
                                   reference_depth=case5.H0,
                                   create_mesh=create_mesh,
+                                  reference_state=True,
                                   dt=dt, theta=0.5,
-                                  alpha=args.alpha, time_partition=time_partition,
-                                  paradiag_sparameters=sparameters_diag)
-
-ensemble = miniapp.ensemble
-time_rank = miniapp.paradiag.time_rank
-
-# only last slice does diagnostics/output
-is_io_rank = (time_rank == len(time_partition)-1)
-if is_io_rank:
-    cfl_series = []
-    linear_its = 0
-    nonlinear_its = 0
-
-    ofile = fd.File('output/'+args.filename+'.pvd',
-                    comm=ensemble.comm)
-
-    uout = fd.Function(miniapp.velocity_function_space(), name='velocity')
-    hout = fd.Function(miniapp.depth_function_space(), name='depth')
-
-    def time_at_last_step(w):
-        return dt*(w + 1)*window_length
+                                  time_partition=time_partition,
+                                  paradiag_sparameters=sparameters_diag,
+                                  file_name='output/'+args.filename)
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -147,34 +168,15 @@ def window_preproc(swe_app, pdg, wndw):
 
 
 def window_postproc(swe_app, pdg, wndw):
-    # make sure variables are properly captured
-    global linear_its
-    global nonlinear_its
-    global cfl_series
-
-    # postprocess this timeslice
-    if is_io_rank:
-        linear_its += pdg.snes.getLinearSolveIterations()
-        nonlinear_its += pdg.snes.getIterationNumber()
-
-        swe_app.get_velocity(-1, uout=uout)
-        swe_app.get_elevation(-1, hout=hout)
-
-        time = time_at_last_step(wndw)
-
-        ofile.write(uout, hout,
-                    swe_app.potential_vorticity(uout),
-                    time=time/earth.day)
-
-        cfl = swe_app.max_cfl(dt, -1)
-        cfl_series.append(cfl)
-
-        PETSc.Sys.Print('', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=ensemble.comm)
-        PETSc.Sys.Print('', comm=ensemble.comm)
-    PETSc.Sys.Print('')
+    if miniapp.layout.is_local(miniapp.save_step):
+        nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
+        time = nt*pdg.aaoform.dt
+        comm = miniapp.ensemble.comm
+        PETSc.Sys.Print('', comm=comm)
+        PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
+        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
+        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
+        PETSc.Sys.Print('', comm=comm)
 
 
 # solve for each window
@@ -186,15 +188,26 @@ miniapp.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
-if is_io_rank:
-    PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+from asQ import write_paradiag_metrics
+write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
 
-    PETSc.Sys.Print(f'windows: {(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'timesteps: {(args.nwindows)*window_length}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+PETSc.Sys.Print('')
 
-    PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per window: {linear_its/(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per window: {nonlinear_its/(args.nwindows)}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+nw = miniapp.paradiag.total_windows
+nt = miniapp.paradiag.total_timesteps
+PETSc.Sys.Print(f'windows: {nw}')
+PETSc.Sys.Print(f'timesteps: {nt}')
+PETSc.Sys.Print('')
+
+lits = miniapp.paradiag.linear_iterations
+nlits = miniapp.paradiag.nonlinear_iterations
+blits = miniapp.paradiag.block_iterations.data()
+
+PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
+PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
+PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
+PETSc.Sys.Print('')
+
+PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
+PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+PETSc.Sys.Print('')

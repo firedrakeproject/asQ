@@ -1,5 +1,4 @@
 
-import numpy as np
 import firedrake as fd
 from petsc4py import PETSc
 import asQ
@@ -88,11 +87,11 @@ def form_mass(u, h, v, q):
     return swe.nonlinear.form_mass(mesh, u, h, v, q)
 
 
-def linearised_function(u, h, v, q):
+def linear_function(u, h, v, q):
     return swe.linear.form_function(mesh, earth.Gravity, H, f, u, h, v, q)
 
 
-def linearised_mass(u, h, v, q):
+def linear_mass(u, h, v, q):
     return swe.linear.form_mass(mesh, u, h, v, q)
 
 
@@ -159,11 +158,11 @@ sparameters_diag = {
         'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
-        'ksp_ew': None,
-        'ksp_ew_version': 1,
+        # 'ksp_ew': None,
+        # 'ksp_ew_version': 1,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'preonly',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
@@ -171,10 +170,11 @@ sparameters_diag = {
         'atol': atol,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_state': 'reference',
+    'pc_python_type': 'asQ.ParaDiagPC',
+    'diagfft_alpha': args.alpha,
+    'diagfft_state': 'window',
     'diagfft_linearisation': 'consistent',
-    'aaos_jacobian_state': 'reference',
+    'aaos_jacobian_state': 'current',
     'aaos_jacobian_linearisation': 'consistent',
 }
 
@@ -187,10 +187,11 @@ uref, href = wref.subfunctions[:]
 Print('### === --- Calculating parallel solution --- === ###')
 # Print('')
 
-sparameters_diag['diagfft_block'] = sparameters
+for i in range(window_length):
+    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
 # non-petsc information for block solve
-block_ctx = {}
+appctx = {}
 
 # mesh transfer operators
 transfer_managers = []
@@ -199,22 +200,21 @@ for _ in range(nlocal_timesteps):
     tm = mg.manifold_transfer_manager(W)
     transfer_managers.append(tm)
 
-block_ctx['diagfft_transfer_managers'] = transfer_managers
+appctx['diagfft_transfer_managers'] = transfer_managers
 
-PD = asQ.paradiag(ensemble=ensemble,
-                  form_function=form_function,
-                  form_mass=form_mass,
-                  linearised_function=linearised_function,
-                  linearised_mass=linearised_mass,
-                  w0=w0, reference_state=wref,
-                  dt=dt, theta=0.5,
-                  alpha=args.alpha,
-                  time_partition=time_partition,
-                  solver_parameters=sparameters_diag,
-                  circ=None, block_ctx=block_ctx)
+pdg = asQ.Paradiag(ensemble=ensemble,
+                   form_function=form_function,
+                   form_mass=form_mass,
+                   jacobian_function=linear_function,
+                   jacobian_mass=linear_mass,
+                   ics=w0, reference_state=wref,
+                   dt=dt, theta=0.5,
+                   time_partition=time_partition,
+                   solver_parameters=sparameters_diag,
+                   appctx=appctx)
 
 
-def window_preproc(pdg, wndw):
+def window_preproc(pdg, wndw, rhs):
     Print('')
     Print(f'### === --- Calculating time-window {wndw} --- === ###')
     Print('')
@@ -239,28 +239,27 @@ def steady_state_test(w):
 
 
 # check each timestep against steady state
-def window_postproc(pdg, wndw):
-    errors = np.zeros((window_length, 2))
-    local_errors = np.zeros_like(errors)
-
-    # collect errors for this slice
-    def for_each_callback(window_index, slice_index, w):
-        nonlocal local_errors
-        local_errors[window_index, :] = steady_state_test(w)
-
-    pdg.aaos.for_each_timestep(for_each_callback)
-
-    # collect and print errors for full window
-    ensemble.ensemble_comm.Reduce(local_errors, errors, root=0)
-    if pdg.time_rank == 0:
-        for window_index in range(window_length):
-            timestep = wndw*window_length + window_index
-            uerr = errors[window_index, 0]
-            herr = errors[window_index, 1]
-            Print(f"timestep={timestep}, uerr={uerr}, herr={herr}",
-                  comm=ensemble.comm)
+w = fd.Function(W)
 
 
-PD.solve(nwindows=args.nwindows,
-         preproc=window_preproc,
-         postproc=window_postproc)
+def window_postproc(pdg, wndw, rhs):
+    uerrors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+    herrors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+    for i in range(pdg.nlocal_timesteps):
+        pdg.aaofunc.get_field(i, uout=w, index_range='slice')
+        uerr, herr = steady_state_test(w)
+        uerrors.dlocal[i] = uerr
+        herrors.dlocal[i] = herr
+    uerrors.synchronise()
+    herrors.synchronise()
+
+    for i in range(pdg.ntimesteps):
+        timestep = wndw*window_length + i
+        uerr = uerrors.dglobal[i]
+        herr = herrors.dglobal[i]
+        Print(f"timestep={timestep}, uerr={uerr}, herr={herr}")
+
+
+pdg.solve(nwindows=args.nwindows,
+          preproc=window_preproc,
+          postproc=window_postproc)
