@@ -46,14 +46,6 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         self.current_state = current_state
 
-        default_ctx = {
-            'form_mass': aaoform.form_mass,
-            'form_function': aaoform.form_function
-        }
-        for k, v in default_ctx.items():
-            if k not in appctx:
-                appctx[k] = v
-
         self.appctx = appctx
 
         # function the Jacobian acts on, and contribution from timestep at end of previous slice
