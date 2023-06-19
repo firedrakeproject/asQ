@@ -15,17 +15,22 @@ class AllAtOnceForm(TimePartitionMixin):
                  form_mass, form_function,
                  bcs=[], alpha=None):
         """
-        The all-at-once form representing the implicit theta-method over multiple timesteps of a time-dependent finite-element problem.
+        The all-at-once form representing the implicit theta-method over multiple timesteps
+        of a time-dependent finite-element problem.
 
-        :arg aaofunction: AllAtOnceFunction to create the form on.
+        :arg aaofunction: AllAtOnceFunction to create the form over.
         :arg dt: float, the timestep size.
         :arg theta: float, implicit timestepping parameter.
-        :arg form_function: a function that returns a form on aaofunction.field_function_space
-            providing f(w) for the ODE w_t + f(w) = 0.
         :arg form_mass: a function that returns a linear form on aaofunction.field_function_space
             providing the mass operator for the time derivative.
-        :arg bcs: a list of DirichletBC boundary conditions on w0.function_space.
-        :arg alpha: float if None, circulant matrix parameter
+            Must have signature `def form_mass(*u, *v):` where *u and *v are a split(TrialFunction)
+            and a split(TestFunction) from aaofunction.field_function_space.
+        :arg form_function: a function that returns a form on aaofunction.field_function_space
+            providing f(w) for the ODE w_t + f(w) = 0.
+            Must have signature `def form_function(*u, *v):` where *u and *v are a split(Function)
+            and a split(TestFunction) from aaofunction.field_function_space.
+        :arg bcs: a list of DirichletBC boundary conditions on aaofunc.field_function_space.
+        :arg alpha: float, circulant matrix parameter. if None then no circulant approximation used.
         """
         self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
 
@@ -57,10 +62,10 @@ class AllAtOnceForm(TimePartitionMixin):
 
     def _set_bcs(self, field_bcs):
         """
-        Set the boundary conditions onto solution at each timestep in the all-at-once system.
-        Returns a list of all boundary conditions on the all-at-once system.
+        Create a list of  boundary conditions on the all-at-once function space corresponding
+        to the boundary conditions `field_bcs` on a single timestep applied to every timestep.
 
-        :arg bcs: a list of the boundary conditions to apply
+        :arg field_bcs: a list of the boundary conditions to apply.
         """
         aaofunc = self.aaofunc
         is_mixed_element = isinstance(aaofunc.field_function_space.ufl_element(), fd.MixedElement)
@@ -81,6 +86,13 @@ class AllAtOnceForm(TimePartitionMixin):
         return bcs_all
 
     def copy(self, aaofunc=None):
+        """
+        Return a copy of the AllAtOnceForm.
+
+        :arg aaofunc: An optional AllAtOnceFunction. If present, the new AllAtOnceForm
+            will be defined over aaofunc. If None, the new AllAtOnceForm will be defined
+            over a copy of self.aaofunc.
+        """
         if aaofunc is None:
             aaofunc = self.aaofunc.copy()
 
@@ -91,9 +103,17 @@ class AllAtOnceForm(TimePartitionMixin):
     @PETSc.Log.EventDecorator()
     @memprofile
     def assemble(self, func=None, tensor=None):
-        r"""
-        This is the function we pass to the snes to assemble
-        the nonlinear residual.
+        """
+        Evaluates the form.
+
+        By default the form will be evaluated at the state in self.aaofunc,
+        and the result will be placed into self.F.
+
+        :arg func: may optionally be an AllAtOnceFunction or a global PETSc Vec.
+            if not None, the form will be evaluated at the state in `func`.
+        :arg tensor: may optionally be an AllAtOnceFunction, a global PETSc Vec,
+            or a Function in AllAtOnceFunction.function_space. if not None, the
+            result will be placed into `tensor`.
         """
         # set current state
         if func is not None:
