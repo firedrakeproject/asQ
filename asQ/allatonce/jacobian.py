@@ -18,13 +18,14 @@ class AllAtOnceJacobian(TimePartitionMixin):
         Which state to linearise around when constructing the Jacobian.
         Default is 'current'.
 
-        'current': use the current state of the AllAtOnceSystem (i.e. current Newton iterate).
-        'window': use the time average over the entire AllAtOnceSystem.
-        'slice': use the time average over timesteps on the local Ensemble member.
-        'linear': the form being linearised is linear, so no update to the state is needed.
-        'initial': use the initial condition is used for all timesteps.
-        'reference': use the reference state of the AllAtOnceSystem for all timesteps.
-        'user': the state will be set manually by the user so no update is needed.
+        'current': Use the current state of the AllAtOnceFunction (i.e. current Newton iterate).
+        'window': Use the time average over the entire AllAtOncFunction at all timesteps.
+        'slice': Use the time average over timesteps on the local Ensemble member at each local timestep.
+        'linear': Do not update the state. This option is used when the form being linearised is linear.
+        'initial': Use the initial condition at all timesteps.
+        'reference': Use a provided reference state at all timesteps.
+        'user': The state will be set manually by the user so no update is needed.
+            The `pre_jacobian_callback` argument to the AllAtOnceSolver can be used to set the state.
     """
     prefix = "aaos_jacobian_"
 
@@ -34,8 +35,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
                  options_prefix="",
                  appctx={}):
         """
-        Python matrix for the Jacobian of the all at once system
-        :arg aaofunc: The AllAtOnceSystem object
+        Python matrix a PETSc Mat for the Jacobian of an AllAtOnceForm.
+
+        :arg aaoform: The AllAtOnceForm object to linearise.
         """
         self.time_partition_setup(aaoform.ensemble, aaoform.time_partition)
         prefix = self.prefix + options_prefix
@@ -73,7 +75,8 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.form_prev = fd.derivative(aaoform.form, aaofunc.uprev)
 
         # option for what state to linearise around
-        valid_jacobian_states = ['current', 'window', 'slice', 'linear', 'initial', 'reference', 'user']
+        valid_jacobian_states = tuple(('current', 'window', 'slice', 'linear',
+                                       'initial', 'reference', 'user'))
 
         if (prefix != "") and (not prefix.endswith("_")):
             prefix += "_"
@@ -100,7 +103,11 @@ class AllAtOnceJacobian(TimePartitionMixin):
     @PETSc.Log.EventDecorator()
     def update(self, X=None):
         """
-        Update the state to linearise around from the current all-at-once solution.
+        Update the state to linearise around according to aaos_jacobian_state.
+
+        :arg X: an optional AllAtOnceFunction or global PETSc Vec.
+            If X is not None and aaos_jacobian_state = 'current' then the state
+            is updated from X instead of self.current_state.
         """
 
         aaofunc = self.aaofunc
