@@ -9,6 +9,7 @@ from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 class JacobianMatrix(object):
     @memprofile
+    @PETSc.Log.EventDecorator()
     def __init__(self, aaos):
         r"""
         Python matrix for the Jacobian of the all at once system
@@ -35,8 +36,8 @@ class JacobianMatrix(object):
         self.Jform_prev = fd.derivative(self.aaos.aao_form,
                                         self.aaos.w_recv)
 
-    @PETSc.Log.EventDecorator()
     @memprofile
+    @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
 
         self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
@@ -73,6 +74,7 @@ class JacobianMatrix(object):
 
 class AllAtOnceSystem(object):
     @memprofile
+    @PETSc.Log.EventDecorator()
     def __init__(self,
                  ensemble, time_partition,
                  dt, theta,
@@ -411,8 +413,8 @@ class AllAtOnceSystem(object):
                                       walls=wall.subfunctions,
                                       blocking=blocking)
 
-    @PETSc.Log.EventDecorator()
     @memprofile
+    @PETSc.Log.EventDecorator()
     def _assemble_function(self, snes, X, Fvec):
         r"""
         This is the function we pass to the snes to assemble

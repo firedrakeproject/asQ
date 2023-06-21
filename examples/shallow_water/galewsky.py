@@ -1,4 +1,5 @@
 
+import firedrake as fd  # noqa: F401
 from petsc4py import PETSc
 
 from utils import units
@@ -49,12 +50,12 @@ sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-8,
-        'rtol': 1e-8,
-        'max_it': 400,
+        'atol': 1e-5,
+        'rtol': 1e-5,
+        'max_it': 50,
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
+    'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
     'mg': {
         'levels': {
@@ -91,18 +92,22 @@ sparameters_diag = {
         'monitor': None,
         'converged_reason': None,
         'atol': 1e-0,
-        'rtol': 1e-8,
+        'rtol': 1e-10,
         'stol': 1e-12,
-        'max_its': 1
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-2,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
+        'atol': 1e-0,
+        'rtol': 1e-5,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
 }
 
 sparameters_diag['diagfft_block_'] = sparameters
@@ -123,7 +128,7 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   dt=dt, theta=0.5,
                                   alpha=args.alpha, time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
-                                  file_name='output/'+args.filename)
+                                  record_diagnostics={'cfl': True, 'file': False})
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -151,7 +156,7 @@ miniapp.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
 from asQ import write_paradiag_metrics
-write_paradiag_metrics(miniapp.paradiag)
+write_paradiag_metrics(miniapp.paradiag, directory="metrics")
 
 PETSc.Sys.Print('')
 

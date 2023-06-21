@@ -167,6 +167,7 @@ class paradiag(object):
         self.total_timesteps += sum(self.time_partition)
         self.total_windows += 1
 
+    @PETSc.Log.EventDecorator()
     def sync_diagnostics(self):
         """
         Synchronise diagnostic information over all time-ranks.
@@ -175,8 +176,8 @@ class paradiag(object):
         """
         self.block_iterations.synchronise()
 
-    @PETSc.Log.EventDecorator()
     @memprofile
+    @PETSc.Log.EventDecorator()
     def solve(self,
               nwindows=1,
               preproc=lambda pdg, w: None,

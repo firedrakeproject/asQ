@@ -1,5 +1,6 @@
 
 import firedrake as fd
+from firedrake.petsc import PETSc
 
 from ufl.classes import MultiIndex, FixedIndex, Indexed
 
@@ -167,6 +168,7 @@ def _set_part(u, vnew, i):
         csub.assign(rsub)
 
 
+@PETSc.Log.EventDecorator()
 def get_real(u, vout, name=None):
     """
     Return a real Function equal to the real component of the complex Function u.
@@ -180,6 +182,7 @@ def get_real(u, vout, name=None):
     return _get_part(u, vout, Part.Real)
 
 
+@PETSc.Log.EventDecorator()
 def get_imag(u, vout, name=None):
     """
     Return a real Function equal to the imaginary component of the complex Function u.
@@ -193,6 +196,7 @@ def get_imag(u, vout, name=None):
     return _get_part(u, vout, Part.Imag)
 
 
+@PETSc.Log.EventDecorator()
 def set_real(u, vnew):
     """
     Set the real component of the complex Function u to the value of the real Function vnew.
@@ -203,6 +207,7 @@ def set_real(u, vnew):
     _set_part(u, vnew, Part.Real)
 
 
+@PETSc.Log.EventDecorator()
 def set_imag(u, vnew):
     """
     Set the imaginary component of the complex Function u to the value of the real Function vnew.
@@ -213,6 +218,7 @@ def set_imag(u, vnew):
     _set_part(u, vnew, Part.Imag)
 
 
+@PETSc.Log.EventDecorator()
 def LinearForm(W, z, f, return_z=False):
     """
     Return a Linear Form on the complex FunctionSpace W equal to a complex multiple of a linear Form on the real FunctionSpace.
@@ -227,6 +233,7 @@ def LinearForm(W, z, f, return_z=False):
     return _build_oneform(W, z, f, split, return_z)
 
 
+@PETSc.Log.EventDecorator()
 def BilinearForm(W, z, A, return_z=False):
     """
     Return a bilinear Form on the complex FunctionSpace W equal to a complex multiple of a bilinear Form on the real FunctionSpace.
@@ -247,6 +254,7 @@ def BilinearForm(W, z, A, return_z=False):
     return _build_twoform(W, z, A, fd.TrialFunction(W), split, return_z)
 
 
+@PETSc.Log.EventDecorator()
 def derivative(z, F, u, return_z=False):
     """
     Return a bilinear Form equivalent to z*J where z is a complex number, J = dF/dw, F is a nonlinear Form on the real-valued space, and w is a Function in the real-valued space. The real and imaginary components of the complex Function u most both be equal to w for this operation to be valid.

@@ -26,7 +26,7 @@ parser.add_argument('--slice_length', type=int, default=2, help='Number of times
 parser.add_argument('--nspatial_domains', type=int, default=2, help='Size of spatial partition.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
-parser.add_argument('--filename', type=str, default='w5diag', help='Name of output vtk files')
+parser.add_argument('--filename', type=str, default='williamson2', help='Name of output vtk files')
 parser.add_argument('--coords_degree', type=int, default=1, help='Degree of polynomials for sphere mesh approximation.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space).')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
@@ -93,50 +93,71 @@ def form_mass(u, h, v, q):
 
 
 # parameters for the implicit diagonal solve in step-(b)
+
 sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    'ksp_atol': 1e-8,
-    'ksp_rtol': 1e-8,
-    'ksp_max_it': 400,
+    'ksp': {
+        'atol': 1e-5,
+        'rtol': 1e-5,
+        'max_it': 50,
+    },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
-    'mg_levels_ksp_type': 'gmres',
-    'mg_levels_ksp_max_it': 5,
-    'mg_levels_pc_type': 'python',
-    'mg_levels_pc_python_type': 'firedrake.PatchPC',
-    'mg_levels_patch_pc_patch_save_operators': True,
-    'mg_levels_patch_pc_patch_partition_of_unity': True,
-    'mg_levels_patch_pc_patch_sub_mat_type': 'seqdense',
-    'mg_levels_patch_pc_patch_construct_dim': 0,
-    'mg_levels_patch_pc_patch_construct_type': 'vanka',
-    'mg_levels_patch_pc_patch_local_type': 'additive',
-    'mg_levels_patch_pc_patch_precompute_element_tensors': True,
-    'mg_levels_patch_pc_patch_symmetrise_sweep': False,
-    'mg_levels_patch_sub_ksp_type': 'preonly',
-    'mg_levels_patch_sub_pc_type': 'lu',
-    'mg_levels_patch_sub_pc_factor_shift_type': 'nonzero',
-    'mg_coarse_pc_type': 'python',
-    'mg_coarse_pc_python_type': 'firedrake.AssembledPC',
-    'mg_coarse_assembled_pc_type': 'lu',
-    'mg_coarse_assembled_pc_factor_mat_solver_type': 'mumps',
+    'mg': {
+        'levels': {
+            'ksp_type': 'gmres',
+            'ksp_max_it': 5,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.PatchPC',
+            'patch': {
+                'pc_patch_save_operators': True,
+                'pc_patch_partition_of_unity': True,
+                'pc_patch_sub_mat_type': 'seqdense',
+                'pc_patch_construct_dim': 0,
+                'pc_patch_construct_type': 'vanka',
+                'pc_patch_local_type': 'additive',
+                'pc_patch_precompute_element_tensors': True,
+                'pc_patch_symmetrise_sweep': False,
+                'sub_ksp_type': 'preonly',
+                'sub_pc_type': 'lu',
+                'sub_pc_factor_shift_type': 'nonzero',
+            },
+        },
+        'coarse': {
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled_pc_type': 'lu',
+            'assembled_pc_factor_mat_solver_type': 'mumps',
+        },
+    }
 }
 
+atol = 1e-0
 sparameters_diag = {
-    'snes_linesearch_type': 'basic',
-    'snes_monitor': None,
-    'snes_converged_reason': None,
-    'snes_atol': 1e-0,
-    'snes_rtol': 1e-12,
-    'snes_stol': 1e-12,
-    'snes_max_it': 100,
+    'snes': {
+        'linesearch_type': 'basic',
+        'monitor': None,
+        'converged_reason': None,
+        'atol': atol,
+        'rtol': 1e-10,
+        'stol': 1e-12,
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-2,
+    },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    'ksp_monitor': None,
-    'ksp_converged_reason': None,
+    'ksp': {
+        'monitor': None,
+        'converged_reason': None,
+        'atol': atol,
+        'rtol': 1e-5,
+    },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'}
+    'pc_python_type': 'asQ.DiagFFTPC',
+}
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 PETSc.Sys.Print('')
