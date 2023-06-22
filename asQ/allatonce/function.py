@@ -47,7 +47,8 @@ class AllAtOnceFunction(TimePartitionMixin):
     @memprofile
     def __init__(self, ensemble, time_partition, function_space):
         """
-        The all-at-once system representing multiple timesteps of a time-dependent finite-element problem.
+        A function representing multiple timesteps of a time-dependent finite-element problem,
+        i.e. the solution to an all-at-once system.
 
         :arg ensemble: time-parallel ensemble communicator.
         :arg time_partition: a list of integers for the number of timesteps stored on each ensemble rank.
@@ -82,34 +83,41 @@ class AllAtOnceFunction(TimePartitionMixin):
                                                     comm=ensemble.global_comm)
             self._vec.setFromOptions()
 
-    def copy(self):
+    def copy(self, copy_values=True):
         """
         Return a deep copy of the AllAtOnceFunction.
+
+        :arg copy_values: If true, the values of the current AllAtOnceFunction
+            will be copied into the new AllAtOnceFunction.
         """
         new = AllAtOnceFunction(self.ensemble, self.time_partition,
                                 self.field_function_space)
-        new.assign(self)
+        if copy_values:
+            new.assign(self)
         return new
 
     def transform_index(self, i, cpt=None, from_range='slice', to_range='slice'):
         '''
-        Shift timestep or component index from one range to another, and accounts for -ve indices.
+        Shift timestep index or component index from one range to another,
+        and account for pythonic -ve indices.
 
-        For example, if there are 3 ensemble ranks, each owning two timesteps, then:
+        For example, if there are 3 ensemble ranks with time_partition=(2, 3, 2), then:
             window index 0 is slice index 0 on ensemble rank 0
             window index 1 is slice index 1 on ensemble rank 0
             window index 2 is slice index 0 on ensemble rank 1
             window index 3 is slice index 1 on ensemble rank 1
-            window index 4 is slice index 0 on ensemble rank 2
-            window index 5 is slice index 1 on ensemble rank 2
+            window index 4 is slice index 2 on ensemble rank 1
+            window index 5 is slice index 0 on ensemble rank 2
+            window index 6 is slice index 1 on ensemble rank 2
 
-        If cpt is None, shifts from one timestep range to another. If cpt is not None, returns index in all-at-once function of component cpt in timestep i.
-        Throws IndexError if original or shifted index is out of bounds.
+        If cpt is None, shifts from one timestep range to another. If cpt is not None,
+        returns index in flattened all-at-once function of component cpt in timestep i.
+        Raises IndexError if original or shifted index is out of bounds.
 
         :arg i: timestep index to shift.
         :arg cpt: None or component index in timestep i to shift.
         :arg from_range: range of i. Either slice or window.
-        :arg to_range: range to shift i to. Either slice or window. Ignored if cpt is not None.
+        :arg to_range: range to shift i to. Either 'slice' or 'window'.
         '''
         if from_range == 'component' or to_range == 'component':
             raise ValueError("from_range and to_range apply to the timestep index and cannot be 'component'")
@@ -128,14 +136,14 @@ class AllAtOnceFunction(TimePartitionMixin):
     @PETSc.Log.EventDecorator()
     def set_component(self, step, cpt, usrc, index_range='slice', funcs=None):
         '''
-        Set component of solution at a timestep to new value
+        Set component of solution at a timestep to new value.
 
-        :arg step: index of timestep
-        :arg cpt: index of component
-        :arg usrc: new solution for timestep
+        :arg step: index of timestep.
+        :arg cpt: index of component.
+        :arg usrc: new solution for component cpt of timestep step.
         :arg index_range: is index in window or slice?
-        :arg funcs: an indexable of the (slice-local) all-at-once function to set timestep in.
-            If None, self.function.subfunctions is used
+        :arg funcs: an indexable of the all-at-once function to set timestep in.
+            If None, self.function.subfunctions is used.
         '''
         # index of component in all at once function
         aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
@@ -147,15 +155,15 @@ class AllAtOnceFunction(TimePartitionMixin):
     @PETSc.Log.EventDecorator()
     def get_component(self, step, cpt, uout=None, index_range='slice', funcs=None, name=None, deepcopy=False):
         '''
-        Get component of solution at a timestep
+        Get component of solution at a timestep.
 
-        :arg step: index of timestep to get
-        :arg cpt: index of component
+        :arg step: index of timestep.
+        :arg cpt: index of component.
         :arg index_range: is timestep index in window or slice?
-        :arg uout: Function to set to component (component returned if None)
+        :arg uout: Function to place value of component in (if None then component is returned).
         :arg name: name of returned function if deepcopy=True.
             Ignored if uout is not None or deepcopy=False.
-        :arg funcs: an all-at-once function to get timestep from.
+        :arg funcs: an indexable of the all-at-once function to set timestep in.
             If None, self.function.subfunctions is used
         :arg deepcopy: if True, new function is returned. If false, handle to component
             of funcs is returned. Ignored if uout is not None.
@@ -186,24 +194,22 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         :arg step: index of timestep.
         :arg index_range: is index in window or slice?
-        :arg funcs: an all-at-once function to get timestep from. If None, self.w_alls is used
+        :arg funcs: an indexable of the all-at-once function to set timestep in.
+            If None, self.function.subfunctions is used.
         '''
-        if funcs is None:
-            funcs = self.function.subfunctions
-
-        return tuple(self.get_component(step, cpt, funcs=funcs)
+        return tuple(self.get_component(step, cpt, index_range=index_range, funcs=funcs)
                      for cpt in range(self.ncomponents))
 
     @PETSc.Log.EventDecorator()
     def set_field(self, step, usrc, index_range='slice', funcs=None):
         '''
-        Set solution at a timestep to new value
+        Set solution at a timestep to new value.
 
         :arg step: index of timestep to set.
         :arg usrc: new solution for timestep
         :arg index_range: is index in window or slice?
-        :arg funcs: an all-at-once function to set timestep in.
-            If None, self.function.subfunctions is used
+        :arg funcs: an indexable of the all-at-once function to set timestep in.
+            If None, self.function.subfunctions is used.
         '''
         for cpt in range(self.ncomponents):
             self.set_component(step, cpt, usrc.sub(cpt),
@@ -212,13 +218,13 @@ class AllAtOnceFunction(TimePartitionMixin):
     @PETSc.Log.EventDecorator()
     def get_field(self, step, uout=None, index_range='slice', name=None, funcs=None):
         '''
-        Get solution at a timestep
+        Get solution at a timestep.
 
-        :arg step: index of timestep to set.
+        :arg step: index of timestep to get.
         :arg index_range: is index in window or slice?
-        :arg uout: function to set to timestep (timestep returned if None)
+        :arg uout: function to set to value of timestep (timestep returned if None).
         :arg name: name of returned function. Ignored if uout is not None
-        :arg funcs: an all-at-once function to get timestep from.
+        :arg funcs: an indexable of the all-at-once function to set timestep in.
             If None, self.function.subfunctions is used
         '''
         if uout is None:
@@ -226,9 +232,10 @@ class AllAtOnceFunction(TimePartitionMixin):
         else:
             uget = uout
 
-        for cpt in range(self.ncomponents):
-            ucpt = self.get_component(step, cpt, index_range=index_range, funcs=funcs)
-            uget.sub(cpt).assign(ucpt)
+        ucpts = self.get_field_components(step, index_range=index_range, funcs=funcs)
+
+        for ug, uc in zip(uget.subfunctions, ucpts):
+            ug.assign(uc)
 
         return uget
 
@@ -279,7 +286,7 @@ class AllAtOnceFunction(TimePartitionMixin):
     @PETSc.Log.EventDecorator()
     def update_time_halos(self, blocking=True):
         '''
-        Update uprev with the last step from the previous slice (periodic) of walls
+        Update uprev with the last step from the previous time slice (periodic).
 
         :arg blocking: Whether to use blocking MPI communications. If False then a list of MPI requests is returned
         '''
@@ -305,7 +312,14 @@ class AllAtOnceFunction(TimePartitionMixin):
     @memprofile
     def assign(self, src, update_halos=True, blocking=True):
         """
-        Set value of function from another AllAtOnceFunction or PETSc Vec.
+        Set value of AllAtOnceFunction from another AllAtOnceFunction or PETSc Vec.
+
+        :arg src: object to set value from. Either another AllAtOnceFunction or a
+            PETSc Vec the same size as the AllAtOnceFunction.global_vec.
+        :arg update_halos: if True then the time-halos will be updated.
+        :arg blocking: if update_halos is True, then this argument determines
+            whether blocking communication is used. A list of MPI Requests is returned
+            if non-blocking communication is used.
         """
         if isinstance(src, AllAtOnceFunction):
             dst_funcs = [self.function, self.initial_condition]
