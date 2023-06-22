@@ -74,6 +74,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
         # form contributions from the previous step
         self.form_prev = fd.derivative(aaoform.form, aaofunc.uprev)
 
+        self.action = fd.action(self.form, self.x.function)
+        self.action_prev = fd.action(self.form_prev, self.x.uprev)
+
         # option for what state to linearise around
         valid_jacobian_states = tuple(('current', 'window', 'slice', 'linear',
                                        'initial', 'reference', 'user'))
@@ -144,8 +147,8 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.x.assign(X, update_halos=True, blocking=True)
 
         # assembly stage
-        fd.assemble(fd.action(self.form, self.x.function), tensor=self.F.function)
-        fd.assemble(fd.action(self.form_prev, self.x.uprev), tensor=self.Fprev)
+        fd.assemble(self.action, tensor=self.F.function)
+        fd.assemble(self.action_prev, tensor=self.Fprev)
         self.F.function += self.Fprev
 
         # Apply boundary conditions
