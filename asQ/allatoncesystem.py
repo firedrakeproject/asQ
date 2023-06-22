@@ -128,8 +128,8 @@ class JacobianMatrix(object):
         # Jform contributions from the previous step
         self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
 
-        self.Jaction = fd.action(self.Jform, self.u)
-        self.Jaction_prev = fd.action(self.Jform_prev, self.urecv)
+        self.Jaction = fd.action(self.Jform, self.x)
+        self.Jaction_prev = fd.action(self.Jform_prev, self.xrecv)
 
         # option for what state to linearise around
         valid_jacobian_states = ['current', 'window', 'slice', 'linear', 'initial', 'reference', 'user']
