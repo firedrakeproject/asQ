@@ -262,11 +262,11 @@ def test_steady_swe():
     solver_parameters_diag = {
         "snes_linesearch_type": "basic",
         'snes_atol': 1e3,
-        # 'snes_monitor': None,
-        # 'snes_converged_reason': None,
+        'snes_monitor': None,
+        'snes_converged_reason': None,
         'ksp_rtol': 1e-3,
-        # 'ksp_monitor': None,
-        # 'ksp_converged_reason': None,
+        'ksp_monitor': None,
+        'ksp_converged_reason': None,
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
@@ -276,8 +276,8 @@ def test_steady_swe():
         'diagfft_alpha': 1e-3,
     }
 
-    solver_parameters_diag["diagfft_block_"] = sparameters
-    solver_parameters_diag["diagfft_block_0_"] = sparameters
+    for i in range(sum(time_partition)):
+        solver_parameters_diag["diagfft_block_"+str(i)] = sparameters
 
     dt = 0.2*units.hour
 
