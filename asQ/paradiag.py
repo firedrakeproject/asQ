@@ -142,6 +142,11 @@ class paradiag(object):
 
         # complete the snes setup
         self.opts.set_from_options(self.snes)
+        with self.opts.inserted_options():
+            self.snes.setUp()
+            self.snes.getKSP().setUp()
+            self.snes.getKSP().getPC().setUp()
+
         # iteration counts
         self.reset_diagnostics()
 
