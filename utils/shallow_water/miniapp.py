@@ -14,7 +14,7 @@ class ShallowWaterMiniApp(TimePartitionMixin):
                  topography_expression,
                  velocity_expression,
                  depth_expression,
-                 dt, theta, alpha,
+                 dt, theta,
                  time_partition,
                  paradiag_sparameters,
                  create_mesh=swe.create_mg_globe_mesh,
@@ -38,7 +38,6 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         :arg depth_expression: firedrake expression for initialising the depth field.
         :arg dt: timestep size.
         :arg theta: parameter for the implicit theta-method integrator
-        :arg alpha: value used for the alpha-circulant approximation in the paradiag method.
         :arg time_partition: a list with how many timesteps are on each of the ensemble time-ranks.
             arg :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
         :arg appctx: a dictionary of extra values required for the preconditioner.
@@ -135,6 +134,8 @@ class ShallowWaterMiniApp(TimePartitionMixin):
             solver_parameters=paradiag_sparameters)
 
         self.aaofunc = self.paradiag.aaofunc
+        self.aaoform = self.paradiag.aaofunc
+        self.solver = self.paradiag.solver
 
         # set up swe diagnostics
         self.record_diagnostics = record_diagnostics

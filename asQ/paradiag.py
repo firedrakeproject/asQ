@@ -103,6 +103,12 @@ class Paradiag(TimePartitionMixin):
                                            jacobian_mass, jacobian_function,
                                            bcs=bcs, alpha=jacobian_alpha)
 
+        # pass seperate forms to the preconditioner
+        if pc_mass is not None:
+            appctx['pc_form_mass'] = pc_mass
+        if pc_function is not None:
+            appctx['pc_form_function'] = pc_function
+
         self.solver = AllAtOnceSolver(self.aaoform, self.aaofunc,
                                       solver_parameters=solver_parameters,
                                       options_prefix=options_prefix, appctx=appctx,

@@ -95,7 +95,6 @@ class ParaDiagPC(TimePartitionMixin):
         self.aaofunc = aaofunc
 
         aaoform = jacobian.aaoform
-        self.aaoform = aaoform
 
         appctx = jacobian.appctx
 
@@ -108,7 +107,7 @@ class ParaDiagPC(TimePartitionMixin):
         jac_state = self.jac_state()
 
         if jac_state == 'reference' and jacobian.reference_state is None:
-            raise ValueError("AllAtOnceSystem must be provided a reference state to use \'reference\' for diagfft_jac_state.")
+            raise ValueError("AllAtOnceJacobian must be provided a reference state to use \'reference\' for diagfft_state.")
 
         # basic model function space
         self.blockV = aaofunc.field_function_space
@@ -130,9 +129,10 @@ class ParaDiagPC(TimePartitionMixin):
         dt = self.dt
         theta = self.theta
         alpha = self.alpha
+        nt = self.ntimesteps
 
         # Gamma coefficients
-        exponents = np.arange(self.ntimesteps)/self.ntimesteps
+        exponents = np.arange(nt)/nt
         self.Gam = alpha**exponents
 
         slice_begin = aaofunc.transform_index(0, from_range='slice', to_range='window')
@@ -140,14 +140,14 @@ class ParaDiagPC(TimePartitionMixin):
         self.Gam_slice = self.Gam[slice_begin:slice_end]
 
         # circulant eigenvalues
-        C1col = np.zeros(self.ntimesteps)
-        C2col = np.zeros(self.ntimesteps)
+        C1col = np.zeros(nt)
+        C2col = np.zeros(nt)
 
         C1col[:2] = np.array([1, -1])/dt
         C2col[:2] = np.array([theta, 1-theta])
 
-        self.D1 = np.sqrt(self.ntimesteps)*fft(self.Gam*C1col)
-        self.D2 = np.sqrt(self.ntimesteps)*fft(self.Gam*C2col)
+        self.D1 = np.sqrt(nt)*fft(self.Gam*C1col)
+        self.D2 = np.sqrt(nt)*fft(self.Gam*C2col)
 
         # Block system setup
         # First need to build the vector function space version of blockV
@@ -177,7 +177,7 @@ class ParaDiagPC(TimePartitionMixin):
         subcomm = Subcomm(self.ensemble.ensemble_comm, [0, 1])
         # dimensions of space-time data in this ensemble_comm
         nlocal = self.blockV.node_set.size
-        NN = np.array([self.ntimesteps, nlocal], dtype=int)
+        NN = np.array([nt, nlocal], dtype=int)
         # transfer pencil is aligned along axis 1
         self.p0 = Pencil(subcomm, NN, axis=1)
         # a0 is the local part of our fft working array
@@ -261,6 +261,7 @@ class ParaDiagPC(TimePartitionMixin):
                 err_msg = "appctx must contain 'pc_form_mass' and 'pc_form_function' if " \
                           + f"{linearisation_option} = 'user'"
                 raise type(err)(err_msg) from err
+
         self.form_mass = form_mass
         self.form_function = form_function
 
