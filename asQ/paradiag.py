@@ -38,6 +38,7 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
 
 class paradiag(object):
     @memprofile
+    @PETSc.Log.EventDecorator()
     def __init__(self, ensemble,
                  form_function, form_mass, w0, dt, theta,
                  alpha, time_partition, bcs=[],
