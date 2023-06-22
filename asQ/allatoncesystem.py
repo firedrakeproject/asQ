@@ -128,6 +128,9 @@ class JacobianMatrix(object):
         # Jform contributions from the previous step
         self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
 
+        self.Jaction = fd.action(self.Jform, self.u)
+        self.Jaction_prev = fd.action(self.Jform_prev, self.urecv)
+
         # option for what state to linearise around
         valid_jacobian_states = ['current', 'window', 'slice', 'linear', 'initial', 'reference', 'user']
 
@@ -182,6 +185,9 @@ class JacobianMatrix(object):
 
         return
 
+        self.Jaction = fd.action(self.Jform, self.u)
+        self.Jaction_prev = fd.action(self.Jform_prev, self.urecv)
+
     @PETSc.Log.EventDecorator()
     @memprofile
     def mult(self, mat, X, Y):
@@ -195,9 +201,8 @@ class JacobianMatrix(object):
             self.aaos.Circ.assign(0.0)
 
         # assembly stage
-        fd.assemble(fd.action(self.Jform, self.x), tensor=self.F)
-        fd.assemble(fd.action(self.Jform_prev, self.xrecv),
-                    tensor=self.F_prev)
+        fd.assemble(self.Jaction, tensor=self.F)
+        fd.assemble(self.Jaction_prev, tensor=self.F_prev)
         self.F += self.F_prev
 
         # unset flag if alpha-circulant approximation only in Jacobian
