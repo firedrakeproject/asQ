@@ -35,6 +35,9 @@ class JacobianMatrix(object):
         self.Jform_prev = fd.derivative(self.aaos.aao_form,
                                         self.aaos.w_recv)
 
+        self.Jaction = fd.action(self.Jform, self.u)
+        self.Jaction_prev = fd.action(self.Jform_prev, self.urecv)
+
     @PETSc.Log.EventDecorator()
     @memprofile
     def mult(self, mat, X, Y):
@@ -48,9 +51,8 @@ class JacobianMatrix(object):
             self.aaos.Circ.assign(0.0)
 
         # assembly stage
-        fd.assemble(fd.action(self.Jform, self.u), tensor=self.F)
-        fd.assemble(fd.action(self.Jform_prev, self.urecv),
-                    tensor=self.F_prev)
+        fd.assemble(self.Jaction, tensor=self.F)
+        fd.assemble(self.Jaction_prev, tensor=self.F_prev)
         self.F += self.F_prev
 
         # unset flag if alpha-circulant approximation only in Jacobian
