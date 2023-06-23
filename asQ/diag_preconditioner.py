@@ -243,8 +243,8 @@ class DiagFFTPC(object):
             form_mass = self.aaos.form_mass
             form_function = self.aaos.form_function
         elif linear == 'user':
-            form_mass = self.aaos.linearised_mass
-            form_function = self.aaos.linearised_function
+            form_mass = self.aaos.jacobian_mass
+            form_function = self.aaos.jacobian_function
 
         form_function = partial(form_function, t=self.t_average)
 

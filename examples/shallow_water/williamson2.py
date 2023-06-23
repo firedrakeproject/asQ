@@ -87,11 +87,11 @@ def form_mass(u, h, v, q):
     return swe.nonlinear.form_mass(mesh, u, h, v, q)
 
 
-def linearised_function(u, h, v, q):
-    return swe.linear.form_function(mesh, earth.Gravity, H, f, u, h, v, q)
+def jacobian_function(u, h, v, q, t):
+    return swe.linear.form_function(mesh, earth.Gravity, H, f, u, h, v, q, t)
 
 
-def linearised_mass(u, h, v, q):
+def jacobian_mass(u, h, v, q):
     return swe.linear.form_mass(mesh, u, h, v, q)
 
 
@@ -172,9 +172,9 @@ sparameters_diag = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
     'diagfft_state': 'reference',
-    'diagfft_linearisation': 'consistent',
+    'diagfft_linearisation': 'user',
     'aaos_jacobian_state': 'reference',
-    'aaos_jacobian_linearisation': 'consistent',
+    'aaos_jacobian_linearisation': 'user',
 }
 
 # reference conditions
@@ -203,8 +203,8 @@ block_ctx['diagfft_transfer_managers'] = transfer_managers
 PD = asQ.paradiag(ensemble=ensemble,
                   form_function=form_function,
                   form_mass=form_mass,
-                  linearised_function=linearised_function,
-                  linearised_mass=linearised_mass,
+                  jacobian_function=jacobian_function,
+                  jacobian_mass=jacobian_mass,
                   w0=w0, reference_state=wref,
                   dt=dt, theta=0.5,
                   alpha=args.alpha,

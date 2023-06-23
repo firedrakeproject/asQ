@@ -104,24 +104,24 @@ class JacobianMatrix(object):
         valid_linearisations = ['consistent', 'user']
 
         if snes is None:
-            self.linearised_mass = aaos.linearised_mass
-            self.linearised_function = aaos.linearised_function
+            self.jacobian_mass = aaos.jacobian_mass
+            self.jacobian_function = aaos.jacobian_function
         else:
             linear_option = f"{prefix}linearisation"
 
             linear = get_option_from_list(linear_option, valid_linearisations, default_index=0)
 
             if linear == 'consistent':
-                self.linearised_mass = aaos.form_mass
-                self.linearised_function = aaos.form_function
+                self.jacobian_mass = aaos.form_mass
+                self.jacobian_function = aaos.form_function
             elif linear == 'user':
-                self.linearised_mass = aaos.linearised_mass
-                self.linearised_function = aaos.linearised_function
+                self.jacobian_mass = aaos.jacobian_mass
+                self.jacobian_function = aaos.jacobian_function
 
         # all-at-once form to linearise
         self.aao_form = self.aaos.construct_aao_form(wall=self.u, wrecv=self.urecv,
-                                                     mass=self.linearised_mass,
-                                                     function=self.linearised_function)
+                                                     mass=self.jacobian_mass,
+                                                     function=self.jacobian_function)
 
         # Jform without contributions from the previous step
         self.Jform = fd.derivative(self.aao_form, self.u)
@@ -231,8 +231,8 @@ class AllAtOnceSystem(object):
                  form_mass, form_function,
                  w0, bcs=[],
                  reference_state=None,
-                 linearised_function=None,
-                 linearised_mass=None,
+                 jacobian_function=None,
+                 jacobian_mass=None,
                  circ="", alpha=1e-3):
         """
         The all-at-once system representing multiple timesteps of a time-dependent finite-element problem.
@@ -285,8 +285,8 @@ class AllAtOnceSystem(object):
         self.form_mass = form_mass
         self.form_function = form_function
 
-        self.linearised_mass = linearised_mass if linearised_mass is not None else form_mass
-        self.linearised_function = linearised_function if linearised_function is not None else form_function
+        self.jacobian_mass = jacobian_mass if jacobian_mass is not None else form_mass
+        self.jacobian_function = jacobian_function if jacobian_function is not None else form_function
 
         self.circ = circ
         self.alpha = alpha

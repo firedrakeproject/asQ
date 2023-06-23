@@ -44,8 +44,8 @@ class paradiag(object):
                  alpha, time_partition, bcs=[],
                  solver_parameters={},
                  reference_state=None,
-                 linearised_function=None,
-                 linearised_mass=None,
+                 jacobian_function=None,
+                 jacobian_mass=None,
                  circ="",
                  tol=1.0e-6, maxits=10,
                  ctx={}, block_ctx={}, block_mat_type="aij"):
@@ -56,10 +56,10 @@ class paradiag(object):
             on w0.function_space() providing f(w) for the ODE w_t + f(w) = 0.
         :arg form_mass: a function that returns a linear form on
             w0.function_space providing the mass operator for the time derivative.
-        :arg linearised_function: a function that returns a form
+        :arg jacobian_function: a function that returns a form
             on w0.function_space() which will be linearised to approximate
             derivative(f(w), w) for the ODE w_t + f(w) = 0.
-        :arg linearised_mass: a function that returns a linear form on w0.function_space
+        :arg jacobian_mass: a function that returns a linear form on w0.function_space
             providing which will be linearised to approximate the form_mass
         :arg w0: a Function from w0.function_space containing the initial data.
         :arg dt: float, the timestep size.
@@ -91,8 +91,8 @@ class paradiag(object):
                                     form_mass, form_function,
                                     w0, bcs=bcs,
                                     reference_state=reference_state,
-                                    linearised_function=linearised_function,
-                                    linearised_mass=linearised_mass,
+                                    jacobian_function=jacobian_function,
+                                    jacobian_mass=jacobian_mass,
                                     circ=circ, alpha=alpha)
 
         self.ensemble = ensemble
