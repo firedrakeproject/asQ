@@ -145,7 +145,7 @@ paradiag_parameters = {
         'rtol': 1e-8,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.ParaDiagPC',
+    'pc_python_type': 'asQ.DiagFFTPC',
     'diagfft_alpha': args.alpha,
     'diagfft_state': 'linear',
     'aaos_jacobian_state': 'linear',

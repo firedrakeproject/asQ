@@ -179,7 +179,7 @@ def test_solve_mixed_wave_equation(extrude):
             'converged_reason': None,
         },
         'pc_type': 'python',
-        'pc_python_type': 'asQ.ParaDiagPC',
+        'pc_python_type': 'asQ.DiagFFTPC',
         'diagfft_alpha': 1e-3,
     }
 

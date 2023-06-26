@@ -145,7 +145,7 @@ def test_galewsky_timeseries():
             'converged_reason': None,
         },
         'pc_type': 'python',
-        'pc_python_type': 'asQ.ParaDiagPC',
+        'pc_python_type': 'asQ.DiagFFTPC',
         'diagfft_alpha': 1e-3,
     }
 
@@ -270,7 +270,7 @@ def test_steady_swe():
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.ParaDiagPC',
+        'pc_python_type': 'asQ.DiagFFTPC',
         'aaos_jacobian_state': 'initial',
         'diagfft_state': 'initial',
         'diagfft_alpha': 1e-3,
@@ -367,7 +367,7 @@ def test_solve_para_form(bc_opt, extruded):
         'ksp_type': 'gmres',
         'ksp_monitor': None,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.ParaDiagPC',
+        'pc_python_type': 'asQ.DiagFFTPC',
     }
 
     for i in range(ntimesteps):
@@ -450,7 +450,7 @@ def test_diagnostics():
         'ksp_converged_reason': None,
         'ksp_type': 'preonly',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.ParaDiagPC',
+        'pc_python_type': 'asQ.DiagFFTPC',
         'diagfft_alpha': 1e-3,
     }
 
