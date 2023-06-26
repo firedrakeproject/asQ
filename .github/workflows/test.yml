@@ -55,4 +55,6 @@ jobs:
       - name: Test
         run: |
           . /home/firedrake/firedrake/bin/activate
-          python -m pytest -vvv -s -n 6 --durations=0 --timeout=600 --cov=asQ tests/
+          python --version
+          python -m pytest --version
+          python -m pytest -vvv -s -n 6 --durations=0 --timeout=600 --cov=asQ --cov-report=term tests/
