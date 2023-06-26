@@ -163,7 +163,7 @@ class DiagFFTPC(object):
         self.xfr = fd.Function(W_all)
 
         # setting up the FFT stuff
-        self.smaller_transpose = False
+        self.smaller_transpose = True
         # construct simply dist array and 1d fftn:
         subcomm = Subcomm(self.ensemble.ensemble_comm, [0, 1])
 
