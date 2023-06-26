@@ -9,3 +9,5 @@
 *.dat
 *.out
 .coverage*
+**/metrics/*
+*.svg
