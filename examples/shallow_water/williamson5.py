@@ -94,7 +94,8 @@ sparameters_diag['diagfft_block_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
-    ref_level=args.ref_level)
+    ref_level=args.ref_level,
+    degree=1)
 
 # initial conditions
 b_exp = case5.topography_expression

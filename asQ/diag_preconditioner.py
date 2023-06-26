@@ -5,7 +5,7 @@ from firedrake.petsc import PETSc
 # from mpi4py_fft.pencil import Pencil, Subcomm
 from asQ.pencil import Pencil, Subcomm
 import importlib
-from asQ.profiling import memprofile
+from asQ.profiling import profiler
 from asQ.common import get_option_from_list
 from asQ.allatoncesystem import time_average
 
@@ -53,14 +53,14 @@ class DiagFFTPC(object):
         """
         self.initialized = False
 
-    @memprofile
+    @profiler()
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
 
-    @memprofile
+    @profiler()
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -341,8 +341,7 @@ class DiagFFTPC(object):
             its = self.Jsolvers[i].snes.getLinearSolveIterations()
             self.paradiag.block_iterations.dlocal[i] += its
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def update(self, pc):
         '''
         we need to update u0 from w_all, containing state.
@@ -372,8 +371,7 @@ class DiagFFTPC(object):
 
         return
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
@@ -397,20 +395,25 @@ class DiagFFTPC(object):
             # is there a better way to do this with broadcasting?
             self.ra0[:] = (self.Gam_slice*self.ra0.T).T*np.sqrt(self.ntimesteps)
 
-            self.rtransfer.forward(self.ra0, self.ra1)
+            with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+                self.rtransfer.forward(self.ra0, self.ra1)
 
             self.ca1[:] = self.ra1[:]
         else:
             # is there a better way to do this with broadcasting?
             self.ca0[:] = (self.Gam_slice*self.ra0.T).T*np.sqrt(self.ntimesteps)
 
-            self.ctransfer.forward(self.ca0, self.ca1)
+            with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+                self.ctransfer.forward(self.ca0, self.ca1)
 
         # FFT
-        self.ca1[:] = fft(self.ca1, axis=0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+            self.ca1[:] = fft(self.ca1, axis=0)
 
         # transfer backward
-        self.ctransfer.backward(self.ca1, self.ca0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.ctransfer.backward(self.ca1, self.ca0)
+
         # Copy into xfi, xfr
         with self.xfr.dat.vec_wo as v:
             v.array[:] = self.ca0.real.reshape(-1)
@@ -420,24 +423,25 @@ class DiagFFTPC(object):
 
         # Do the block solves
 
-        for i in range(self.aaos.nlocal_timesteps):
-            # copy the data into solver input
-            self.xtemp.assign(0.)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.block_solves"):
+            for i in range(self.aaos.nlocal_timesteps):
+                # copy the data into solver input
+                self.xtemp.assign(0.)
 
-            cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-            cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+                cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+                cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
-            # Do a project for Riesz map, to be superceded
-            # when we get Cofunction
-            self.Proj.solve(self.Jprob_in, self.xtemp)
+                # Do a project for Riesz map, to be superceded
+                # when we get Cofunction
+                self.Proj.solve(self.Jprob_in, self.xtemp)
 
-            # solve the block system
-            self.Jprob_out.assign(0.)
-            self.Jsolvers[i].solve()
+                # solve the block system
+                self.Jprob_out.assign(0.)
+                self.Jsolvers[i].solve()
 
-            # copy the data from solver output
-            cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-            cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+                # copy the data from solver output
+                cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+                cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
@@ -449,14 +453,17 @@ class DiagFFTPC(object):
             self.ca0.imag[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
                                                   self.blockV.node_set.size))
         # transfer forward
-        self.ctransfer.forward(self.ca0, self.ca1)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.ctransfer.forward(self.ca0, self.ca1)
         # IFFT
-        self.ca1[:] = ifft(self.ca1, axis=0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+            self.ca1[:] = ifft(self.ca1, axis=0)
 
         if self.smaller_transpose:
             # transfer backward
             self.ra1[:] = self.ca1.real[:]
-            self.rtransfer.backward(self.ra1, self.ra0)
+            with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+                self.rtransfer.backward(self.ra1, self.ra0)
 
             # scale
             self.ra0[:] = ((1.0/self.Gam_slice)*self.ra0[:].T).T
@@ -466,7 +473,8 @@ class DiagFFTPC(object):
 
         else:
             # transfer backward
-            self.ctransfer.backward(self.ca1, self.ca0)
+            with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+                self.ctransfer.backward(self.ca1, self.ca0)
 
             # scale
             self.ca0[:] = ((1.0/self.Gam_slice)*self.ca0[:].T).T

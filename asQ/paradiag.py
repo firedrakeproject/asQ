@@ -2,7 +2,7 @@ import firedrake as fd
 from firedrake.petsc import flatten_parameters
 from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
-from .profiling import memprofile
+from asQ.profiling import profiler
 
 from asQ.allatoncesystem import AllAtOnceSystem, JacobianMatrix
 from asQ.parallel_arrays import SharedArray
@@ -37,7 +37,7 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
 
 
 class paradiag(object):
-    @memprofile
+    @profiler()
     def __init__(self, ensemble,
                  form_function, form_mass,
                  w0, dt, theta,
@@ -164,6 +164,11 @@ class paradiag(object):
 
         # complete the snes setup
         self.opts.set_from_options(self.snes)
+        with self.opts.inserted_options():
+            self.snes.setUp()
+            self.snes.getKSP().setUp()
+            self.snes.getKSP().getPC().setUp()
+
         # iteration counts
         self.reset_diagnostics()
 
@@ -190,6 +195,7 @@ class paradiag(object):
         self.total_timesteps += sum(self.time_partition)
         self.total_windows += 1
 
+    @profiler()
     def sync_diagnostics(self):
         """
         Synchronise diagnostic information over all time-ranks.
@@ -198,8 +204,7 @@ class paradiag(object):
         """
         self.block_iterations.synchronise()
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def solve(self,
               nwindows=1,
               preproc=lambda pdg, w: None,
