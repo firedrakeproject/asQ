@@ -55,8 +55,7 @@ class AllAtOnceForm(TimePartitionMixin):
             bc.apply(aaofunc.function)
 
         # function to assemble the nonlinear residual into
-        self.F = aaofunc.copy()
-        self.F.set_all_fields(0)
+        self.F = aaofunc.copy(copy_values=False).zero()
 
         self.form = self._construct_form()
 

@@ -278,37 +278,6 @@ def test_set_get_field(aaof):
 
 
 @pytest.mark.parallel(nprocs=nprocs)
-def test_set_all_fields(aaof):
-    """
-    test setting all timesteps/ics to given function.
-    """
-    v0 = fd.Function(aaof.field_function_space, name="v0")
-    v1 = fd.Function(aaof.field_function_space, name="v1")
-
-    # two random solutions
-    np.random.seed(572046)
-
-    for dat in v0.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
-
-    # set next window from new solution
-    aaof.set_all_fields(v0)
-
-    # check all timesteps == v0
-
-    for step in range(aaof.nlocal_timesteps):
-        v1.assign(0)
-        err = fd.errornorm(v0, aaof.get_field(step, uout=v1))
-        assert (err < 1e-12)
-
-    err = fd.errornorm(v0, aaof.initial_condition)
-    assert (err < 1e-12)
-
-    err = fd.errornorm(v0, aaof.uprev)
-    assert (err < 1e-12)
-
-
-@pytest.mark.parallel(nprocs=nprocs)
 def test_bcast_field(aaof):
     '''
     test broadcasting the solution at a particular timestep to all ensemble ranks
@@ -409,6 +378,58 @@ def test_assign(aaof):
     err = fd.errornorm(aaof.uprev, aaof1.uprev)
     assert (err < 1e-12)
 
+    # set from field function
+
+    for dat in v0.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+
+    aaof.assign(v0)
+
+    for step in range(aaof.nlocal_timesteps):
+        v1.assign(0)
+        err = fd.errornorm(v0, aaof.get_field(step, v1))
+        assert (err < 1e-12)
+
+    # set from allatonce.function
+    random_aaof(aaof1)
+    aaof.assign(aaof1.function)
+
+    for step in range(aaof.nlocal_timesteps):
+        err = fd.errornorm(aaof.get_field(step, v0),
+                           aaof1.get_field(step, v1))
+        assert (err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=nprocs)
+def test_zero(aaof):
+    """
+    test setting all timesteps/ics to given function.
+    """
+    v0 = fd.Function(aaof.field_function_space, name="v0")
+    v1 = fd.Function(aaof.field_function_space, name="v1")
+
+    # two random solutions
+    np.random.seed(572046)
+
+    # assign from another aaof
+    random_aaof(aaof)
+    aaof.zero()
+
+    v1.assign(0)
+
+    err = fd.errornorm(v1, aaof.initial_condition)
+    assert (err < 1e-12)
+
+    err = fd.errornorm(v1, aaof.uprev)
+    assert (err < 1e-12)
+
+    err = fd.errornorm(v1, aaof.unext)
+    assert (err < 1e-12)
+
+    for step in range(aaof.nlocal_timesteps):
+        err = fd.errornorm(v1, aaof.get_field(step, v0))
+        assert (err < 1e-12)
+
 
 @pytest.mark.parallel(nprocs=nprocs)
 def test_global_vec(aaof):
@@ -425,7 +446,8 @@ def test_global_vec(aaof):
             assert (err < 1e-12)
 
     # read only
-    aaof.set_all_fields(10)
+    aaof.initial_condition.assign(10)
+    aaof.assign(aaof.initial_condition)
 
     with aaof.global_vec_ro() as rvec:
         assert np.allclose(rvec.array, 10)
@@ -434,7 +456,8 @@ def test_global_vec(aaof):
     all_equal(aaof, 10)
 
     # write only
-    aaof.set_all_fields(30)
+    aaof.initial_condition.assign(30)
+    aaof.assign(aaof.initial_condition)
 
     with aaof.global_vec_wo() as wvec:
         assert np.allclose(wvec.array, 20)
@@ -442,7 +465,8 @@ def test_global_vec(aaof):
 
     all_equal(aaof, 40)
 
-    aaof.set_all_fields(50)
+    aaof.initial_condition.assign(50)
+    aaof.assign(aaof.initial_condition)
 
     with aaof.global_vec() as vec:
         assert np.allclose(vec.array, 50)
@@ -460,7 +484,7 @@ def test_update_time_halos(aaof):
     v1 = fd.Function(aaof.field_function_space, name="v1")
 
     # test updating own halos
-    aaof.set_all_fields(0)
+    aaof.zero()
 
     rank = aaof.ensemble.ensemble_comm.rank
     size = aaof.ensemble.ensemble_comm.size

@@ -118,13 +118,13 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         elif jacobian_state in ('window', 'slice'):
             time_average(self.current_state, self.ureduce, self.uwrk, average=jacobian_state)
-            aaofunc.set_all_fields(self.ureduce)
+            aaofunc.assign(self.ureduce)
 
         elif jacobian_state == 'initial':
-            aaofunc.set_all_fields(self.current_state.initial_condition)
+            aaofunc.assign(self.current_state.initial_condition)
 
         elif jacobian_state == 'reference':
-            aaofunc.set_all_fields(self.reference_state)
+            aaofunc.assign(self.reference_state)
 
         elif jacobian_state == 'user':
             pass

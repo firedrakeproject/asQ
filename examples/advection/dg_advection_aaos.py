@@ -80,7 +80,7 @@ u.interpolate(fd.as_vector((umax*cos(args.angle), umax*sin(args.angle))))
 # We create an all-at-once function representing the timeseries solution of the scalar
 
 aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, V)
-aaofunc.set_all_fields(q0)
+aaofunc.assign(q0)
 
 
 # # # === --- finite element forms --- === # # #
@@ -207,7 +207,7 @@ for i in range(args.nwindows):
 
     # restart timeseries using final timestep as new
     # initial conditions and the initial guess.
-    aaofunc.set_all_fields(index=-1)
+    aaofunc.assign(aaofunc.bcast_field(-1, aaofunc.initial_condition))
 
 # Print out some iteration counts
 

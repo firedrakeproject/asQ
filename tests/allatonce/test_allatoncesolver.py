@@ -28,7 +28,7 @@ def test_solve_heat_equation():
     ics = fd.Function(V).interpolate(fd.exp(-((x - 0.5)**2 + (y - 0.5)**2) / 0.5**2))
 
     aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, V)
-    aaofunc.set_all_fields(ics)
+    aaofunc.assign(ics)
 
     # all-at-once form
 
@@ -135,7 +135,7 @@ def test_solve_mixed_wave_equation(extrude):
     p0.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
 
     aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, W)
-    aaofunc.set_all_fields(ics)
+    aaofunc.assign(ics)
 
     # all-at-once form
 

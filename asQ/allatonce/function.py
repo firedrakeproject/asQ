@@ -240,32 +240,6 @@ class AllAtOnceFunction(TimePartitionMixin):
         return uget
 
     @PETSc.Log.EventDecorator()
-    def set_all_fields(self, usrc=None, index=None):
-        """
-        Set solution at ics and all timesteps using either provided
-        Function or current value of given timestep.
-
-        :arg usrc: solution to set all timesteps to.
-        :arg index: index of timestep to use current solution for new value.
-                    Must be in window range. Ignored if usrc is not None.
-        """
-        if usrc is not None:  # use given function
-            self.initial_condition.assign(usrc)
-
-        else:  # last rank broadcasts final timestep
-            if index is None:
-                index = -1
-            self.bcast_field(index, self.initial_condition)
-
-        # persistence forecast
-        for i in range(self.nlocal_timesteps):
-            self.set_field(i, self.initial_condition, index_range='slice')
-
-        self.uprev.assign(self.initial_condition)
-
-        return
-
-    @PETSc.Log.EventDecorator()
     def bcast_field(self, step, u):
         """
         Broadcast solution at given timestep to all time-ranks.
@@ -282,6 +256,8 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         # bcast u
         self.ensemble.bcast(u, root=root)
+
+        return u
 
     @PETSc.Log.EventDecorator()
     def update_time_halos(self, blocking=True):
@@ -335,11 +311,37 @@ class AllAtOnceFunction(TimePartitionMixin):
             with self.global_vec_wo() as gvec:
                 src.copy(gvec)
 
+        elif isinstance(src, fd.Function):
+            if src.function_space() == self.field_function_space:
+                for i in range(self.nlocal_timesteps):
+                    self.set_field(i, src, index_range='slice')
+                self.initial_condition.assign(src)
+                if not update_halos:
+                    self.uprev.assign(src)
+                    self.unext.assign(src)
+                self
+            elif src.function_space() == self.function_space:
+                self.function.assign(src)
+
         else:
-            raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec, not {type(src)}")
+            raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec or field Function, not {type(src)}")
 
         if update_halos:
             return self.update_time_halos(blocking=blocking)
+
+    @PETSc.Log.EventDecorator()
+    @memprofile
+    def zero(self, subset=None):
+        """
+        Set all values to zero.
+
+        :arg subset: pyop2.types.set.Subset indicating the nodes to zero.
+            If None then the whole function is zeroed.
+        """
+        funcs = (self.initial_condition, self.function, self.uprev, self.unext)
+        for f in funcs:
+            f.zero(subset=subset)
+        return self
 
     @contextlib.contextmanager
     def global_vec(self):

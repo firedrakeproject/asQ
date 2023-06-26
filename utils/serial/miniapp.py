@@ -157,7 +157,9 @@ class ComparisonMiniapp(object):
         :arg nwindows: the number of time-windows to solve
         '''
 
-        window_length = self.paradiag.ntimesteps
+        pdg = self.paradiag
+
+        window_length = pdg.ntimesteps
         errors = np.zeros(nwindows*window_length)
 
         # set up function to calculate errornorm after each timestep
@@ -165,9 +167,9 @@ class ComparisonMiniapp(object):
         def serial_error_postproc(app, it, t, wndw):
 
             # only calculate error if timestep it is on this parallel time-slice
-            if self.paradiag.layout.is_local(it):
+            if pdg.layout.is_local(it):
                 # get serial and parallel solutions
-                self.paradiag.aaofunc.get_field(it, uout=self.wparallel, index_range='window')
+                pdg.aaofunc.get_field(it, uout=self.wparallel, index_range='window')
 
                 self.wserial.assign(self.serial_app.w1)
 
@@ -184,20 +186,21 @@ class ComparisonMiniapp(object):
         # timestepping loop
         for wndw in range(nwindows):
 
-            preproc(self.serial_app, self.paradiag, wndw)
+            preproc(self.serial_app, pdg, wndw)
 
             if wndw > 0:
-                self.paradiag.aaofunc.set_all_fields(index=-1)
+                pdg.aaofunc.bcast_field(-1, self.aaofunc.initial_condition)
+                pdg.aaofunc.assign(self.aaofunc.initial_condition)
 
-            self.paradiag.solve(nwindows=1,
-                                preproc=parallel_preproc,
-                                postproc=parallel_postproc)
+            pdg.solve(nwindows=1,
+                      preproc=parallel_preproc,
+                      postproc=parallel_postproc)
 
             self.serial_app.solve(nt=window_length,
                                   preproc=serial_preproc,
                                   postproc=partial(serial_error_postproc, wndw=wndw))
 
-            postproc(self.serial_app, self.paradiag, wndw)
+            postproc(self.serial_app, pdg, wndw)
 
         # collect full error series on all ranks
         global_errors = np.zeros_like(errors)

@@ -85,7 +85,7 @@ class Paradiag(TimePartitionMixin):
         function_space = ics.function_space()
         self.aaofunc = AllAtOnceFunction(ensemble, time_partition,
                                          function_space)
-        self.aaofunc.set_all_fields(ics)
+        self.aaofunc.assign(ics)
 
         self.aaoform = AllAtOnceForm(self.aaofunc, dt, theta,
                                      form_mass, form_function,
@@ -187,8 +187,10 @@ class Paradiag(TimePartitionMixin):
                 PETSc.Sys.Print(f'SNES diverged with error code {converged_reason}. Cancelling paradiag time integration.')
                 return
 
-            # don't wipe all-at-once function at last window
+            # reset window using last timestep as new initial condition
+            # but don't wipe all-at-once function at last window
             if wndw != nwindows-1:
-                self.aaofunc.set_all_fields(index=-1)
+                self.aaofunc.bcast_field(-1, self.aaofunc.initial_condition)
+                self.aaofunc.assign(self.aaofunc.initial_condition)
 
         self.sync_diagnostics()

@@ -29,7 +29,7 @@ def test_heat_jacobian():
 
     ics = fd.Function(V, name="ics")
     ics.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    aaofunc.set_all_fields(ics)
+    aaofunc.assign(ics)
 
     # build the all-at-once form
 
@@ -136,7 +136,7 @@ def test_mixed_heat_jacobian():
 
     ics = fd.Function(V, name="ics")
     ics.subfunctions[1].interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
-    aaofunc.set_all_fields(ics)
+    aaofunc.assign(ics)
 
     # build the all-at-once form
 
