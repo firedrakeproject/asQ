@@ -5,7 +5,7 @@ from firedrake.petsc import PETSc
 # from mpi4py_fft.pencil import Pencil, Subcomm
 from asQ.pencil import Pencil, Subcomm
 import importlib
-from asQ.profiling import memprofile
+from asQ.profiling import profiler
 from functools import partial
 import asQ.complex_proxy.vector as cpx
 
@@ -19,15 +19,14 @@ class DiagFFTPC(object):
         """
         self.initialized = False
 
-    @memprofile
+    @profiler()
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
 
-    @memprofile
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -270,8 +269,7 @@ class DiagFFTPC(object):
             its = self.Jsolvers[i].snes.getLinearSolveIterations()
             self.paradiag.block_iterations.dlocal[i] += its
 
-    @memprofile
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def update(self, pc):
         '''
         we need to update u0 from w_all, containing state.
@@ -298,8 +296,7 @@ class DiagFFTPC(object):
         cpx.set_imag(self.u0, self.ureduce)
         self.t_average.assign(self.aaos.t0 + (self.aaos.ntimesteps + 1)*self.aaos.dt/2)
 
-    @memprofile
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function

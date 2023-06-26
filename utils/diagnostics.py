@@ -1,5 +1,6 @@
 
 import firedrake as fd
+from asQ.profiling import profiler
 
 
 def convective_cfl_calculator(mesh,
@@ -32,6 +33,7 @@ def convective_cfl_calculator(mesh,
     def both(u):
         return 2*fd.avg(u)
 
+    @profiler()
     def cfl_calc(u, dt):
         # area weighted convective flux
         n = fd.FacetNormal(u.function_space().mesh())
@@ -49,6 +51,7 @@ def convective_cfl_calculator(mesh,
     return cfl_calc
 
 
+@profiler()
 def convective_cfl(u, dt):
     '''
     Return the convective CFL number for the velocity field u with timestep dt
@@ -98,6 +101,7 @@ def potential_vorticity_calculator(
     pv_solver = fd.LinearVariationalSolver(pv_prob,
                                            solver_parameters=params)
 
+    @profiler()
     def pv_calc(u):
         vel.assign(u)
         pv_solver.solve()

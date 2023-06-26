@@ -1,15 +1,13 @@
 import firedrake as fd
-from firedrake.petsc import PETSc
 from functools import reduce
 from operator import mul
-from .profiling import memprofile
+from asQ.profiling import profiler
 
 from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
 class JacobianMatrix(object):
-    @memprofile
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def __init__(self, aaos):
         r"""
         Python matrix for the Jacobian of the all at once system
@@ -39,10 +37,8 @@ class JacobianMatrix(object):
         self.Jaction = fd.action(self.Jform, self.u)
         self.Jaction_prev = fd.action(self.Jform_prev, self.urecv)
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def mult(self, mat, X, Y):
-
         self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
 
         # Set the flag for the circulant option
@@ -75,8 +71,7 @@ class JacobianMatrix(object):
 
 
 class AllAtOnceSystem(object):
-    @memprofile
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def __init__(self,
                  ensemble, time_partition,
                  dt, theta,
@@ -210,7 +205,7 @@ class AllAtOnceSystem(object):
             cpt = cpt % self.max_indices['component']
             return i*self.ncomponents + cpt
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def set_component(self, step, cpt, wnew, index_range='slice', f_alls=None):
         '''
         Set component of solution at a timestep to new value
@@ -229,7 +224,7 @@ class AllAtOnceSystem(object):
 
         f_alls[aao_index].assign(wnew)
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def get_component(self, step, cpt, index_range='slice', wout=None, name=None, f_alls=None, deepcopy=False):
         '''
         Get component of solution at a timestep
@@ -276,7 +271,7 @@ class AllAtOnceSystem(object):
         return tuple(self.get_component(step, cpt, f_alls=f_alls)
                      for cpt in range(self.ncomponents))
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def set_field(self, step, wnew, index_range='slice', f_alls=None):
         '''
         Set solution at a timestep to new value
@@ -290,7 +285,7 @@ class AllAtOnceSystem(object):
             self.set_component(step, cpt, wnew.sub(cpt),
                                index_range=index_range, f_alls=f_alls)
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def get_field(self, step, index_range='slice', wout=None, name=None, f_alls=None):
         '''
         Get solution at a timestep
@@ -312,7 +307,7 @@ class AllAtOnceSystem(object):
 
         return wget
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def for_each_timestep(self, callback):
         '''
         call callback for each timestep in each slice in the current window
@@ -329,7 +324,7 @@ class AllAtOnceSystem(object):
             self.get_field(slice_index, wout=w, index_range='slice')
             callback(window_index, slice_index, w)
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def next_window(self, w1=None):
         """
         Reset all-at-once-system ready for next time-window
@@ -356,7 +351,7 @@ class AllAtOnceSystem(object):
         self.t0.assign(self.t0 + self.dt*self.ntimesteps)
         return
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def update_time_halos(self, wsend=None, wrecv=None, walls=None, blocking=True):
         '''
         Update wrecv with the last step from the previous slice (periodic) of walls
@@ -392,7 +387,7 @@ class AllAtOnceSystem(object):
         return sendrecv(fsend=wsend, dest=dst, sendtag=rank,
                         frecv=wrecv, source=src, recvtag=src)
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def update(self, X, wall=None, wsend=None, wrecv=None, blocking=True):
         '''
         Update self.w_alls and self.w_recv from PETSc Vec X.
@@ -415,8 +410,7 @@ class AllAtOnceSystem(object):
                                       walls=wall.subfunctions,
                                       blocking=blocking)
 
-    @memprofile
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def _assemble_function(self, snes, X, Fvec):
         r"""
         This is the function we pass to the snes to assemble

@@ -1,10 +1,11 @@
 
 import firedrake as fd
-from firedrake.petsc import PETSc
 
 from asQ.complex_proxy.common import (Part, re, im, api_names,  # noqa:F401
                                       _flatten_tree,
                                       _build_oneform, _build_twoform)  # noqa: F401
+
+from asQ.profiling import profiler
 
 __all__ = api_names
 
@@ -142,7 +143,7 @@ def _set_part(u, vnew, i):
         csub.assign(rsub)
 
 
-@PETSc.Log.EventDecorator()
+@profiler()
 def get_real(u, vout):
     """
     Copy the real component of the complex Function u into the real-valued Function vout
@@ -153,7 +154,7 @@ def get_real(u, vout):
     return _get_part(u, vout, Part.Real)
 
 
-@PETSc.Log.EventDecorator()
+@profiler()
 def get_imag(u, vout, name=None):
     """
     Copy the imaginary component of the complex Function u into the real-valued Function vout
@@ -164,7 +165,7 @@ def get_imag(u, vout, name=None):
     return _get_part(u, vout, Part.Imag)
 
 
-@PETSc.Log.EventDecorator()
+@profiler()
 def set_real(u, vnew):
     """
     Copy the real-valued Function vnew into the real part of the complex Function u.
@@ -175,7 +176,7 @@ def set_real(u, vnew):
     _set_part(u, vnew, Part.Real)
 
 
-@PETSc.Log.EventDecorator()
+@profiler()
 def set_imag(u, vnew):
     """
     Copy the real-valued Function vnew into the imaginary part of the complex Function u.
@@ -186,7 +187,7 @@ def set_imag(u, vnew):
     _set_part(u, vnew, Part.Imag)
 
 
-@PETSc.Log.EventDecorator()
+@profiler()
 def LinearForm(W, z, f, return_z=False):
     """
     Return a Linear Form on the complex FunctionSpace W equal to a complex multiple of a linear Form on the real FunctionSpace.
@@ -201,7 +202,7 @@ def LinearForm(W, z, f, return_z=False):
     return _build_oneform(W, z, f, split, return_z)
 
 
-@PETSc.Log.EventDecorator()
+@profiler()
 def BilinearForm(W, z, A, return_z=False):
     """
     Return a bilinear Form on the complex FunctionSpace W equal to a complex multiple of a bilinear Form on the real FunctionSpace.
@@ -222,7 +223,7 @@ def BilinearForm(W, z, A, return_z=False):
     return _build_twoform(W, z, A, fd.TrialFunction(W), split, return_z)
 
 
-@PETSc.Log.EventDecorator()
+@profiler()
 def derivative(z, F, u, return_z=False):
     """
     Return a bilinear Form equivalent to z*J where z is a complex number, J = dF/dw, F is a nonlinear Form on the real-valued space, and w is a Function in the real-valued space. The real and imaginary components of the complex Function u most both be equal to w for this operation to be valid.
