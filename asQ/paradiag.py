@@ -4,7 +4,7 @@ from firedrake.petsc import PETSc, OptionsManager
 from functools import partial
 from asQ.profiling import profiler
 
-from asQ.allatoncesystem import AllAtOnceSystem
+from asQ.allatoncesystem import AllAtOnceSystem, JacobianMatrix
 from asQ.parallel_arrays import SharedArray
 
 appctx = {}
@@ -39,47 +39,61 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
 class paradiag(object):
     @profiler()
     def __init__(self, ensemble,
-                 form_function, form_mass, w0, dt, theta,
+                 form_function, form_mass,
+                 w0, dt, theta,
                  alpha, time_partition, bcs=[],
                  solver_parameters={},
-                 circ="picard",
+                 reference_state=None,
+                 jacobian_function=None,
+                 jacobian_mass=None,
+                 circ="",
                  tol=1.0e-6, maxits=10,
                  ctx={}, block_ctx={}, block_mat_type="aij"):
         """A class to implement paradiag timestepping.
 
         :arg ensemble: the ensemble communicator
-        :arg form_function: a function that returns a linear form
-        on w0.function_space() providing f(w) for the ODE w_t + f(w) = 0.
-        :arg form_mass: a function that returns a linear form
-        on W providing the mass operator for the time derivative.
-        :arg w0: a Function from W containing the initial data
+        :arg form_function: a function that returns a form
+            on w0.function_space() providing f(w) for the ODE w_t + f(w) = 0.
+        :arg form_mass: a function that returns a linear form on
+            w0.function_space providing the mass operator for the time derivative.
+        :arg jacobian_function: a function that returns a form
+            on w0.function_space() which will be linearised to approximate
+            derivative(f(w), w) for the ODE w_t + f(w) = 0.
+        :arg jacobian_mass: a function that returns a linear form on w0.function_space
+            providing which will be linearised to approximate the form_mass
+        :arg w0: a Function from w0.function_space containing the initial data.
         :arg dt: float, the timestep size.
-        :arg theta: float, implicit timestepping parameter
-        :arg alpha: float, circulant matrix parameter
+        :arg theta: float, implicit timestepping parameter.
+        :arg alpha: float, circulant matrix parameter.
         :arg time_partition: a list of integers, the number of timesteps
-        assigned to each rank
-        :arg bcs: a list of DirichletBC boundary conditions on W
-        :arg solver_parameters: options dictionary for nonlinear solver
+            assigned to each rank.
+        :arg bcs: a list of DirichletBC boundary conditions on w0.function_space.
+        :arg solver_parameters: options dictionary for nonlinear solver.
+        :arg reference_state: a Function in W to use as a reference state
+            e.g. in DiagFFTPC.
         :arg circ: a string describing the option on where to use the
-        alpha-circulant modification. "picard" - do a nonlinear wave
-        form relaxation method. "quasi" - do a modified Newton
-        method with alpha-circulant modification added to the
-        Jacobian. To make the alpha circulant modification only in the
-        preconditioner, simply set ksp_type:preonly in the solve options.
+            alpha-circulant modification. "picard" - do a nonlinear wave
+            form relaxation method. "quasi" - do a modified Newton
+            method with alpha-circulant modification added to the
+            Jacobian. To make the alpha circulant modification only in the
+            preconditioner, simply set ksp_type:preonly in the solve options.
         :arg tol: float, the tolerance for the relaxation method (if used)
         :arg maxits: integer, the maximum number of iterations for the
-        relaxation method, if used.
+            relaxation method, if used.
         :arg ctx: application context for solvers.
         :arg block_ctx: non-petsc context for solvers.
         :arg block_mat_type: set the type of the diagonal block systems.
-        Default is aij.
+            Default is aij.
         """
 
         self.aaos = AllAtOnceSystem(ensemble, time_partition,
                                     dt, theta,
                                     form_mass, form_function,
-                                    w0, bcs,
-                                    circ, alpha)
+                                    w0, bcs=bcs,
+                                    reference_state=reference_state,
+                                    jacobian_function=jacobian_function,
+                                    jacobian_mass=jacobian_mass,
+                                    circ=circ, alpha=alpha)
 
         self.ensemble = ensemble
         self.layout = self.aaos.layout
@@ -120,13 +134,21 @@ class paradiag(object):
         self.snes = PETSc.SNES().create(comm=ensemble.global_comm)
         self.opts = OptionsManager(self.flat_solver_parameters, '')
         self.snes.setOptionsPrefix('')
-        self.snes.setFunction(self.aaos._assemble_function, self.F)
 
-        # set up the Jacobian
+        # set up the residual function
+        def assemble_function(snes, X, Fvec):
+            self.aaos._assemble_function(snes, X, Fvec)
+
+        self.snes.setFunction(assemble_function, self.F)
+
+        # set up the Jacobian using the provided options
+        with self.opts.inserted_options():
+            self.jacobian = JacobianMatrix(self.aaos, self.snes)
+
         Jacmat = PETSc.Mat().create(comm=ensemble.global_comm)
         Jacmat.setType("python")
         Jacmat.setSizes(((nlocal, nglobal), (nlocal, nglobal)))
-        Jacmat.setPythonContext(self.aaos.jacobian)
+        Jacmat.setPythonContext(self.jacobian)
         Jacmat.setUp()
         self.Jacmat = Jacmat
 
@@ -134,6 +156,7 @@ class paradiag(object):
             # copy the snes state vector into self.X
             X.copy(self.X)
             self.aaos.update(X)
+            self.jacobian.update()
             J.assemble()
             P.assemble()
 
