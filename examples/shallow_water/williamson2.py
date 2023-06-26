@@ -29,7 +29,6 @@ parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coeff
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--coords_degree', type=int, default=1, help='Degree of polynomials for sphere mesh approximation.')
 parser.add_argument('--filename', type=str, default='williamson2', help='Name of output vtk files')
->>>>>>> master
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space).')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
