@@ -263,7 +263,6 @@ class DiagFFTPC(object):
         # This is constructed by cpx.derivative
 
         #  Building the nonlinear operator
-        self.Jsolvers = []
 
         # which form to linearise around
         valid_linearisations = ['consistent', 'user']
