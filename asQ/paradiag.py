@@ -17,6 +17,7 @@ def context_callback(pc, context):
 get_context = partial(context_callback, context=appctx)
 
 
+@profiler()
 def create_ensemble(time_partition, comm=fd.COMM_WORLD):
     '''
     Create an Ensemble for the given slice partition
@@ -172,6 +173,7 @@ class paradiag(object):
         # iteration counts
         self.reset_diagnostics()
 
+    @profiler()
     def reset_diagnostics(self):
         """
         Set all diagnostic information to initial values, e.g. iteration counts to zero
@@ -184,6 +186,7 @@ class paradiag(object):
                                             dtype=int,
                                             comm=self.ensemble.ensemble_comm)
 
+    @profiler()
     def _record_diagnostics(self):
         """
         Update diagnostic information from snes.

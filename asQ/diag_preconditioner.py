@@ -47,6 +47,7 @@ class DiagFFTPC(object):
     """
     prefix = "diagfft_"
 
+    @profiler()
     def __init__(self):
         r"""A preconditioner for all-at-once systems with alpha-circulant
         block diagonal structure, using FFT.
@@ -331,6 +332,7 @@ class DiagFFTPC(object):
 
         self.initialized = True
 
+    @profiler()
     def _record_diagnostics(self):
         """
         Update diagnostic information from block linear solvers.
@@ -486,5 +488,6 @@ class DiagFFTPC(object):
 
         self._record_diagnostics()
 
+    @profiler()
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError
