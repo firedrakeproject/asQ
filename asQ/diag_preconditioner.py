@@ -397,7 +397,7 @@ class DiagFFTPC(object):
             # is there a better way to do this with broadcasting?
             self.ra0[:] = (self.Gam_slice*self.ra0.T).T*np.sqrt(self.ntimesteps)
 
-            with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            with PETSc.Log.Event("asQ.DiagFFTPC.apply.transfer1r"):
                 self.rtransfer.forward(self.ra0, self.ra1)
 
             self.ca1[:] = self.ra1[:]
@@ -405,15 +405,15 @@ class DiagFFTPC(object):
             # is there a better way to do this with broadcasting?
             self.ca0[:] = (self.Gam_slice*self.ra0.T).T*np.sqrt(self.ntimesteps)
 
-            with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            with PETSc.Log.Event("asQ.DiagFFTPC.apply.transfer1c"):
                 self.ctransfer.forward(self.ca0, self.ca1)
 
         # FFT
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+        with PETSc.Log.Event("asQ.DiagFFTPC.apply.fft"):
             self.ca1[:] = fft(self.ca1, axis=0)
 
         # transfer backward
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+        with PETSc.Log.Event("asQ.DiagFFTPC.apply.transfer2c"):
             self.ctransfer.backward(self.ca1, self.ca0)
 
         # Copy into xfi, xfr
@@ -425,25 +425,26 @@ class DiagFFTPC(object):
 
         # Do the block solves
 
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.block_solves"):
-            for i in range(self.aaos.nlocal_timesteps):
-                # copy the data into solver input
-                self.xtemp.assign(0.)
+        for i in range(self.aaos.nlocal_timesteps):
+            # copy the data into solver input
+            self.xtemp.assign(0.)
 
-                cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-                cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+            cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+            cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
-                # Do a project for Riesz map, to be superceded
-                # when we get Cofunction
+            # Do a project for Riesz map, to be superceded
+            # when we get Cofunction
+            with PETSc.Log.Event("asQ.DiagFFTPC.apply.riesz_map"):
                 self.Proj.solve(self.Jprob_in, self.xtemp)
 
-                # solve the block system
+            # solve the block system
+            with PETSc.Log.Event("asQ.DiagFFTPC.apply.block_solves"):
                 self.Jprob_out.assign(0.)
                 self.Jsolvers[i].solve()
 
-                # copy the data from solver output
-                cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-                cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+            # copy the data from solver output
+            cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+            cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
@@ -455,16 +456,16 @@ class DiagFFTPC(object):
             self.ca0.imag[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
                                                   self.blockV.node_set.size))
         # transfer forward
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+        with PETSc.Log.Event("asQ.DiagFFTPC.apply.transfer3c"):
             self.ctransfer.forward(self.ca0, self.ca1)
         # IFFT
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+        with PETSc.Log.Event("asQ.DiagFFTPC.apply.fft"):
             self.ca1[:] = ifft(self.ca1, axis=0)
 
         if self.smaller_transpose:
             # transfer backward
             self.ra1[:] = self.ca1.real[:]
-            with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            with PETSc.Log.Event("asQ.DiagFFTPC.apply.transfer4r"):
                 self.rtransfer.backward(self.ra1, self.ra0)
 
             # scale
@@ -475,7 +476,7 @@ class DiagFFTPC(object):
 
         else:
             # transfer backward
-            with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            with PETSc.Log.Event("asQ.DiagFFTPC.apply.transfer4c"):
                 self.ctransfer.backward(self.ca1, self.ca0)
 
             # scale
