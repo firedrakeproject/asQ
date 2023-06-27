@@ -111,8 +111,8 @@ def form_function(q, phi, t):
 # The PETSc solver parameters used to solve the
 # blocks in step (b) of inverting the ParaDiag matrix.
 block_parameters = {
-    'ksp_type': 'gmres',
-    'pc_type': 'bjacobi',
+    'ksp_type': 'preonly',
+    'pc_type': 'lu',
 }
 
 # The PETSc solver parameters for solving the all-at-once system.
@@ -130,22 +130,18 @@ block_parameters = {
 #    'ksp_type': 'preonly'
 
 paradiag_parameters = {
+    'snes_type': 'ksponly',
     'snes': {
-        'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-10,
-        'atol': 1e-12,
-        'stol': 1e-12,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'preonly',
+    'ksp_type': 'richardson',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-10,
-        'atol': 1e-12,
-        'stol': 1e-12,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'
