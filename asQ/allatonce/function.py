@@ -319,7 +319,6 @@ class AllAtOnceFunction(TimePartitionMixin):
                 if not update_halos:
                     self.uprev.assign(src)
                     self.unext.assign(src)
-                self
             elif src.function_space() == self.function_space:
                 self.function.assign(src)
 
