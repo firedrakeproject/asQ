@@ -17,7 +17,7 @@ def test_galewsky_timeseries():
     from utils.serial import ComparisonMiniapp
     from copy import deepcopy
 
-    ref_level = 2
+    ref_level = 3
     nwindows = 1
     nslices = 2
     slice_length = 2
@@ -120,8 +120,6 @@ def test_galewsky_timeseries():
 
     # nonlinear solver options
     snes_sparameters = {
-        'monitor': None,
-        'converged_reason': None,
         'atol': 1e-0,
         'rtol': 1e-10,
         'stol': 1e-12,
@@ -134,17 +132,24 @@ def test_galewsky_timeseries():
         'snes': snes_sparameters
     }
     serial_sparameters.update(deepcopy(block_sparameters))
-    serial_sparameters['ksp']['monitor'] = None
-    serial_sparameters['ksp']['converged_reason'] = None
+    serial_sparameters['ksp']['atol'] = snes_sparameters['atol']
+    # if ensemble.ensemble_comm.rank == 0:
+    #     serial_sparameters['snes']['monitor'] = None
+    #     serial_sparameters['snes']['converged_reason'] = None
+    #     serial_sparameters['ksp']['monitor'] = None
+    #     serial_sparameters['ksp']['converged_reason'] = None
 
     # solver parameters for parallel method
     parallel_sparameters = {
         'snes': snes_sparameters,
+        'snes_monitor': None,
+        'snes_converged_reason': None,
         'mat_type': 'matfree',
         'ksp_type': 'fgmres',
         'ksp': {
             'monitor': None,
             'converged_reason': None,
+            'atol': snes_sparameters['atol']
         },
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',

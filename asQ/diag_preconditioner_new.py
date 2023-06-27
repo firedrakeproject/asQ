@@ -116,6 +116,8 @@ class DiagFFTPC(object):
         # sanity check
         assert (self.blockV.dim()*paradiag.nlocal_timesteps == W_all.dim())
 
+        # Input/Output wrapper Functions for all-at-once residual being acted on
+
         # Gamma coefficients
         exponents = np.arange(self.ntimesteps)/self.ntimesteps
         self.Gam = paradiag.alpha**exponents
@@ -161,7 +163,7 @@ class DiagFFTPC(object):
         self.xfr = fd.Function(W_all)
 
         # setting up the FFT stuff
-        self.smaller_transpose = True
+        self.smaller_transpose = False
         # construct simply dist array and 1d fftn:
         subcomm = Subcomm(self.ensemble.ensemble_comm, [0, 1])
 
@@ -189,7 +191,6 @@ class DiagFFTPC(object):
         self.ra1 = np.zeros(self.p1.subshape, rtype)
 
         # set up complex valued transfer
-        self.ctransfer = self.p0.transfer(self.p1, ctype)
 
         # a0 is the local part of the original data (i.e. distributed in time)
         # has shape of (nlocal_timesteps, nlocal)
@@ -198,6 +199,8 @@ class DiagFFTPC(object):
         # a1 is the local part of the transposed data (i.e. distributed in space)
         # has shape of (ntimesteps, ...)
         self.ca1 = np.zeros(self.p1.subshape, ctype)
+
+        self.ctransfer = self.p0.transfer(self.p1, ctype)
 
         # setting up the Riesz map
         default_riesz_method = {
@@ -370,32 +373,50 @@ class DiagFFTPC(object):
         return
 
     @profiler()
-    def _transfer_forward1(self):
-        if self.smaller_transpose:
-            self.rtransfer.forward(self.ra0, self.ra1)
-            self.ca1[:] = self.ra1[:]
-        else:
-            self.ca0[:] = self.ra0[:]
-            self.ctransfer.forward(self.ca0, self.ca1)
-
-    @profiler()
-    def _fft(self):
+    def fft(self):
+        """
+        FFT of ca1
+        """
         self.ca1[:] = fft(self.ca1, axis=0)
 
     @profiler()
-    def _transfer_backward2(self):
-        self.ctransfer.backward(self.ca1, self.ca0)
-
-    @profiler()
-    def _transfer_forward3(self):
-        self.ctransfer.forward(self.ca0, self.ca1)
-
-    @profiler()
-    def _ifft(self):
+    def ifft(self):
+        """
+        IFFT of ca1
+        """
         self.ca1[:] = ifft(self.ca1, axis=0)
 
     @profiler()
-    def _transfer_backward4(self):
+    def forward_transfer1(self):
+        """
+        Forward transfer from ra0 to ca1
+        """
+        if self.smaller_transpose:
+            self.rtransfer.forward(self.ra0, self.ra1)
+            self.ca1.real[:] = self.ra1
+        else:
+            self.ca0.real[:] = self.ra0
+            self.ctransfer.forward(self.ca0, self.ca1)
+
+    @profiler()
+    def backward_transfer2(self):
+        """
+        Backward transfer from ca1 to ca0
+        """
+        self.ctransfer.backward(self.ca1, self.ca0)
+
+    @profiler()
+    def forward_transfer3(self):
+        """
+        Forward transfer from ca0 to ca1
+        """
+        self.ctransfer.forward(self.ca0, self.ca1)
+
+    @profiler()
+    def backward_transfer4(self):
+        """
+        Backward transfer from ca1 to ra1
+        """
         if self.smaller_transpose:
             self.ra1[:] = self.ca1.real[:]
             self.rtransfer.backward(self.ra1, self.ra0)
@@ -406,7 +427,6 @@ class DiagFFTPC(object):
     @profiler()
     def apply(self, pc, x, y):
 
-        # get array of basis coefficients
         # This produces an array whose rows are time slices
         # and columns are finite element basis coefficients
         self.ra0[:] = x.array_r.reshape((self.aaos.nlocal_timesteps,
@@ -414,24 +434,21 @@ class DiagFFTPC(object):
 
         ######################
         # Diagonalise - scale, transfer, FFT, transfer, Copy
+        # Scale
 
-        # scale
-        # is there a better way to do this with broadcasting?
         self.ra0[:] = (self.Gam_slice*self.ra0.T).T*np.sqrt(self.ntimesteps)
 
-        self.ensemble.global_comm.Barrier()
-        self._transfer_forward1()
-        self.ensemble.global_comm.Barrier()
-        self._fft()
-        self.ensemble.global_comm.Barrier()
-        self._transfer_backward2()
-        self.ensemble.global_comm.Barrier()
+        self.forward_transfer1()
+        self.fft()
+        self.backward_transfer2()
 
         # Copy into xfi, xfr
         with self.xfr.dat.vec_wo as v:
             v.array[:] = self.ca0.real.reshape(-1)
+
         with self.xfi.dat.vec_wo as v:
             v.array[:] = self.ca0.imag.reshape(-1)
+
         #####################
 
         # Do the block solves
@@ -467,18 +484,12 @@ class DiagFFTPC(object):
             self.ca0.imag[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
                                                   self.blockV.node_set.size))
 
-        self.ensemble.global_comm.Barrier()
-        self._transfer_forward3()
-        self.ensemble.global_comm.Barrier()
-        self._ifft()
-        self.ensemble.global_comm.Barrier()
-        self._transfer_backward4()
-        self.ensemble.global_comm.Barrier()
+        self.forward_transfer3()
+        self.ifft()
+        self.backward_transfer4()
 
-        # scale
-        self.ra0[:] = ((1.0/self.Gam_slice)*self.ra0[:].T).T
+        self.ra0[:] = ((1.0/self.Gam_slice)*self.ra0.T).T
 
-        # Copy into output
         y.array[:] = self.ra0.reshape(-1)
 
         ################
