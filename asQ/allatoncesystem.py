@@ -8,6 +8,7 @@ from functools import partial
 from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
+@profiler()
 def time_average(aaos, uout, uwrk, uall=None, average='window'):
     """
     Compute the time average of an all-at-once function
@@ -148,6 +149,7 @@ class JacobianMatrix(object):
 
         self.update()
 
+    @profiler()
     def update(self, X=None):
         # update the state to linearise around from the current all-at-once solution
 
@@ -322,6 +324,7 @@ class AllAtOnceSystem(object):
 
         self.aao_form = self.construct_aao_form(self.w_all, self.w_recv)
 
+    @profiler()
     def set_boundary_conditions(self, bcs):
         """
         Set the boundary conditions onto solution at each timestep in the all-at-once system.
@@ -346,6 +349,7 @@ class AllAtOnceSystem(object):
 
         return bcs_all
 
+    @profiler()
     def transform_index(self, i, cpt=None, from_range='slice', to_range='slice'):
         '''
         Shift timestep or component index from one range to another, and accounts for -ve indices.
@@ -432,6 +436,7 @@ class AllAtOnceSystem(object):
             wreturn.assign(wget)
             return wreturn
 
+    @profiler()
     def get_field_components(self, step, index_range='slice', f_alls=None):
         '''
         Get tuple of the components of the all-at-once function for a timestep.
@@ -608,6 +613,7 @@ class AllAtOnceSystem(object):
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
 
+    @profiler()
     def construct_aao_form(self, wall=None, wrecv=None, mass=None, function=None):
         """
         Constructs the bilinear form for the all at once system.
