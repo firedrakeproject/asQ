@@ -15,8 +15,6 @@ class AllAtOnceSolver(TimePartitionMixin):
                  options_prefix="",
                  jacobian_form=None,
                  jacobian_reference_state=None,
-                 pc_mass=None,
-                 pc_function=None,
                  pre_function_callback=lambda solver, X: None,
                  post_function_callback=lambda solver, X, F: None,
                  pre_jacobian_callback=lambda solver, X, J: None,
