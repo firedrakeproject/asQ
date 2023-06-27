@@ -89,13 +89,17 @@ sparameters = {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-12,
-        'atol': 1e-0
+        'atol': 1e-0,
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None
+        'converged_reason': None,
+        'atol': 1e-5,
+        'rtol': 1e-5,
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
@@ -110,7 +114,7 @@ sparameters = {
                 'pc_patch_save_operators': True,
                 'pc_patch_partition_of_unity': True,
                 'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_codim': 0,
+                'pc_patch_construct_dim': 0,
                 'pc_patch_construct_type': 'vanka',
                 'pc_patch_local_type': 'additive',
                 'pc_patch_precompute_element_tensors': True,
@@ -168,8 +172,8 @@ def postproc(app, step, t):
     linear_its += app.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += app.nlsolver.snes.getIterationNumber()
 
-    uout.assign(miniapp.w0.split()[0])
-    hout.assign(miniapp.w0.split()[1])
+    uout.assign(miniapp.w0.subfunctions[0])
+    hout.assign(miniapp.w0.subfunctions[1])
     ofile.write(uout, hout, potential_vorticity(uout), time=t)
 
 

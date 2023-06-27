@@ -22,7 +22,8 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours.')
-parser.add_argument('--filename', type=str, default='gravity_waves', help='Name of output vtk files')
+parser.add_argument('--filename', type=str, default='gravity_waves', help='Name of output vtk files.')
+parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -58,8 +59,13 @@ patch_parameters = {
     },
     'sub': {
         'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_shift_type': 'nonzero'
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_detect_saddle_point': None,
+        'pc_fieldsplit_schur_fact_type': 'full',
+        'pc_fieldsplit_schur_precondition': 'full',
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
     }
 }
 
@@ -83,12 +89,12 @@ sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-8,
-        'rtol': 1e-8,
-        'max_it': 400
+        'atol': 1e-5,
+        'rtol': 1e-5,
+        'max_it': 60
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
+    'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
@@ -111,7 +117,9 @@ sparameters_diag = {
         'converged_reason': None,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfft_state': 'linear',
+    'aaos_jacobian_state': 'linear',
 }
 
 sparameters_diag['diagfft_block'] = sparameters
@@ -162,7 +170,7 @@ miniapp.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
 from asQ import write_paradiag_metrics
-write_paradiag_metrics(miniapp.paradiag)
+write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
 
 PETSc.Sys.Print('')
 

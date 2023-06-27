@@ -6,6 +6,10 @@ from firedrake.petsc import PETSc
 from asQ.pencil import Pencil, Subcomm
 import importlib
 from asQ.profiling import memprofile
+from asQ.common import get_option_from_list
+from asQ.allatoncesystem import time_average
+
+from functools import partial
 
 import asQ.complex_proxy.vector as cpx
 
@@ -69,6 +73,36 @@ def construct_riesz_map(W, prefix, fieldsplit=False, riesz_options=None):
 
 
 class DiagFFTPC(object):
+    """
+    PETSc options:
+
+    'diagfft_linearisation': <'consistent', 'user'>
+        Which form to linearise when constructing the block Jacobians.
+        Default is 'consistent'.
+
+        'consistent': use the same form used in the AllAtOnceSystem residual.
+        'user': use the alternative forms given to the AllAtOnceSystem.
+
+    'diagfft_state': <'window', 'slice', 'linear', 'initial', 'reference'>
+        Which state to linearise around when constructing the block Jacobians.
+        Default is 'window'.
+
+        'window': use the time average over the entire AllAtOnceSystem.
+        'slice': use the time average over timesteps on the local Ensemble member.
+        'linear': the form linearised is already linear, so no update to the state is needed
+        'initial': use the initial condition is used for all timesteps.
+        'reference': use the reference state of the AllAtOnceSystem for all timesteps.
+
+    'diagfft_mass': <LinearSolver options>
+        The solver options for the Riesz map.
+        Default is {'pc_type': 'lu'}
+        Use 'diagfft_mass_fieldsplit' if the single-timestep function space is mixed.
+
+    'diagfft_block_%d': <LinearVariationalSolver options>
+        Default is the Firedrake default options.
+        The solver options for the %d'th block, enumerated globally.
+        Use 'diagfft_block' to set options for all blocks.
+    """
     prefix = "diagfft_"
 
     def __init__(self):
@@ -119,13 +153,15 @@ class DiagFFTPC(object):
         paradiag.diagfftpc = self
 
         # option for whether to use slice or window average for block jacobian
-        self.jac_average = PETSc.Options().getString(
-            f"{prefix}{self.prefix}jac_average", default='window')
+        valid_jac_state = ['window', 'slice', 'linear', 'initial', 'reference']
+        jac_option = f"{prefix}{self.prefix}state"
 
-        valid_jac_averages = ['window', 'slice']
+        self.jac_state = partial(get_option_from_list,
+                                 jac_option, valid_jac_state, default_index=0)
+        jac_state = self.jac_state()
 
-        if self.jac_average not in valid_jac_averages:
-            raise ValueError("diagfft_jac_average must be one of "+" or ".join(valid_jac_averages))
+        if jac_state == 'reference' and self.aaos.reference_state is None:
+            raise ValueError("AllAtOnceSystem must be provided a reference state to use \'reference\' for diagfft_jac_state.")
 
         # this time slice part of the all at once solution
         self.w_all = self.aaos.w_all
@@ -150,6 +186,7 @@ class DiagFFTPC(object):
         C2col = np.zeros(self.ntimesteps)
 
         dt = self.aaos.dt
+        self.t_average = fd.Constant(self.aaos.t0 + (self.ntimesteps + 1)*dt/2)
         theta = self.aaos.theta
         C1col[:2] = np.array([1, -1])/dt
         C2col[:2] = np.array([theta, 1-theta])
@@ -168,7 +205,7 @@ class DiagFFTPC(object):
                                                           bc, 0*bc.function_arg)))
 
         # function to do global reduction into for average block jacobian
-        if self.jac_average == 'window':
+        if jac_state in ('window', 'slice'):
             self.ureduce = fd.Function(self.function_space)
             self.uwrk = fd.Function(self.function_space)
 
@@ -225,8 +262,23 @@ class DiagFFTPC(object):
         # parts and then linearising.
         # This is constructed by cpx.derivative
 
-        form_mass = self.aaos.form_mass
-        form_function = self.aaos.form_function
+        #  Building the nonlinear operator
+        self.Jsolvers = []
+
+        # which form to linearise around
+        valid_linearisations = ['consistent', 'user']
+        linear_option = f"{prefix}{self.prefix}linearisation"
+
+        linear = get_option_from_list(linear_option, valid_linearisations, default_index=0)
+
+        if linear == 'consistent':
+            form_mass = self.aaos.form_mass
+            form_function = self.aaos.form_function
+        elif linear == 'user':
+            form_mass = self.aaos.jacobian_mass
+            form_function = self.aaos.jacobian_function
+
+        form_function = partial(form_function, t=self.t_average)
 
         ii = self.aaos.transform_index(i, from_range='slice', to_range='window')
         d1 = self.D1[ii]
@@ -291,22 +343,26 @@ class DiagFFTPC(object):
         an operator that is block diagonal in the 2x2 system coupling
         real and imaginary parts.
         '''
-        self.ureduce.assign(0.)
+        jac_state = self.jac_state()
+        if jac_state == 'linear':
+            return
 
-        urs = self.ureduce.subfunctions
-        for i in range(self.nlocal_timesteps):
-            for ur, ui in zip(urs, self.aaos.get_field_components(i)):
-                ur.assign(ur + ui)
+        elif jac_state == 'initial':
+            ustate = self.aaos.initial_condition
 
-        # average only over current time-slice
-        if self.jac_average == 'slice':
-            self.ureduce /= fd.Constant(self.nlocal_timesteps)
-        else:  # implies self.jac_average == 'window':
-            self.paradiag.ensemble.allreduce(self.ureduce, self.uwrk)
-            self.ureduce.assign(self.uwrk/fd.Constant(self.ntimesteps))
+        elif jac_state == 'reference':
+            ustate = self.aaos.reference_state
 
-        cpx.set_real(self.u0, self.ureduce)
-        cpx.set_imag(self.u0, self.ureduce)
+        elif jac_state in ('window', 'slice'):
+            time_average(self.aaos, self.ureduce, self.uwrk, average=jac_state)
+            ustate = self.ureduce
+
+        cpx.set_real(self.u0, ustate)
+        cpx.set_imag(self.u0, ustate)
+
+        self.t_average.assign(self.aaos.t0 + (self.aaos.ntimesteps + 1)*self.aaos.dt/2)
+
+        return
 
     @PETSc.Log.EventDecorator()
     @memprofile

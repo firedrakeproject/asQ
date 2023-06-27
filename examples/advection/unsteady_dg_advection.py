@@ -9,7 +9,9 @@ import asQ
 import argparse
 
 parser = argparse.ArgumentParser(
-    description='ParaDiag timestepping for scalar advection of a Gaussian bump in a periodic square with DG in space and implicit-theta in time. Based on the Firedrake DG advection example https://www.firedrakeproject.org/demos/DG_advection.py.html',
+    description='ParaDiag timestepping for scalar advection of a Gaussian bump in a periodic square with DG in space and implicit-theta in time.\n'
+                +'Advecting velocity varies in time sinusoidally.'
+                +'Based on the Firedrake DG advection example https://www.firedrakeproject.org/demos/DG_advection.py.html',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 parser.add_argument('--nx', type=int, default=64, help='Number of cells along each square side.')
@@ -43,6 +45,11 @@ umax = 1.
 dx = 1./args.nx
 dt = args.cfl*dx/umax
 
+# timescale of the domain
+T = 1./umax
+
+period = 0.5*T
+
 # The Ensemble with the spatial and time communicators
 ensemble = asQ.create_ensemble(time_partition)
 
@@ -75,8 +82,11 @@ q0.interpolate(1 + gaussian(x, y))
 
 # The advecting velocity field is constant and directed at an angle to the x-axis
 u = fd.Function(W, name='velocity')
-u.interpolate(fd.as_vector((umax*cos(args.angle), umax*sin(args.angle))))
+u.interpolate(0.5*fd.as_vector((umax*cos(args.angle), umax*sin(args.angle))))
 
+# time-varying perturbation to advecting velocity
+up = fd.Function(W, name='velocity-perturbation')
+up.interpolate(fd.as_vector((1.0*umax, -1.0*umax)))
 
 # # # === --- finite element forms --- === # # #
 
@@ -93,11 +103,12 @@ def form_mass(q, phi):
 # q is a Function and phi is a TestFunction
 def form_function(q, phi, t):
     # upwind switch
+    v = u + up*fd.cos(2*pi*t/T)
     n = fd.FacetNormal(mesh)
-    un = 0.5*(fd.dot(u, n) + abs(fd.dot(u, n)))
+    un = 0.5*(fd.dot(v, n) + abs(fd.dot(v, n)))
 
     # integration over element volume
-    int_cell = q*fd.div(phi*u)*fd.dx
+    int_cell = q*fd.div(phi*v)*fd.dx
 
     # integration over internal facets
     int_facet = (phi('+')-phi('-'))*(un('+')*q('+')-un('-')*q('-'))*fd.dS
@@ -134,14 +145,14 @@ paradiag_parameters = {
     'snes': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
+        'rtol': 1e-8,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'richardson',
+    'ksp_type': 'gmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
+        'rtol': 1e-8,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'
@@ -224,7 +235,7 @@ PETSc.Sys.Print(f'block linear iterations: {pdg.block_iterations._data}  |  iter
 
 # We can write these diagnostics to file, along with some other useful information.
 # Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt
-asQ.write_paradiag_metrics(pdg)
+asQ.write_paradiag_metrics(pdg, directory='metrics')
 
 # Make an animation from the snapshots we collected and save it to periodic.mp4.
 if is_last_slice:
@@ -239,7 +250,7 @@ if is_last_slice:
     def animate(q):
         colors.set_array(fn_plotter(q))
 
-    interval = 1e2
+    interval = 4e2
     animation = FuncAnimation(fig, animate, frames=timeseries, interval=interval)
 
     animation.save("periodic.mp4", writer="ffmpeg")

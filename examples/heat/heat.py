@@ -1,7 +1,3 @@
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-from math import pi, cos, sin
-
 import firedrake as fd
 from firedrake.petsc import PETSc
 import asQ
@@ -9,15 +5,12 @@ import asQ
 import argparse
 
 parser = argparse.ArgumentParser(
-    description='ParaDiag timestepping for scalar advection of a Gaussian bump in a periodic square with DG in space and implicit-theta in time. Based on the Firedrake DG advection example https://www.firedrakeproject.org/demos/DG_advection.py.html',
+    description='While we try to figure out how to implement time-dependent Dirichlet BCs, one can use Nitsche-type penalty method. Here, we consider Heat equatiion(u_t = Delta u) with boundary conditions match those of exp(1.25t + 0.5x + y)',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 parser.add_argument('--nx', type=int, default=64, help='Number of cells along each square side.')
-parser.add_argument('--cfl', type=float, default=0.8, help='Convective CFL number.')
-parser.add_argument('--angle', type=float, default=pi/6, help='Angle of the convective velocity.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
-parser.add_argument('--width', type=float, default=0.1, help='Width of the Gaussian bump.')
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
@@ -38,10 +31,9 @@ time_partition = tuple(args.slice_length for _ in range(args.nslices))
 window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
-# Calculate the timestep from the CFL number
-umax = 1.
-dx = 1./args.nx
-dt = args.cfl*dx/umax
+# Set the timesstep
+nx = args.nx
+dt = 1./nx
 
 # The Ensemble with the spatial and time communicators
 ensemble = asQ.create_ensemble(time_partition)
@@ -49,60 +41,31 @@ ensemble = asQ.create_ensemble(time_partition)
 # # # === --- domain --- === # # #
 
 # The mesh needs to be created with the spatial communicator
-mesh = fd.PeriodicUnitSquareMesh(args.nx, args.nx, quadrilateral=True, comm=ensemble.comm)
+mesh = fd.UnitSquareMesh(args.nx, args.nx, quadrilateral=False, comm=ensemble.comm)
 
-# We use a discontinuous Galerkin space for the advected scalar
-# and a continuous Galerkin space for the advecting velocity field
-V = fd.FunctionSpace(mesh, "DQ", args.degree)
-W = fd.VectorFunctionSpace(mesh, "CG", args.degree)
+V = fd.FunctionSpace(mesh, "CG", args.degree)
 
 # # # === --- initial conditions --- === # # #
+# q_exact = exp(0.5x + y + 1.25t), u_t-\Deltau = 0.
 
 x, y = fd.SpatialCoordinate(mesh)
-
-
-def radius(x, y):
-    return fd.sqrt(pow(x-0.5, 2) + pow(y-0.5, 2))
-
-
-def gaussian(x, y):
-    return fd.exp(-0.5*pow(radius(x, y)/args.width, 2))
-
-
-# The scalar initial conditions are a Gaussian bump centred at (0.5, 0.5)
-q0 = fd.Function(V, name="scalar_initial")
-q0.interpolate(1 + gaussian(x, y))
-
-# The advecting velocity field is constant and directed at an angle to the x-axis
-u = fd.Function(W, name='velocity')
-u.interpolate(fd.as_vector((umax*cos(args.angle), umax*sin(args.angle))))
-
+n = fd.FacetNormal(mesh)
+# Initial conditions.
+w0 = fd.Function(V, name="scalar_initial")
+w0.interpolate(fd.exp(0.5*x + y))
 
 # # # === --- finite element forms --- === # # #
 
 
-# The time-derivative mass form for the scalar advection equation.
 # asQ assumes that the mass form is linear so here
 # q is a TrialFunction and phi is a TestFunction
 def form_mass(q, phi):
     return phi*q*fd.dx
 
 
-# The DG advection form for the scalar advection equation.
-# asQ assumes that the function form is nonlinear so here
 # q is a Function and phi is a TestFunction
 def form_function(q, phi, t):
-    # upwind switch
-    n = fd.FacetNormal(mesh)
-    un = 0.5*(fd.dot(u, n) + abs(fd.dot(u, n)))
-
-    # integration over element volume
-    int_cell = q*fd.div(phi*u)*fd.dx
-
-    # integration over internal facets
-    int_facet = (phi('+')-phi('-'))*(un('+')*q('+')-un('-')*q('-'))*fd.dS
-
-    return int_facet - int_cell
+    return fd.inner(fd.grad(q), fd.grad(phi))*fd.dx - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds - fd.inner(q-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(phi), n))*fd.ds + 20*nx*fd.inner(q-fd.exp(0.5*x + y + 1.25*t), phi)*fd.ds
 
 
 # # # === --- PETSc solver parameters --- === # # #
@@ -130,18 +93,22 @@ block_parameters = {
 #    'ksp_type': 'preonly'
 
 paradiag_parameters = {
-    'snes_type': 'ksponly',
     'snes': {
+        'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-10,
+        'atol': 1e-12,
+        'stol': 1e-12,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'richardson',
+    'ksp_type': 'preonly',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-10,
+        'atol': 1e-12,
+        'stol': 1e-12,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'
@@ -162,7 +129,7 @@ for i in range(window_length):
 pdg = asQ.paradiag(ensemble=ensemble,
                    form_function=form_function,
                    form_mass=form_mass,
-                   w0=q0, dt=dt, theta=args.theta,
+                   w0=w0, dt=dt, theta=args.theta,
                    alpha=args.alpha, time_partition=time_partition,
                    solver_parameters=paradiag_parameters,
                    circ=None)
@@ -176,27 +143,30 @@ def window_preproc(pdg, wndw):
     PETSc.Sys.Print('')
 
 
-# The last time-slice will be saving snapshots to create an animation.
-# The layout member describes the time_partition.
-# layout.is_local(i) returns True/False if the timestep index i is on the
-# current time-slice. Here we use -1 to mean the last timestep in the window.
-is_last_slice = pdg.layout.is_local(-1)
-
-# Make an output Function on the last time-slice and start a snapshot list
-if is_last_slice:
-    qout = fd.Function(V)
-    timeseries = [q0.copy(deepcopy=True)]
+# We find the L2-error at each timestep
+q_exact = fd.Function(V)
+qp = fd.Function(V)
+errors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+times = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
 
 
-# This is a callback which will be called after pdg solves each time-window
-# We can use this to save the last timestep of each window for plotting.
 def window_postproc(pdg, wndw):
-    if is_last_slice:
-        # The aaos is the AllAtOnceSystem which represents the time-dependent problem.
-        # get_field extracts one timestep of the window. -1 is again used to get the last
-        # timestep and place it in qout.
-        pdg.aaos.get_field(-1, index_range='window', wout=qout)
-        timeseries.append(qout.copy(deepcopy=True))
+    aaos = pdg.aaos
+
+    for step in range(aaos.ntimesteps):
+        if aaos.layout.is_local(step):
+            local_step = aaos.transform_index(step, from_range='window')
+            t = aaos.time[local_step]
+            q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
+            aaos.get_field(local_step, wout=qp)
+            errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
+            times.dlocal[local_step] = t
+
+    errors.synchronise()
+    times.synchronise()
+
+    for step in range(aaos.ntimesteps):
+        PETSc.Sys.Print(f"Time={str(times.dglobal[step]).ljust(8, ' ')}, qerr={errors.dglobal[step]}")
 
 
 # Solve nwindows of the all-at-once system
@@ -225,21 +195,3 @@ PETSc.Sys.Print(f'block linear iterations: {pdg.block_iterations._data}  |  iter
 # We can write these diagnostics to file, along with some other useful information.
 # Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt
 asQ.write_paradiag_metrics(pdg)
-
-# Make an animation from the snapshots we collected and save it to periodic.mp4.
-if is_last_slice:
-
-    fn_plotter = fd.FunctionPlotter(mesh, num_sample_points=args.nsample)
-
-    fig, axes = plt.subplots()
-    axes.set_aspect('equal')
-    colors = fd.tripcolor(qout, num_sample_points=args.nsample, vmin=1, vmax=2, axes=axes)
-    fig.colorbar(colors)
-
-    def animate(q):
-        colors.set_array(fn_plotter(q))
-
-    interval = 1e2
-    animation = FuncAnimation(fig, animate, frames=timeseries, interval=interval)
-
-    animation.save("periodic.mp4", writer="ffmpeg")
