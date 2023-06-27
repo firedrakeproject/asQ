@@ -27,7 +27,8 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
-parser.add_argument('--filename', type=str, default='w5diag', help='Name of output vtk files')
+parser.add_argument('--coords_degree', type=int, default=1, help='Degree of polynomials for sphere mesh approximation.')
+parser.add_argument('--filename', type=str, default='williamson2', help='Name of output vtk files')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space).')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
@@ -141,7 +142,7 @@ sparameters = {
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
-        'max_it': 60
+        'max_it': 50,
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
@@ -160,6 +161,7 @@ sparameters_diag = {
         'stol': 1e-12,
         'ksp_ew': None,
         'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-2,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',

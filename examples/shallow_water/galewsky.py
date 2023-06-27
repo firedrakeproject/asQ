@@ -1,4 +1,5 @@
 
+import firedrake as fd  # noqa: F401
 from petsc4py import PETSc
 
 from utils import units
@@ -92,10 +93,10 @@ sparameters = {
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
-        'max_it': 60
+        'max_it': 50,
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
+    'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
@@ -110,6 +111,7 @@ sparameters_diag = {
         'stol': 1e-12,
         'ksp_ew': None,
         'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-2,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
@@ -144,7 +146,7 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   dt=dt, theta=0.5,
                                   alpha=args.alpha, time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
-                                  file_name='output/'+args.filename)
+                                  record_diagnostics={'cfl': True, 'file': False})
 
 
 ics = miniapp.aaos.initial_condition

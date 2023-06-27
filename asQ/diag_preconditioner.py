@@ -5,7 +5,7 @@ from firedrake.petsc import PETSc
 # from mpi4py_fft.pencil import Pencil, Subcomm
 from asQ.pencil import Pencil, Subcomm
 import importlib
-from asQ.profiling import memprofile
+from asQ.profiling import profiler
 from asQ.common import get_option_from_list
 from asQ.allatoncesystem import time_average
 
@@ -47,20 +47,21 @@ class DiagFFTPC(object):
     """
     prefix = "diagfft_"
 
+    @profiler()
     def __init__(self):
         r"""A preconditioner for all-at-once systems with alpha-circulant
         block diagonal structure, using FFT.
         """
         self.initialized = False
 
-    @memprofile
+    @profiler()
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
 
-    @memprofile
+    @profiler()
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -308,6 +309,7 @@ class DiagFFTPC(object):
 
         self.initialized = True
 
+    @profiler()
     def _record_diagnostics(self):
         """
         Update diagnostic information from block linear solvers.
@@ -318,8 +320,7 @@ class DiagFFTPC(object):
             its = self.Jsolvers[i].snes.getLinearSolveIterations()
             self.paradiag.block_iterations.dlocal[i] += its
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def update(self, pc):
         '''
         we need to update u0 from w_all, containing state.
@@ -349,8 +350,7 @@ class DiagFFTPC(object):
 
         return
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
@@ -372,12 +372,17 @@ class DiagFFTPC(object):
         parray = (1.0+0.j)*(self.Gam_slice*parray.T).T*np.sqrt(self.ntimesteps)
         # transfer forward
         self.a0[:] = parray[:]
-        self.transfer.forward(self.a0, self.a1)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.forward(self.a0, self.a1)
+
         # FFT
-        self.a1[:] = fft(self.a1, axis=0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+            self.a1[:] = fft(self.a1, axis=0)
 
         # transfer backward
-        self.transfer.backward(self.a1, self.a0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.backward(self.a1, self.a0)
+
         # Copy into xfi, xfr
         parray[:] = self.a0[:]
         with self.xfr.dat.vec_wo as v:
@@ -388,24 +393,25 @@ class DiagFFTPC(object):
 
         # Do the block solves
 
-        for i in range(self.aaos.nlocal_timesteps):
-            # copy the data into solver input
-            self.xtemp.assign(0.)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.block_solves"):
+            for i in range(self.aaos.nlocal_timesteps):
+                # copy the data into solver input
+                self.xtemp.assign(0.)
 
-            cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-            cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+                cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+                cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
-            # Do a project for Riesz map, to be superceded
-            # when we get Cofunction
-            self.Proj.solve(self.Jprob_in, self.xtemp)
+                # Do a project for Riesz map, to be superceded
+                # when we get Cofunction
+                self.Proj.solve(self.Jprob_in, self.xtemp)
 
-            # solve the block system
-            self.Jprob_out.assign(0.)
-            self.Jsolvers[i].solve()
+                # solve the block system
+                self.Jprob_out.assign(0.)
+                self.Jsolvers[i].solve()
 
-            # copy the data from solver output
-            cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-            cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+                # copy the data from solver output
+                cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+                cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
@@ -418,12 +424,18 @@ class DiagFFTPC(object):
                                          self.blockV.node_set.size))
         # transfer forward
         self.a0[:] = parray[:]
-        self.transfer.forward(self.a0, self.a1)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.forward(self.a0, self.a1)
+
         # IFFT
-        self.a1[:] = ifft(self.a1, axis=0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+            self.a1[:] = ifft(self.a1, axis=0)
+
         # transfer backward
-        self.transfer.backward(self.a1, self.a0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.backward(self.a1, self.a0)
         parray[:] = self.a0[:]
+
         # scale
         parray = ((1.0/self.Gam_slice)*parray.T).T
         # Copy into xfi, xfr
@@ -435,5 +447,6 @@ class DiagFFTPC(object):
 
         self._record_diagnostics()
 
+    @profiler()
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError
