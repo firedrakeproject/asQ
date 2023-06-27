@@ -160,7 +160,7 @@ class AllAtOnceForm(TimePartitionMixin):
 
         dt = fd.Constant(self.dt)
         theta = fd.Constant(self.theta)
-        alpha = fd.Constant(0) if self.alpha is None else self.alpha
+        # alpha = fd.Constant(0) if self.alpha is None else self.alpha
 
         def get_step(i):
             return aaofunc.get_field_components(i, funcs=funcs)
@@ -172,7 +172,9 @@ class AllAtOnceForm(TimePartitionMixin):
 
             if n == 0:  # previous timestep is ic or is on previous slice
                 if self.time_rank == 0:
-                    uns = tuple((ic + alpha*up for ic, up in zip(ics, uprevs)))
+                    uns = ics
+                    if self.alpha is not None:
+                        uns = tuple(un + self.alpha*up for un, up in zip(uns, uprevs))
                 else:
                     uns = uprevs
             else:

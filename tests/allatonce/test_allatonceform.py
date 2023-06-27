@@ -7,10 +7,15 @@ from operator import mul
 
 bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
+alphas = [pytest.param(None, id="alpha_None"),
+          pytest.param(0, id="alpha_0"),
+          pytest.param(0.1, id="alpha_0.1")]
+
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize("bc_opt", bc_opts)
-def test_heat_form(bc_opt):
+@pytest.mark.parametrize("alpha", alphas)
+def test_heat_form(bc_opt, alpha):
     """
     Test that assembling the AllAtOnceForm is the same as assembling the
     slice-local part of an all-at-once form for the whole timeseries.
@@ -59,7 +64,10 @@ def test_heat_form(bc_opt):
 
     aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
                                 form_mass, form_function,
-                                bcs=bcs)
+                                bcs=bcs, alpha=alpha)
+
+    alpha = alpha if alpha is not None else 0
+    alpha = fd.Constant(alpha)
 
     # on each time-slice, build the form for the entire timeseries
     full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))
@@ -77,7 +85,7 @@ def test_heat_form(bc_opt):
     vfulls = fd.split(vfull)
     for i in range(aaofunc.ntimesteps):
         if i == 0:
-            un = ics
+            un = ics + alpha*ufulls[-1]
         else:
             un = ufulls[i-1]
         unp1 = ufulls[i]
