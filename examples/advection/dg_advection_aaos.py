@@ -165,7 +165,6 @@ for i in range(aaofunc.ntimesteps):
 aaosolver = asQ.AllAtOnceSolver(aaoform, aaofunc,
                                 solver_parameters=solver_parameters)
 
-
 # set up diagnostic recording
 
 linear_iterations = 0
