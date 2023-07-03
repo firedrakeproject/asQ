@@ -63,11 +63,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         # form without contributions from the previous step
         self.form = fd.derivative(aaoform.form, aaofunc.function)
-        # form contributions from the previous step
-        self.form_prev = fd.derivative(aaoform.form, aaofunc.uprev)
-
         self.action = fd.action(self.form, self.x.function)
-        self.action_prev = fd.action(self.form_prev, self.x.uprev)
+
+        # form contributions from the previous step
+        self._useprev = aaoform.alpha is not None or self.time_rank != 0
+        if self._useprev:
+            self.form_prev = fd.derivative(aaoform.form, aaofunc.uprev)
+            self.action_prev = fd.action(self.form_prev, self.x.uprev)
+        else:
+            self.form_prev = None
+            self.action_prev = None
 
         # option for what state to linearise around
         valid_jacobian_states = tuple(('current', 'window', 'slice', 'linear',
@@ -140,8 +145,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         # assembly stage
         fd.assemble(self.action, tensor=self.F.function)
-        fd.assemble(self.action_prev, tensor=self.Fprev)
-        self.F.function += self.Fprev
+        if self._useprev:
+            fd.assemble(self.action_prev, tensor=self.Fprev)
+            self.F.function += self.Fprev
 
         # Apply boundary conditions
         # For Jacobian action we should just return the values in X
