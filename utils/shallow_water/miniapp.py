@@ -26,7 +26,9 @@ class ShallowWaterMiniApp(TimePartitionMixin):
                  velocity_function_space=swe.default_velocity_function_space,
                  depth_function_space=swe.default_depth_function_space,
                  record_diagnostics={'cfl': True, 'file': True},
-                 save_step=-1, file_name='swe'):
+                 save_step=-1, file_name='swe',
+                 pre_function_callback=None, post_function_callback=None,
+                 pre_jacobian_callback=None, post_jacobian_callback=None):
         '''
         A miniapp to integrate the rotating shallow water equations on the sphere using the paradiag method.
 
@@ -131,7 +133,11 @@ class ShallowWaterMiniApp(TimePartitionMixin):
             ics=w0, dt=dt, theta=theta,
             time_partition=time_partition,
             reference_state=reference_state,
-            solver_parameters=paradiag_sparameters)
+            solver_parameters=paradiag_sparameters,
+            pre_function_callback=pre_function_callback,
+            post_function_callback=post_function_callback,
+            pre_jacobian_callback=pre_jacobian_callback,
+            post_jacobian_callback=post_jacobian_callback)
 
         self.aaofunc = self.paradiag.aaofunc
         self.aaoform = self.paradiag.aaofunc

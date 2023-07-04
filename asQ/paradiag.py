@@ -113,7 +113,11 @@ class Paradiag(TimePartitionMixin):
                                       solver_parameters=solver_parameters,
                                       options_prefix=options_prefix, appctx=appctx,
                                       jacobian_form=self.jacobian_form,
-                                      jacobian_reference_state=reference_state)
+                                      jacobian_reference_state=reference_state,
+                                      pre_function_callback=pre_function_callback,
+                                      post_function_callback=post_function_callback,
+                                      pre_jacobian_callback=pre_jacobian_callback,
+                                      post_jacobian_callback=post_jacobian_callback)
 
         # iteration counts
         self.block_iterations = SharedArray(self.time_partition,

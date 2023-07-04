@@ -30,11 +30,29 @@ class AllAtOnceSolver(TimePartitionMixin):
 
         self.jacobian_form = aaoform.copy() if jacobian_form is None else jacobian_form
 
+        def passthrough(*args, **kwargs):
+            pass
+
         # callbacks
-        self.pre_function_callback = pre_function_callback
-        self.post_function_callback = post_function_callback
-        self.pre_jacobian_callback = pre_jacobian_callback
-        self.post_jacobian_callback = post_jacobian_callback
+        if pre_function_callback is None:
+            self.pre_function_callback = passthrough
+        else:
+            self.pre_function_callback = pre_function_callback
+
+        if post_function_callback is None:
+            self.post_function_callback = passthrough
+        else:
+            self.post_function_callback = post_function_callback
+
+        if pre_jacobian_callback is None:
+            self.pre_jacobian_callback = passthrough
+        else:
+            self.pre_jacobian_callback = pre_jacobian_callback
+
+        if post_jacobian_callback is None:
+            self.post_jacobian_callback = passthrough
+        else:
+            self.post_jacobian_callback = post_jacobian_callback
 
         # solver options
         self.solver_parameters = solver_parameters
