@@ -44,7 +44,6 @@ window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
-
 # parameters for the implicit diagonal solve in step-(b)
 sparameters = {
     'mat_type': 'matfree',
@@ -95,7 +94,8 @@ sparameters_diag['diagfft_block_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
-    ref_level=args.ref_level)
+    ref_level=args.ref_level,
+    degree=1)
 
 # initial conditions
 b_exp = case5.topography_expression

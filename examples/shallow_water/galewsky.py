@@ -1,4 +1,5 @@
 
+import firedrake as fd  # noqa: F401
 from petsc4py import PETSc
 
 from utils import units
@@ -24,6 +25,7 @@ parser.add_argument('--slice_length', type=int, default=2, help='Number of times
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
+parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -38,51 +40,65 @@ PETSc.Sys.Print('')
 
 # time steps
 
-time_partition = [args.slice_length for _ in range(args.nslices)]
+time_partition = tuple((args.slice_length for _ in range(args.nslices)))
 window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
 
 # parameters for the implicit diagonal solve in step-(b)
+
+patch_parameters = {
+    'pc_patch': {
+        'save_operators': True,
+        'partition_of_unity': True,
+        'sub_mat_type': 'seqdense',
+        'construct_dim': 0,
+        'construct_type': 'vanka',
+        'local_type': 'additive',
+        'precompute_element_tensors': True,
+        'symmetrise_sweep': False
+    },
+    'sub': {
+        'ksp_type': 'preonly',
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_detect_saddle_point': None,
+        'pc_fieldsplit_schur_fact_type': 'full',
+        'pc_fieldsplit_schur_precondition': 'full',
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
+    }
+}
+
+mg_parameters = {
+    'levels': {
+        'ksp_type': 'gmres',
+        'ksp_max_it': 5,
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.PatchPC',
+        'patch': patch_parameters
+    },
+    'coarse': {
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.AssembledPC',
+        'assembled_pc_type': 'lu',
+        'assembled_pc_factor_mat_solver_type': 'mumps'
+    }
+}
+
 sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-8,
-        'rtol': 1e-8,
-        'max_it': 400,
+        'atol': 1e-5,
+        'rtol': 1e-5,
+        'max_it': 50,
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
+    'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
-    'mg': {
-        'levels': {
-            'ksp_type': 'gmres',
-            'ksp_max_it': 5,
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.PatchPC',
-            'patch': {
-                'pc_patch_save_operators': True,
-                'pc_patch_partition_of_unity': True,
-                'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_dim': 0,
-                'pc_patch_construct_type': 'vanka',
-                'pc_patch_local_type': 'additive',
-                'pc_patch_precompute_element_tensors': True,
-                'pc_patch_symmetrise_sweep': False,
-                'sub_ksp_type': 'preonly',
-                'sub_pc_type': 'lu',
-                'sub_pc_factor_shift_type': 'nonzero',
-            },
-        },
-        'coarse': {
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.AssembledPC',
-            'assembled_pc_type': 'lu',
-            'assembled_pc_factor_mat_solver_type': 'mumps',
-        },
-    }
+    'mg': mg_parameters
 }
 
 sparameters_diag = {
@@ -91,18 +107,24 @@ sparameters_diag = {
         'monitor': None,
         'converged_reason': None,
         'atol': 1e-0,
-        'rtol': 1e-8,
+        'rtol': 1e-10,
         'stol': 1e-12,
-        'max_its': 1
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-2,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
+        'rtol': 1e-5,
+        'atol': 1e-0,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfft_state': 'window',
+    'aaos_jacobian_state': 'current'
 }
 
 sparameters_diag['diagfft_block_'] = sparameters
@@ -119,11 +141,18 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   velocity_expression=galewsky.velocity_expression,
                                   depth_expression=galewsky.depth_expression,
                                   reference_depth=galewsky.H0,
+                                  reference_state=True,
                                   create_mesh=create_mesh,
                                   dt=dt, theta=0.5,
                                   alpha=args.alpha, time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
-                                  file_name='output/'+args.filename)
+                                  record_diagnostics={'cfl': True, 'file': False})
+
+
+ics = miniapp.aaos.initial_condition
+miniapp.aaos.reference_state.assign(ics)
+miniapp.aaos.reference_state.subfunctions[0].assign(0)
+miniapp.aaos.reference_state.subfunctions[1].assign(galewsky.H0)
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -151,7 +180,7 @@ miniapp.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
 from asQ import write_paradiag_metrics
-write_paradiag_metrics(miniapp.paradiag)
+write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
 
 PETSc.Sys.Print('')
 

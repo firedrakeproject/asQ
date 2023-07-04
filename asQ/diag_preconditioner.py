@@ -5,28 +5,63 @@ from firedrake.petsc import PETSc
 # from mpi4py_fft.pencil import Pencil, Subcomm
 from asQ.pencil import Pencil, Subcomm
 import importlib
-from asQ.profiling import memprofile
+from asQ.profiling import profiler
+from asQ.common import get_option_from_list
+from asQ.allatoncesystem import time_average
+
+from functools import partial
 
 import asQ.complex_proxy.vector as cpx
 
 
 class DiagFFTPC(object):
+    """
+    PETSc options:
+
+    'diagfft_linearisation': <'consistent', 'user'>
+        Which form to linearise when constructing the block Jacobians.
+        Default is 'consistent'.
+
+        'consistent': use the same form used in the AllAtOnceSystem residual.
+        'user': use the alternative forms given to the AllAtOnceSystem.
+
+    'diagfft_state': <'window', 'slice', 'linear', 'initial', 'reference'>
+        Which state to linearise around when constructing the block Jacobians.
+        Default is 'window'.
+
+        'window': use the time average over the entire AllAtOnceSystem.
+        'slice': use the time average over timesteps on the local Ensemble member.
+        'linear': the form linearised is already linear, so no update to the state is needed
+        'initial': use the initial condition is used for all timesteps.
+        'reference': use the reference state of the AllAtOnceSystem for all timesteps.
+
+    'diagfft_mass': <LinearSolver options>
+        The solver options for the Riesz map.
+        Default is {'pc_type': 'lu'}
+        Use 'diagfft_mass_fieldsplit' if the single-timestep function space is mixed.
+
+    'diagfft_block_%d': <LinearVariationalSolver options>
+        Default is the Firedrake default options.
+        The solver options for the %d'th block, enumerated globally.
+        Use 'diagfft_block' to set options for all blocks.
+    """
     prefix = "diagfft_"
 
+    @profiler()
     def __init__(self):
         r"""A preconditioner for all-at-once systems with alpha-circulant
         block diagonal structure, using FFT.
         """
         self.initialized = False
 
-    @memprofile
+    @profiler()
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
 
-    @memprofile
+    @profiler()
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -61,13 +96,15 @@ class DiagFFTPC(object):
         paradiag.diagfftpc = self
 
         # option for whether to use slice or window average for block jacobian
-        self.jac_average = PETSc.Options().getString(
-            f"{prefix}{self.prefix}jac_average", default='window')
+        valid_jac_state = ['window', 'slice', 'linear', 'initial', 'reference']
+        jac_option = f"{prefix}{self.prefix}state"
 
-        valid_jac_averages = ['window', 'slice']
+        self.jac_state = partial(get_option_from_list,
+                                 jac_option, valid_jac_state, default_index=0)
+        jac_state = self.jac_state()
 
-        if self.jac_average not in valid_jac_averages:
-            raise ValueError("diagfft_jac_average must be one of "+" or ".join(valid_jac_averages))
+        if jac_state == 'reference' and self.aaos.reference_state is None:
+            raise ValueError("AllAtOnceSystem must be provided a reference state to use \'reference\' for diagfft_jac_state.")
 
         # this time slice part of the all at once solution
         self.w_all = self.aaos.w_all
@@ -79,7 +116,7 @@ class DiagFFTPC(object):
         # sanity check
         assert (self.blockV.dim()*paradiag.nlocal_timesteps == W_all.dim())
 
-        # Input/Output wrapper Functions
+        # Input/Output wrapper Functions for all-at-once residual being acted on
         self.xf = fd.Function(W_all)  # input
         self.yf = fd.Function(W_all)  # output
 
@@ -96,6 +133,7 @@ class DiagFFTPC(object):
         C2col = np.zeros(self.ntimesteps)
 
         dt = self.aaos.dt
+        self.t_average = fd.Constant(self.aaos.t0 + (self.ntimesteps + 1)*dt/2)
         theta = self.aaos.theta
         C1col[:2] = np.array([1, -1])/dt
         C2col[:2] = np.array([theta, 1-theta])
@@ -104,34 +142,32 @@ class DiagFFTPC(object):
         self.D2 = np.sqrt(self.ntimesteps)*fft(self.Gam*C2col)
 
         # Block system setup
-        # First need to build the vector function space version of
-        # blockV
-        self.ncpts = len(self.blockV)
+        # First need to build the vector function space version of blockV
         self.CblockV = cpx.FunctionSpace(self.blockV)
 
-        # set the boundary conditions
+        # set the boundary conditions to zero for the residual
         self.CblockV_bcs = tuple((cb
                                   for bc in self.aaos.boundary_conditions
                                   for cb in cpx.DirichletBC(self.CblockV, self.blockV,
                                                             bc, 0*bc.function_arg)))
 
         # function to do global reduction into for average block jacobian
-        if self.jac_average == 'window':
+        if jac_state in ('window', 'slice'):
             self.ureduce = fd.Function(self.blockV)
             self.uwrk = fd.Function(self.blockV)
 
-        # input and output functions
+        # input and output functions to the block solve
         self.Jprob_in = fd.Function(self.CblockV)
         self.Jprob_out = fd.Function(self.CblockV)
 
-        # A place to store all the inputs to the block problems
+        # A place to store the real/imag components of the all-at-once residual after fft
         self.xfi = fd.Function(W_all)
         self.xfr = fd.Function(W_all)
 
         # setting up the FFT stuff
         # construct simply dist array and 1d fftn:
         subcomm = Subcomm(self.ensemble.ensemble_comm, [0, 1])
-        # get some dimensions
+        # dimensions of space-time data in this ensemble_comm
         nlocal = self.blockV.node_set.size
         NN = np.array([self.ntimesteps, nlocal], dtype=int)
         # transfer pencil is aligned along axis 1
@@ -193,11 +229,25 @@ class DiagFFTPC(object):
         # We achieve this by copying w_all into both components of u0
         # building the nonlinearity separately for the real and imaginary
         # parts and then linearising.
+        # This is constructed by cpx.derivative
 
         #  Building the nonlinear operator
         self.Jsolvers = []
-        form_mass = self.aaos.form_mass
-        form_function = self.aaos.form_function
+
+        # which form to linearise around
+        valid_linearisations = ['consistent', 'user']
+        linear_option = f"{prefix}{self.prefix}linearisation"
+
+        linear = get_option_from_list(linear_option, valid_linearisations, default_index=0)
+
+        if linear == 'consistent':
+            form_mass = self.aaos.form_mass
+            form_function = self.aaos.form_function
+        elif linear == 'user':
+            form_mass = self.aaos.jacobian_mass
+            form_function = self.aaos.jacobian_function
+
+        form_function = partial(form_function, t=self.t_average)
 
         # Now need to build the block solver
         self.u0 = fd.Function(self.CblockV)  # time average to linearise around
@@ -246,9 +296,9 @@ class DiagFFTPC(object):
                                                  appctx=appctx_h,
                                                  options_prefix=block_prefix)
             # multigrid transfer manager
-            if 'diag_transfer_managers' in paradiag.block_ctx:
+            if f'{prefix}transfer_managers' in paradiag.block_ctx:
                 # Jsolver.set_transfer_manager(paradiag.block_ctx['diag_transfer_managers'][ii])
-                tm = paradiag.block_ctx['diag_transfer_managers'][i]
+                tm = paradiag.block_ctx[f'{prefix}transfer_managers'][i]
                 Jsolver.set_transfer_manager(tm)
                 tm_set = (Jsolver._ctx.transfer_manager is tm)
 
@@ -259,6 +309,7 @@ class DiagFFTPC(object):
 
         self.initialized = True
 
+    @profiler()
     def _record_diagnostics(self):
         """
         Update diagnostic information from block linear solvers.
@@ -269,8 +320,7 @@ class DiagFFTPC(object):
             its = self.Jsolvers[i].snes.getLinearSolveIterations()
             self.paradiag.block_iterations.dlocal[i] += its
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def update(self, pc):
         '''
         we need to update u0 from w_all, containing state.
@@ -279,25 +329,28 @@ class DiagFFTPC(object):
         an operator that is block diagonal in the 2x2 system coupling
         real and imaginary parts.
         '''
-        self.ureduce.assign(0)
+        jac_state = self.jac_state()
+        if jac_state == 'linear':
+            return
 
-        urs = self.ureduce.subfunctions
-        for i in range(self.nlocal_timesteps):
-            for ur, ui in zip(urs, self.aaos.get_field_components(i)):
-                ur.assign(ur + ui)
+        elif jac_state == 'initial':
+            ustate = self.aaos.initial_condition
 
-        # average only over current time-slice
-        if self.jac_average == 'slice':
-            self.ureduce /= fd.Constant(self.nlocal_timesteps)
-        else:  # implies self.jac_average == 'window':
-            self.paradiag.ensemble.allreduce(self.ureduce, self.uwrk)
-            self.ureduce.assign(self.uwrk/fd.Constant(self.ntimesteps))
+        elif jac_state == 'reference':
+            ustate = self.aaos.reference_state
 
-        cpx.set_real(self.u0, self.ureduce)
-        cpx.set_imag(self.u0, self.ureduce)
+        elif jac_state in ('window', 'slice'):
+            time_average(self.aaos, self.ureduce, self.uwrk, average=jac_state)
+            ustate = self.ureduce
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+        cpx.set_real(self.u0, ustate)
+        cpx.set_imag(self.u0, ustate)
+
+        self.t_average.assign(self.aaos.t0 + (self.aaos.ntimesteps + 1)*self.aaos.dt/2)
+
+        return
+
+    @profiler()
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
@@ -319,12 +372,17 @@ class DiagFFTPC(object):
         parray = (1.0+0.j)*(self.Gam_slice*parray.T).T*np.sqrt(self.ntimesteps)
         # transfer forward
         self.a0[:] = parray[:]
-        self.transfer.forward(self.a0, self.a1)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.forward(self.a0, self.a1)
+
         # FFT
-        self.a1[:] = fft(self.a1, axis=0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+            self.a1[:] = fft(self.a1, axis=0)
 
         # transfer backward
-        self.transfer.backward(self.a1, self.a0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.backward(self.a1, self.a0)
+
         # Copy into xfi, xfr
         parray[:] = self.a0[:]
         with self.xfr.dat.vec_wo as v:
@@ -335,24 +393,25 @@ class DiagFFTPC(object):
 
         # Do the block solves
 
-        for i in range(self.aaos.nlocal_timesteps):
-            # copy the data into solver input
-            self.xtemp.assign(0.)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.block_solves"):
+            for i in range(self.aaos.nlocal_timesteps):
+                # copy the data into solver input
+                self.xtemp.assign(0.)
 
-            cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-            cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+                cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+                cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
-            # Do a project for Riesz map, to be superceded
-            # when we get Cofunction
-            self.Proj.solve(self.Jprob_in, self.xtemp)
+                # Do a project for Riesz map, to be superceded
+                # when we get Cofunction
+                self.Proj.solve(self.Jprob_in, self.xtemp)
 
-            # solve the block system
-            self.Jprob_out.assign(0.)
-            self.Jsolvers[i].solve()
+                # solve the block system
+                self.Jprob_out.assign(0.)
+                self.Jsolvers[i].solve()
 
-            # copy the data from solver output
-            cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-            cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+                # copy the data from solver output
+                cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+                cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
@@ -365,12 +424,18 @@ class DiagFFTPC(object):
                                          self.blockV.node_set.size))
         # transfer forward
         self.a0[:] = parray[:]
-        self.transfer.forward(self.a0, self.a1)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.forward(self.a0, self.a1)
+
         # IFFT
-        self.a1[:] = ifft(self.a1, axis=0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+            self.a1[:] = ifft(self.a1, axis=0)
+
         # transfer backward
-        self.transfer.backward(self.a1, self.a0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.backward(self.a1, self.a0)
         parray[:] = self.a0[:]
+
         # scale
         parray = ((1.0/self.Gam_slice)*parray.T).T
         # Copy into xfi, xfr
@@ -382,5 +447,6 @@ class DiagFFTPC(object):
 
         self._record_diagnostics()
 
+    @profiler()
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError
