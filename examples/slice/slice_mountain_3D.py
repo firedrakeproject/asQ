@@ -1,9 +1,12 @@
 import firedrake as fd
 import asQ
 from math import pi
+from utils.diagnostics import convective_cfl_calculator
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
+
+PETSc.Sys.Print("Setting up problem")
 
 # set up the ensemble communicator for space-time parallelism
 time_partition = tuple((1 for _ in range(4)))
@@ -12,7 +15,7 @@ ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
 # set up the mesh
 
-nx = 12  # number streamwise of columns
+nx = 6  # number streamwise of columns
 ny = 6  # number spanwise of columns
 nz = 12  # horizontal layers
 Lx = 16e3
@@ -48,7 +51,7 @@ dt = 1
 dT = fd.Constant(dt)
 
 # making a mountain out of a molehill
-a = 2000.
+a = 1000.
 xc = Lx/2.
 yc = Ly/2.
 x, y, z = fd.SpatialCoordinate(mesh)
@@ -107,6 +110,8 @@ thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
 rhon.assign(1.0e-5)
 
+PETSc.Sys.Print("Calculating hydrostatic state")
+
 Pi = fd.Function(V2)
 
 hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.02),
@@ -147,35 +152,58 @@ for bc in bcs:
     bc.apply(Un)
 
 # Parameters for the diag
+lu_params = {
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "pc_factor_mat_solver_type": "mumps",
+}
+
 lines_parameters = {
-    'ksp_type': 'gmres',
-    # 'ksp_converged_reason': None,
-    'ksp_rtol': 1e-5,
-    'pc_type': 'python',
-    'pc_python_type': 'firedrake.AssembledPC',
-    'assembled': {
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.ASMVankaPC',
-        'pc_vanka_construct_dim': 0,
-        'pc_vanka_sub_sub_pc_type': 'lu',
-        'pc_vanka_sub_sub_pc_factor_mat_solver_type': 'mumps',
+    "construct_dim": 0,
+    "sub_sub": {
+        "ksp_type": "preonly",
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_type": "schur",
+        "pc_fieldsplit_schur_fact_type": "full",
+        "pc_fieldsplit_schur_precondition": "full",
+        "fieldsplit_ksp_type": "preonly",
+        "fieldsplit_pc_type": "lu",
     }
 }
 
+block_parameters = {
+    "ksp_type": "gmres",
+    "ksp_rtol": 1e-5,
+    "pc_type": "python",
+    "pc_python_type": "firedrake.AssembledPC",
+    "assembled": {
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMVankaPC",
+        "pc_vanka": lines_parameters
+    },
+}
+
 solver_parameters_diag = {
-    'snes_monitor': None,
-    'snes_converged_reason': None,
-    'snes_rtol': 1e-8,
-    'ksp_type': 'fgmres',
-    'ksp_monitor': None,
-    'ksp_converged_reason': None,
-    'mat_type': 'matfree',
-    'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    "snes": {
+        "monitor": None,
+        "converged_reason": None,
+        "rtol": 1e-8,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+    },
+    "ksp_type": "fgmres",
+    "mat_type": "matfree",
+    "ksp": {
+        "monitor": None,
+        "converged_reason": None,
+        "atol": 1e-6,
+    },
+    "pc_type": "python",
+    "pc_python_type": "asQ.DiagFFTPC"
 }
 
 for i in range(sum(time_partition)):
-    solver_parameters_diag["diagfft_block_"+str(i)+"_"] = lines_parameters
+    solver_parameters_diag["diagfft_block_"+str(i)+"_"] = lu_params
 
 alpha = 1.0e-4
 theta = 0.5
@@ -191,9 +219,10 @@ pdg = asQ.paradiag(ensemble=ensemble,
 aaos = pdg.aaos
 is_last_slice = pdg.layout.is_local(-1)
 
+PETSc.Sys.Print("Solving problem")
+
 # only last slice does diagnostics/output
 if is_last_slice:
-
     uout = fd.Function(V1, name='velocity')
     thetaout = fd.Function(Vt, name='temperature')
     rhoout = fd.Function(V2, name='density')
@@ -212,6 +241,13 @@ if is_last_slice:
     def write_to_file():
         ofile.write(uout, rhoout, thetaout)
 
+    cfl_calc = convective_cfl_calculator(mesh)
+    cfl_series = []
+
+    def max_cfl(u, dt):
+        with cfl_calc(u, dt).dat.vec_ro as v:
+            return v.max()[1]
+
 
 def window_preproc(pdg, wndw):
     PETSc.Sys.Print('')
@@ -224,9 +260,42 @@ def window_postproc(pdg, wndw):
     if is_last_slice:
         assign_out_functions()
         write_to_file()
+        PETSc.Sys.Print('', comm=ensemble.comm)
+
+        cfl = max_cfl(uout, dt)
+        cfl_series.append(cfl)
+        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
 
 
 # solve for each window
 pdg.solve(nwindows=2,
           preproc=window_preproc,
           postproc=window_postproc)
+
+PETSc.Sys.Print('')
+PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+PETSc.Sys.Print('')
+
+from asQ import write_paradiag_metrics
+write_paradiag_metrics(pdg, directory='metrics')
+
+nw = pdg.total_windows
+nt = pdg.total_timesteps
+PETSc.Sys.Print(f'windows: {nw}')
+PETSc.Sys.Print(f'timesteps: {nt}')
+PETSc.Sys.Print('')
+
+lits = pdg.linear_iterations
+nlits = pdg.nonlinear_iterations
+blits = pdg.block_iterations.data()
+
+PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
+PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
+PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
+PETSc.Sys.Print('')
+
+ensemble.global_comm.Barrier()
+if is_last_slice:
+    PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
+    PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
+    PETSc.Sys.Print('', comm=ensemble.comm)

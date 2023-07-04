@@ -16,7 +16,7 @@ ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 # set up the mesh
 
 nlayers = 30  # horizontal layers
-base_columns = 60  # number of columns
+base_columns = 30  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -150,6 +150,7 @@ for bc in bcs:
 # Parameters for the diag
 lines_parameters = {
     "ksp_type": "gmres",
+    "ksp_rtol": 1e-5,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled": {
@@ -223,10 +224,11 @@ if is_last_slice:
     def write_to_file():
         ofile.write(uout, rhoout, thetaout)
 
-    cfl = convective_cfl_calculator(mesh)
+    cfl_calc = convective_cfl_calculator(mesh)
+    cfl_series = []
 
     def max_cfl(u, dt):
-        with cfl(u, dt).dat.vec_ro as v:
+        with cfl_calc(u, dt).dat.vec_ro as v:
             return v.max()[1]
 
 
@@ -242,12 +244,41 @@ def window_postproc(pdg, wndw):
         assign_out_functions()
         write_to_file()
         PETSc.Sys.Print('', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Maximum CFL = {max_cfl(uout, dt)}', comm=ensemble.comm)
+
+        cfl = max_cfl(uout, dt)
+        cfl_series.append(cfl)
+        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
 
 
 # solve for each window
-pdg.solve(nwindows=4,
+pdg.solve(nwindows=1,
           preproc=window_preproc,
           postproc=window_postproc)
 
-PETSc.Sys.Print(f'Block iterations: {pdg.block_iterations.data()}')
+PETSc.Sys.Print('')
+PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+PETSc.Sys.Print('')
+
+from asQ import write_paradiag_metrics
+write_paradiag_metrics(pdg, directory='metrics')
+
+nw = pdg.total_windows
+nt = pdg.total_timesteps
+PETSc.Sys.Print(f'windows: {nw}')
+PETSc.Sys.Print(f'timesteps: {nt}')
+PETSc.Sys.Print('')
+
+lits = pdg.linear_iterations
+nlits = pdg.nonlinear_iterations
+blits = pdg.block_iterations.data()
+
+PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
+PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
+PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
+PETSc.Sys.Print('')
+
+ensemble.global_comm.Barrier()
+if is_last_slice:
+    PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
+    PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
+    PETSc.Sys.Print('', comm=ensemble.comm)
