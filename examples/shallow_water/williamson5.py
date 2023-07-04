@@ -1,6 +1,6 @@
 
 import firedrake as fd
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 
 from utils import units
 from utils.planets import earth

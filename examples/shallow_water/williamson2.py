@@ -1,7 +1,7 @@
 
 import numpy as np
 import firedrake as fd
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 import asQ
 
 from utils import mg
