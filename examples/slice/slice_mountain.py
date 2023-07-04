@@ -224,6 +224,7 @@ if is_last_slice:
         ofile.write(uout, rhoout, thetaout)
 
     cfl = convective_cfl_calculator(mesh)
+
     def max_cfl(u, dt):
         with cfl(u, dt).dat.vec_ro as v:
             return v.max()[1]
