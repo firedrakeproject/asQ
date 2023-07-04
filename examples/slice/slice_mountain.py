@@ -1,9 +1,12 @@
 import firedrake as fd
 import asQ
 from math import pi
+from utils.diagnostics import convective_cfl_calculator
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
+
+PETSc.Sys.Print("Setting up problem")
 
 # set up the ensemble communicator for space-time parallelism
 time_partition = tuple((1 for _ in range(4)))
@@ -12,8 +15,8 @@ ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
 # set up the mesh
 
-nlayers = 50  # horizontal layers
-base_columns = 150  # number of columns
+nlayers = 30  # horizontal layers
+base_columns = 60  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -31,7 +34,6 @@ base_mesh = fd.PeriodicIntervalMesh(base_columns, L,
 mesh = fd.ExtrudedMesh(base_mesh, layers=nlayers, layer_height=H/nlayers)
 n = fd.FacetNormal(mesh)
 
-
 g = fd.Constant(9.810616)
 N = fd.Constant(0.01)  # Brunt-Vaisala frequency (1/s)
 cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
@@ -41,7 +43,7 @@ p_0 = fd.Constant(1000.0*100.0)  # reference pressure (Pa, not hPa)
 cv = fd.Constant(717.)  # SHC of dry air at const. volume (J/kg/K)
 T_0 = fd.Constant(273.15)  # ref. temperature
 
-dt = 5
+dt = 100
 dT = fd.Constant(dt)
 
 # making a mountain out of a molehill
@@ -104,6 +106,8 @@ thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
 rhon.assign(1.0e-5)
 
+PETSc.Sys.Print("Calculating hydrostatic state")
+
 Pi = fd.Function(V2)
 
 hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.02),
@@ -146,26 +150,36 @@ for bc in bcs:
 # Parameters for the diag
 lines_parameters = {
     "ksp_type": "gmres",
-    # "ksp_converged_reason": None,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
-    "assembled_pc_type": "python",
-    "assembled_pc_python_type": "firedrake.ASMVankaPC",
-    "assembled_pc_vanka_construct_dim": 0,
-    "assembled_pc_vanka_sub_sub_pc_type": "lu",
-    "assembled_pc_vanka_sub_sub_pc_factor_mat_solver_type": 'mumps',
+    "assembled": {
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMVankaPC",
+        "pc_vanka": {
+            "construct_dim": 0,
+            "sub_sub_pc_type": "lu",
+            "sub_sub_pc_factor_mat_solver_type": 'mumps',
+        },
+    },
 }
 
 solver_parameters_diag = {
+    "snes": {
+        "monitor": None,
+        "converged_reason": None,
+        "rtol": 1e-8,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+    },
     "ksp_type": "fgmres",
-    "ksp_monitor": None,
-    "ksp_converged_reason": None,
-    'snes_monitor': None,
-    'snes_converged_reason': None,
-    'snes_rtol': 1e-8,
-    'mat_type': 'matfree',
-    'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    "mat_type": "matfree",
+    "ksp": {
+        "monitor": None,
+        "converged_reason": None,
+        "atol": 1e-6,
+    },
+    "pc_type": "python",
+    "pc_python_type": "asQ.DiagFFTPC"
 }
 
 for i in range(sum(time_partition)):
@@ -187,9 +201,10 @@ pdg = asQ.paradiag(ensemble=ensemble,
 aaos = pdg.aaos
 is_last_slice = pdg.layout.is_local(-1)
 
+PETSc.Sys.Print("Solving problem")
+
 # only last slice does diagnostics/output
 if is_last_slice:
-
     uout = fd.Function(V1, name='velocity')
     thetaout = fd.Function(Vt, name='temperature')
     rhoout = fd.Function(V2, name='density')
@@ -208,6 +223,11 @@ if is_last_slice:
     def write_to_file():
         ofile.write(uout, rhoout, thetaout)
 
+    cfl = convective_cfl_calculator(mesh)
+    def max_cfl(u, dt):
+        with cfl(u, dt).dat.vec_ro as v:
+            return v.max()[1]
+
 
 def window_preproc(pdg, wndw):
     PETSc.Sys.Print('')
@@ -220,9 +240,13 @@ def window_postproc(pdg, wndw):
     if is_last_slice:
         assign_out_functions()
         write_to_file()
+        PETSc.Sys.Print('', comm=ensemble.comm)
+        PETSc.Sys.Print(f'Maximum CFL = {max_cfl(uout, dt)}', comm=ensemble.comm)
 
 
 # solve for each window
-pdg.solve(nwindows=1,
+pdg.solve(nwindows=4,
           preproc=window_preproc,
           postproc=window_postproc)
+
+PETSc.Sys.Print(f'Block iterations: {pdg.block_iterations.data()}')
