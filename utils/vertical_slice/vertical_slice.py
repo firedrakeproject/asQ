@@ -4,7 +4,7 @@ from firedrake import op2
 
 
 def maximum(f):
-    fmax = op2.Global(1, [-1e50], dtype=float)
+    fmax = op2.Global(1, [-1e50], dtype=float, comm=f.comm)
     op2.par_loop(op2.Kernel("""
 static void maxify(double *a, double *b) {
     a[0] = a[0] < b[0] ? b[0] : a[0];
@@ -14,7 +14,7 @@ static void maxify(double *a, double *b) {
 
 
 def minimum(f):
-    fmin = op2.Global(1, [1e50], dtype=float)
+    fmin = op2.Global(1, [1e50], dtype=float, comm=f.comm)
     op2.par_loop(op2.Kernel("""
 static void minify(double *a, double *b) {
     a[0] = a[0] > b[0] ? b[0] : a[0];
@@ -68,6 +68,7 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
     lu_params = {
         'snes_stol': 1e-10,
         'mat_type': 'aij',
+        'ksp_type': 'preonly',
         'pc_type': 'lu',
         "pc_factor_mat_ordering_type": "rcm",
         "pc_factor_mat_solver_type": "mumps",
