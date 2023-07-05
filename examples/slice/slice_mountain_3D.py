@@ -9,14 +9,14 @@ from firedrake.petsc import PETSc
 PETSc.Sys.Print("Setting up problem")
 
 # set up the ensemble communicator for space-time parallelism
-time_partition = tuple((1 for _ in range(4)))
+time_partition = tuple((1 for _ in range(2)))
 
 ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
 # set up the mesh
 
-nx = 6  # number streamwise of columns
-ny = 6  # number spanwise of columns
+nx = 8  # number streamwise of columns
+ny = 8  # number spanwise of columns
 nz = 12  # horizontal layers
 Lx = 16e3
 Ly = 12e3
@@ -47,7 +47,7 @@ p_0 = fd.Constant(1000.0*100.0)  # reference pressure (Pa, not hPa)
 cv = fd.Constant(717.)  # SHC of dry air at const. volume (J/kg/K)
 T_0 = fd.Constant(273.15)  # ref. temperature
 
-dt = 1
+dt = 5
 dT = fd.Constant(dt)
 
 # making a mountain out of a molehill
@@ -92,6 +92,9 @@ Vt = fd.FunctionSpace(mesh, V2t_elt, name="Temperature")
 Vv = fd.FunctionSpace(mesh, V2v_elt, name="Vv")
 
 W = V1 * V2 * Vt  # velocity, density, temperature
+
+PETSc.Sys.Print(f"DoFs: {W.dim()}")
+PETSc.Sys.Print(f"DoFs/core: {W.dim()/ensemble.comm.size}")
 
 Un = fd.Function(W)
 
@@ -160,15 +163,7 @@ lu_params = {
 
 lines_parameters = {
     "construct_dim": 0,
-    "sub_sub": {
-        "ksp_type": "preonly",
-        "pc_type": "fieldsplit",
-        "pc_fieldsplit_type": "schur",
-        "pc_fieldsplit_schur_fact_type": "full",
-        "pc_fieldsplit_schur_precondition": "full",
-        "fieldsplit_ksp_type": "preonly",
-        "fieldsplit_pc_type": "lu",
-    }
+    "sub_sub": lu_params
 }
 
 block_parameters = {
@@ -190,20 +185,21 @@ solver_parameters_diag = {
         "rtol": 1e-8,
         "ksp_ew": None,
         "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-2
     },
     "ksp_type": "fgmres",
     "mat_type": "matfree",
     "ksp": {
         "monitor": None,
         "converged_reason": None,
-        "atol": 1e-6,
+        "atol": 1e-8,
     },
     "pc_type": "python",
     "pc_python_type": "asQ.DiagFFTPC"
 }
 
 for i in range(sum(time_partition)):
-    solver_parameters_diag["diagfft_block_"+str(i)+"_"] = lu_params
+    solver_parameters_diag["diagfft_block_"+str(i)+"_"] = block_parameters
 
 alpha = 1.0e-4
 theta = 0.5
@@ -268,7 +264,7 @@ def window_postproc(pdg, wndw):
 
 
 # solve for each window
-pdg.solve(nwindows=2,
+pdg.solve(nwindows=6,
           preproc=window_preproc,
           postproc=window_postproc)
 
