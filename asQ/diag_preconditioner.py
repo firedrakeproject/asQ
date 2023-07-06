@@ -91,7 +91,6 @@ class DiagFFTPC(TimePartitionMixin):
         jacobian.pc = self
         aaofunc = jacobian.current_state
         self.aaofunc = aaofunc
-
         aaoform = jacobian.aaoform
 
         appctx = jacobian.appctx
@@ -125,6 +124,7 @@ class DiagFFTPC(TimePartitionMixin):
             f"{prefix}alpha", default=1e-3)
 
         dt = self.dt
+        self.t_average = fd.Constant(self.aaofunc.t0 + (self.aaofunc.ntimesteps + 1)*self.dt/2)
         theta = self.theta
         alpha = self.alpha
         nt = self.ntimesteps
@@ -273,7 +273,7 @@ class DiagFFTPC(TimePartitionMixin):
             d2 = self.D2[ii]
 
             M, D1r, D1i = cpx.BilinearForm(self.CblockV, d1, form_mass, return_z=True)
-            K, D2r, D2i = cpx.derivative(d2, form_function, self.u0, return_z=True)
+            K, D2r, D2i = cpx.derivative(d2, partial(form_function, t=self.t_average), self.u0, return_z=True)
 
             A = M + K
 
@@ -363,6 +363,7 @@ class DiagFFTPC(TimePartitionMixin):
         cpx.set_real(self.u0, ustate)
         cpx.set_imag(self.u0, ustate)
 
+        self.t_average = fd.Constant(self.aaofunc.t0 + (self.aaofunc.ntimesteps + 1)*self.dt/2)
         return
 
     @PETSc.Log.EventDecorator()

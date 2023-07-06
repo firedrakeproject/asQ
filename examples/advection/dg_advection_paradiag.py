@@ -92,7 +92,7 @@ def form_mass(q, phi):
 # The DG advection form for the scalar advection equation.
 # asQ assumes that the function form is nonlinear so here
 # q is a Function and phi is a TestFunction
-def form_function(q, phi):
+def form_function(q, phi, t):
     # upwind switch
     n = fd.FacetNormal(mesh)
     un = fd.Constant(0.5)*(fd.dot(u, n) + abs(fd.dot(u, n)))

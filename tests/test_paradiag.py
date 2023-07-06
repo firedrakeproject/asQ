@@ -7,6 +7,194 @@ from operator import mul
 
 
 @pytest.mark.parallel(nprocs=4)
+def test_Nitsche_BCs():
+    # test the linear equation u_t - Delta u = 0, with u_ex = exp(0.5*x + y + 1.25*t) and weakly imposing Dirichlet BCs
+    nspatial_domains = 2
+    degree = 1
+    nx = 10
+    dx = 1/nx
+    dt = dx
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.UnitSquareMesh(nx, nx, quadrilateral=False, comm=ensemble.comm)
+
+    x, y = fd.SpatialCoordinate(mesh)
+    n = fd.FacetNormal(mesh)
+    V = fd.FunctionSpace(mesh, "CG", degree)
+
+    w0 = fd.Function(V)
+    w0.interpolate(fd.exp(0.5*x + y))
+
+    def form_mass(q, phi):
+        return phi*q*fd.dx
+
+    def form_function(q, phi, t):
+        return fd.inner(fd.grad(q), fd.grad(phi))*fd.dx - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds - fd.inner(q-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(phi), n))*fd.ds + 20*nx*fd.inner(q-fd.exp(0.5*x + y + 1.25*t), phi)*fd.ds
+
+    # Parameters for the diag
+    sparameters = {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'}
+
+    solver_parameters_diag = {
+        "snes_linesearch_type": "basic",
+        'snes_atol': 1e-8,
+        'ksp_rtol': 1e-8,
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
+
+    M = [2, 2]
+    solver_parameters_diag["diagfft_block_"] = sparameters
+
+    theta = 0.5
+
+    PD = asQ.Paradiag(ensemble=ensemble,
+                      form_function=form_function,
+                      form_mass=form_mass, ics=w0,
+                      dt=dt, theta=theta,
+                      time_partition=M, bcs=[],
+                      solver_parameters=solver_parameters_diag,
+                      )
+    PD.solve()
+    q_exact = fd.Function(V)
+    qp = fd.Function(V)
+    errors = asQ.SharedArray(M, comm=ensemble.ensemble_comm)
+    times = asQ.SharedArray(M, comm=ensemble.ensemble_comm)
+
+    for step in range(2):
+        if PD.aaoform.layout.is_local(step):
+            local_step = PD.aaofunc.transform_index(step, from_range='window')
+            t = PD.aaoform.time[local_step]
+            q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
+            PD.aaofunc.get_field(local_step, uout=qp)
+
+            errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
+            times.dlocal[local_step] = t
+
+    errors.synchronise()
+    times.synchronise()
+
+    for step in range(4):
+        assert (errors.dglobal[step] < (dx)**(3/2))
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_Nitsche_heat_timeseries():
+    from utils.serial import ComparisonMiniapp
+    from copy import deepcopy
+
+    nwindows = 1
+    nslices = 2
+    slice_length = 2
+    dt = 0.5
+    theta = 0.5
+
+    time_partition = [slice_length for _ in range(nslices)]
+    ensemble = asQ.create_ensemble(time_partition)
+    nx = 10
+    mesh = fd.UnitSquareMesh(nx, nx, comm=ensemble.comm)
+    x, y = fd.SpatialCoordinate(mesh)
+    n = fd.FacetNormal(mesh)
+
+    W = fd.FunctionSpace(mesh, 'CG', 1)
+
+    # initial conditions
+    w_initial = fd.Function(W)
+    w_initial.interpolate(fd.exp(0.5*x + y))
+
+    # Heat equaion with Nitsch BCs.
+    def form_function(u, v, t):
+        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx - fd.inner(v, fd.inner(fd.grad(u), n))*fd.ds - fd.inner(u-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(v), n))*fd.ds + 20*nx*fd.inner(u-fd.exp(0.5*x + y + 1.25*t), v)*fd.ds
+
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    block_sparameters = {
+        'ksp_type': 'preonly',
+        'ksp': {
+            'atol': 1e-5,
+            'rtol': 1e-5,
+        },
+        'pc_type': 'lu',
+    }
+
+    snes_sparameters = {
+        'monitor': None,
+        'converged_reason': None,
+        'atol': 1e-10,
+        'rtol': 1e-12,
+        'stol': 1e-12,
+    }
+
+    # solver parameters for serial method
+    serial_sparameters = {
+        'snes': snes_sparameters
+    }
+    serial_sparameters.update(deepcopy(block_sparameters))
+    serial_sparameters['ksp']['monitor'] = None
+    serial_sparameters['ksp']['converged_reason'] = None
+
+    # solver parameters for parallel method
+    parallel_sparameters = {
+        'snes': snes_sparameters,
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'ksp': {
+            'monitor': None,
+            'converged_reason': None,
+        },
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
+
+    for i in range(sum(time_partition)):
+        parallel_sparameters['diagfft_block_'+str(i)] = block_sparameters
+    appctx = {}
+
+    miniapp = ComparisonMiniapp(ensemble, time_partition,
+                                form_mass,
+                                form_function,
+                                w_initial,
+                                dt, theta,
+                                serial_sparameters,
+                                parallel_sparameters, appctx=appctx)
+
+    norm0 = fd.norm(w_initial)
+
+    def preproc(serial_app, paradiag, wndw):
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print(f'### === --- Time window {wndw} --- === ###')
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print('=== --- Parallel solve --- ===')
+        PETSc.Sys.Print('')
+
+    def parallel_postproc(pdg, wndw, rhs):
+        PETSc.Sys.Print('')
+        PETSc.Sys.Print('=== --- Serial solve --- ===')
+        PETSc.Sys.Print('')
+        return
+
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
+
+    errors = miniapp.solve(nwindows=nwindows,
+                           preproc=preproc,
+                           parallel_postproc=parallel_postproc)
+
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('### === --- Errors --- === ###')
+
+    for it, err in enumerate(errors):
+        PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
+
+    for err in errors:
+        assert err/norm0 < 1e-5
+
+
+@pytest.mark.parallel(nprocs=4)
 def test_galewsky_timeseries():
     from utils import units
     from utils import mg
@@ -54,12 +242,12 @@ def test_galewsky_timeseries():
     h_initial.project(galewsky.depth_expression(*x))
 
     # shallow water equation forms
-    def form_function(u, h, v, q):
+    def form_function(u, h, v, q, t):
         return swe.nonlinear.form_function(mesh,
                                            gravity,
                                            topography,
                                            coriolis,
-                                           u, h, v, q)
+                                           u, h, v, q, t)
 
     def form_mass(u, h, v, q):
         return swe.nonlinear.form_mass(mesh, u, h, v, q)
@@ -247,8 +435,8 @@ def test_steady_swe():
 
     # finite element forms
 
-    def form_function(u, h, v, q):
-        return swe.form_function(mesh, g, b, f, u, h, v, q)
+    def form_function(u, h, v, q, t):
+        return swe.form_function(mesh, g, b, f, u, h, v, q, t)
 
     def form_mass(u, h, v, q):
         return swe.form_mass(mesh, u, h, v, q)
@@ -346,6 +534,7 @@ def test_solve_para_form(bc_opt, extruded):
     x, y = fd.SpatialCoordinate(mesh)
     u0 = fd.Function(V).interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
     dt = 0.01
+    time = .01
     theta = 0.5
     c = fd.Constant(1)
     time_partition = [2, 2, 2]
@@ -373,7 +562,7 @@ def test_solve_para_form(bc_opt, extruded):
     for i in range(ntimesteps):
         solver_parameters_diag[f"diagfft_block_{i}_"] = sparameters
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
@@ -402,8 +591,8 @@ def test_solve_para_form(bc_opt, extruded):
     v = fd.TestFunction(V)
 
     eqn = (unp1 - un)*v*fd.dx
-    eqn += fd.Constant(dt*(1-theta))*form_function(un, v)
-    eqn += fd.Constant(dt*theta)*form_function(unp1, v)
+    eqn += fd.Constant(dt*(1-theta))*form_function(un, v, time - dt)
+    eqn += fd.Constant(dt*theta)*form_function(unp1, v, time)
 
     sprob = fd.NonlinearVariationalProblem(eqn, unp1, bcs=bcs)
     solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu'}
@@ -417,6 +606,7 @@ def test_solve_para_form(bc_opt, extruded):
 
     for i in range(ntimesteps):
         ssolver.solve()
+        time += dt
         vfull_list[i].assign(unp1)
         un.assign(unp1)
 
@@ -457,7 +647,7 @@ def test_diagnostics():
     for i in range(sum(time_partition)):
         diag_sparameters["diagfft_block_" + str(i) + "_"] = block_sparameters
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):

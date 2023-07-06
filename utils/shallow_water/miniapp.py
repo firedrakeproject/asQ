@@ -75,21 +75,21 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         self.topography_function.interpolate(self.topography)
 
         if linear:
-            def form_function(u, h, v, q):
+            def form_function(u, h, v, q, t):
                 g = self.gravity
                 H = self.reference_depth
                 f = self.coriolis
-                return swe.linear.form_function(self.mesh, g, H, f, u, h, v, q)
+                return swe.linear.form_function(self.mesh, g, H, f, u, h, v, q, t)
 
             def form_mass(u, h, v, q):
                 return swe.linear.form_mass(self.mesh, u, h, v, q)
 
         else:
-            def form_function(u, h, v, q):
+            def form_function(u, h, v, q, t):
                 g = self.gravity
                 b = self.topography
                 f = self.coriolis
-                return swe.nonlinear.form_function(self.mesh, g, b, f, u, h, v, q)
+                return swe.nonlinear.form_function(self.mesh, g, b, f, u, h, v, q, t)
 
             def form_mass(u, h, v, q):
                 return swe.nonlinear.form_mass(self.mesh, u, h, v, q)

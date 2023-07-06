@@ -41,9 +41,10 @@ def test_heat_form(bc_opt, alpha):
     # build the all-at-once form
 
     dt = fd.Constant(0.01)
+    time = fd.Constant(0.01)
     theta = fd.Constant(0.75)
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         c = fd.Constant(0.1)
         nu = fd.Constant(1) + c*fd.inner(u, u)
         return fd.inner(nu*fd.grad(u), fd.grad(v))*fd.dx
@@ -91,8 +92,8 @@ def test_heat_form(bc_opt, alpha):
         unp1 = ufulls[i]
         v = vfulls[i]
         tform = form_mass(unp1 - un, v/dt)
-        tform += theta*form_function(unp1, v) + (1-theta)*form_function(un, v)
-
+        tform += theta*form_function(unp1, v, time) + (1-theta)*form_function(un, v, time-dt)
+        time.assign(time + dt)
         if i == 0:
             fullform = tform
         else:
@@ -151,9 +152,10 @@ def test_mixed_heat_form(bc_opt):
     # build the all-at-once form
 
     dt = fd.Constant(0.01)
+    time = fd.Constant(.01)
     theta = fd.Constant(0.75)
 
-    def form_function(u, p, v, q):
+    def form_function(u, p, v, q, t):
         return (fd.div(v)*p - fd.div(u)*q)*fd.dx
 
     def form_mass(u, p, v, q):
@@ -200,8 +202,8 @@ def test_mixed_heat_form(bc_opt):
         v = vfulls[2*i:2*(i+1)]
 
         tform = (1/dt)*(form_mass(*unp1, *v) - form_mass(*un, *v))
-        tform += theta*form_function(*unp1, *v) + (1-theta)*form_function(*un, *v)
-
+        tform += theta*form_function(*unp1, *v, time) + (1-theta)*form_function(*un, *v, time-dt)
+        time.assign(time + dt)
         if i == 0:
             fullform = tform
         else:

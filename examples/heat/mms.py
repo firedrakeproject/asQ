@@ -1,3 +1,4 @@
+from math import pi
 import firedrake as fd
 from firedrake.petsc import PETSc
 import asQ
@@ -5,7 +6,7 @@ import asQ
 import argparse
 
 parser = argparse.ArgumentParser(
-    description='While we try to figure out how to implement time-dependent Dirichlet BCs, one can use Nitsche-type penalty method. Here, we consider Heat equatiion(u_t = Delta u) with boundary conditions match those of exp(1.25t + 0.5x + y)',
+    description='ParaDiag timestepping for a linear equation with time-dpendent coefficient. Here, we use the MMS to solve u_t - (1+2sin(pi x) sin(pi y)) Delta u = f over the domain, Omega = [0,1]^2 with Dirichlet BCs $',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 parser.add_argument('--nx', type=int, default=64, help='Number of cells along each square side.')
@@ -32,8 +33,8 @@ window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
 # Set the timesstep
-nx = args.nx
-dt = 1./nx
+dx = 1./args.nx
+dt = dx
 
 # The Ensemble with the spatial and time communicators
 ensemble = asQ.create_ensemble(time_partition)
@@ -46,13 +47,28 @@ mesh = fd.UnitSquareMesh(args.nx, args.nx, quadrilateral=False, comm=ensemble.co
 V = fd.FunctionSpace(mesh, "CG", args.degree)
 
 # # # === --- initial conditions --- === # # #
-# q_exact = exp(0.5x + y + 1.25t), u_t-\Deltau = 0.
 
 x, y = fd.SpatialCoordinate(mesh)
-n = fd.FacetNormal(mesh)
+
+# We use the method of manufactured solutions, prescribing a Rhs, initial and boundary data to exactly match those of a known solution.
+u_exact = fd.sin(pi*x)*fd.cos(pi*y)
+
+
+def time_coef(t):
+    return 2 + fd.sin(2*pi*t)
+
+
+def Rhs(t):
+    # As our exact solution is independent of t, the Rhs is just $-(2 + \sin(2*pi*t)) \Delta u$
+    return -time_coef(t)*fd.div(fd.grad(u_exact))
+
+
 # Initial conditions.
 w0 = fd.Function(V, name="scalar_initial")
-w0.interpolate(fd.exp(0.5*x + y))
+w0.interpolate(u_exact)
+# Dirichlet BCs
+bcs = [fd.DirichletBC(V, u_exact, 'on_boundary')]
+
 
 # # # === --- finite element forms --- === # # #
 
@@ -65,7 +81,7 @@ def form_mass(q, phi):
 
 # q is a Function and phi is a TestFunction
 def form_function(q, phi, t):
-    return fd.inner(fd.grad(q), fd.grad(phi))*fd.dx - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds - fd.inner(q-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(phi), n))*fd.ds + 20*nx*fd.inner(q-fd.exp(0.5*x + y + 1.25*t), phi)*fd.ds
+    return time_coef(t)*fd.inner(fd.grad(q), fd.grad(phi))*fd.dx - fd.inner(Rhs(t), phi)*fd.dx
 
 
 # # # === --- PETSc solver parameters --- === # # #
@@ -74,8 +90,8 @@ def form_function(q, phi, t):
 # The PETSc solver parameters used to solve the
 # blocks in step (b) of inverting the ParaDiag matrix.
 block_parameters = {
-    'ksp_type': 'preonly',
-    'pc_type': 'lu',
+    'ksp_type': 'gmres',
+    'pc_type': 'bjacobi',
 }
 
 # The PETSc solver parameters for solving the all-at-once system.
@@ -91,7 +107,6 @@ block_parameters = {
 #    Pu_{k+1} = (P - A)u_{k} + b
 #    The solver options for this are:
 #    'ksp_type': 'preonly'
-
 
 paradiag_parameters = {
     'snes_type': 'ksponly',
@@ -111,7 +126,6 @@ paradiag_parameters = {
     'pc_python_type': 'asQ.DiagFFTPC',
     'diagfft_alpha': args.alpha,
 }
-
 # We need to add a block solver parameters dictionary for each block.
 # Here they are all the same but they could be different.
 for i in range(window_length):
@@ -124,12 +138,12 @@ for i in range(window_length):
 # Give everything to asQ to create the paradiag object.
 # the circ parameter determines where the alpha-circulant
 # approximation is introduced. None means only in the preconditioner.
-pdg = asQ.Paradiag(ensemble=ensemble,
-                   form_function=form_function,
-                   form_mass=form_mass,
-                   ics=w0, dt=dt, theta=args.theta,
-                   time_partition=time_partition,
-                   solver_parameters=paradiag_parameters)
+PD = asQ.Paradiag(ensemble=ensemble,
+                  form_function=form_function,
+                  form_mass=form_mass,
+                  ics=w0, dt=dt, theta=args.theta,
+                  time_partition=time_partition, bcs=bcs,
+                  solver_parameters=paradiag_parameters)
 
 
 # This is a callback which will be called before pdg solves each time-window
@@ -140,54 +154,32 @@ def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
 
 
-# We find the L2-error at each timestep
-q_exact = fd.Function(V)
-qp = fd.Function(V)
-errors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
-times = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+qcheck = w0.copy(deepcopy=True)
 
 
-def window_postproc(pdg, wndw, rhs):
-    for step in range(pdg.aaofunc.ntimesteps):
-        if pdg.aaoform.layout.is_local(step):
-            local_step = pdg.aaofunc.transform_index(step, from_range='window')
-            t = pdg.aaoform.time[local_step]
-            q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
-            pdg.aaofunc.get_field(local_step, uout=qp)
+def Exact(w):
+    q_err = fd.errornorm(w, qcheck)
+    return q_err
 
-            errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
-            times.dlocal[local_step] = t
 
-    errors.synchronise()
-    times.synchronise()
+w = fd.Function(V)
 
-    for step in range(pdg.aaofunc.ntimesteps):
-        PETSc.Sys.Print(f"Time={str(times.dglobal[step]).ljust(8, ' ')}, qerr={errors.dglobal[step]}")
+
+def window_postproc(PD, wndw, rhs):
+    uerrors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+    for i in range(PD.aaofunc.nlocal_timesteps):
+        PD.aaofunc.get_field(i, uout=w, index_range='slice')
+        uerr = Exact(w)
+        uerrors.dlocal[i] = uerr
+    uerrors.synchronise()
+
+    for i in range(PD.ntimesteps):
+        timestep = wndw*window_length + i
+        uerr = uerrors.dglobal[i]
+        PETSc.Sys.Print(f"timestep={timestep}, uerr={uerr}")
 
 
 # Solve nwindows of the all-at-once system
-pdg.solve(args.nwindows,
-          preproc=window_preproc,
-          postproc=window_postproc)
-
-
-# # # === --- Postprocessing --- === # # #
-
-# paradiag collects a few solver diagnostics for us to inspect
-nw = args.nwindows
-
-# Number of nonlinear iterations, total and per window.
-# (1 for fgmres and # picard iterations for preonly)
-PETSc.Sys.Print(f'nonlinear iterations: {pdg.nonlinear_iterations}  |  iterations per window: {pdg.nonlinear_iterations/nw}')
-
-# Number of linear iterations, total and per window.
-# (# of gmres iterations for fgmres and # picard iterations for preonly)
-PETSc.Sys.Print(f'linear iterations: {pdg.linear_iterations}  |  iterations per window: {pdg.linear_iterations/nw}')
-
-# Number of iterations needed for each block in step-(b), total and per block solve
-# The number of iterations for each block will usually be different because of the different eigenvalues
-PETSc.Sys.Print(f'block linear iterations: {pdg.block_iterations._data}  |  iterations per block solve: {pdg.block_iterations._data/pdg.linear_iterations}')
-
-# We can write these diagnostics to file, along with some other useful information.
-# Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt
-asQ.write_paradiag_metrics(pdg)
+PD.solve(args.nwindows,
+         preproc=window_preproc,
+         postproc=window_postproc)

@@ -21,7 +21,7 @@ def form_mass(mesh, u, h, v, p):
 # spatial forms for depth and velocity fields
 
 
-def form_function_depth(mesh, u, h, p):
+def form_function_depth(mesh, u, h, p, t):
     n = fd.FacetNormal(mesh)
     uup = 0.5 * (fd.dot(u, n) + abs(fd.dot(u, n)))
 
@@ -29,7 +29,7 @@ def form_function_depth(mesh, u, h, p):
             + fd.jump(p)*(uup('+')*h('+') - uup('-')*h('-'))*fd.dS)
 
 
-def form_function_velocity(mesh, g, b, f, u, h, v, perp=fd.cross):
+def form_function_velocity(mesh, g, b, f, u, h, v, t, perp=fd.cross):
     n = fd.FacetNormal(mesh)
     outward_normals = fd.CellNormal(mesh)
 
@@ -49,5 +49,5 @@ def form_function_velocity(mesh, g, b, f, u, h, v, perp=fd.cross):
             - fd.div(v)*(g*(h + b) + K)*fd.dx)
 
 
-def form_function(mesh, g, b, f, u, h, v, q):
-    return form_function_velocity(mesh, g, b, f, u, h, v) + form_function_depth(mesh, u, h, q)
+def form_function(mesh, g, b, f, u, h, v, q, t):
+    return form_function_velocity(mesh, g, b, f, u, h, v, t) + form_function_depth(mesh, u, h, q, t)

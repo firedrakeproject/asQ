@@ -76,12 +76,12 @@ h_initial.project(galewsky.depth_expression(*x))
 
 
 # shallow water equation forms
-def form_function(u, h, v, q):
+def form_function(u, h, v, q, t):
     return swe.nonlinear.form_function(mesh,
                                        gravity,
                                        topography,
                                        coriolis,
-                                       u, h, v, q)
+                                       u, h, v, q, t)
 
 
 def form_mass(u, h, v, q):
@@ -212,7 +212,7 @@ miniapp = ComparisonMiniapp(ensemble, time_partition,
                             dt, args.theta, args.alpha,
                             serial_sparameters,
                             parallel_sparameters,
-                            circ=None, block_ctx=block_ctx)
+                            block_ctx=block_ctx)
 
 miniapp.serial_app.nlsolver.set_transfer_manager(
     mg.manifold_transfer_manager(W))
