@@ -364,7 +364,6 @@ class DiagFFTPC(TimePartitionMixin):
         cpx.set_imag(self.u0, ustate)
 
         self.t_average = fd.Constant(self.aaoform.t0 + (self.aaofunc.ntimesteps + 1)*self.dt/2)
-        PETSc.Sys.Print(self.t_average.values())
         return
 
     @PETSc.Log.EventDecorator()
