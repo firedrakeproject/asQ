@@ -80,7 +80,7 @@ hn.assign(H + etan - b)
 # nonlinear swe forms
 
 def form_function(u, h, v, q, t):
-    return swe.nonlinear.form_function(mesh, earth.Gravity, b, f, u, h, v, q)
+    return swe.nonlinear.form_function(mesh, earth.Gravity, b, f, u, h, v, q, t)
 
 
 def form_mass(u, h, v, q):
@@ -88,7 +88,7 @@ def form_mass(u, h, v, q):
 
 
 def linear_function(u, h, v, q, t):
-    return swe.linear.form_function(mesh, earth.Gravity, H, f, u, h, v, q)
+    return swe.linear.form_function(mesh, earth.Gravity, H, f, u, h, v, q, t)
 
 
 def linear_mass(u, h, v, q):
