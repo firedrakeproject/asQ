@@ -192,7 +192,6 @@ class Paradiag(TimePartitionMixin):
             if wndw != nwindows-1:
                 self.aaofunc.bcast_field(-1, self.aaofunc.initial_condition)
                 self.aaofunc.assign(self.aaofunc.initial_condition)
-                for n in range(self.aaofunc.nlocal_timesteps):
-                    self.aaoform.time[n].assign(self.aaoform.time[n] + self.aaoform.dt*self.aaofunc.ntimesteps)
-                self.aaofunc.t0.assign(self.aaofunc.t0 + self.aaoform.dt*self.aaofunc.ntimesteps)
+                self.aaoform.time_update()
+
         self.sync_diagnostics()
