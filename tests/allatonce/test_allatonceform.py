@@ -42,7 +42,7 @@ def test_heat_form(bc_opt, alpha):
 
     dt = fd.Constant(0.01)
     time = tuple(fd.Constant(0) for _ in range(aaofunc.ntimesteps))
-    for i in range (aaofunc.ntimesteps):
+    for i in range(aaofunc.ntimesteps):
         time[i].assign((i+1)*dt)
 
     theta = fd.Constant(0.75)
@@ -155,9 +155,8 @@ def test_mixed_heat_form(bc_opt):
 
     dt = fd.Constant(0.01)
     time = tuple(fd.Constant(0) for _ in range(aaofunc.ntimesteps))
-    for i in range (aaofunc.ntimesteps):
+    for i in range(aaofunc.ntimesteps):
         time[i].assign((i+1)*dt)
-
 
     theta = fd.Constant(0.75)
 
