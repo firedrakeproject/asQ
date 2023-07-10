@@ -70,7 +70,7 @@ class AllAtOnceForm(TimePartitionMixin):
             self.t0.assign(self.t0 + self.dt*self.aaofunc.ntimesteps)
 
         for i in range(self.nlocal_timesteps):
-            self.time[i].assign(self.time[i] + self.t0)
+            self.time[i].assign(self.time[i] + self.dt*self.aaofunc.ntimesteps)
         return
 
     def _set_bcs(self, field_bcs):
