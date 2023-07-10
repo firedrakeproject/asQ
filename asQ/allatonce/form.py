@@ -61,10 +61,17 @@ class AllAtOnceForm(TimePartitionMixin):
 
         self.form = self._construct_form()
 
-    def time_update(self):
-        self.t0.assign(self.t0 + self.dt*self.aaofunc.ntimesteps)
+    def time_update(self, t=None):
+
+        if t is not None:
+            self.t0.assign(t)
+
+        else:
+            self.t0.assign(self.t0 + self.dt*self.aaofunc.ntimesteps)
+
         for i in range(self.nlocal_timesteps):
-            self.time[i].assign(self.time[i] + self.dt*self.aaofunc.ntimesteps)
+            self.time[i].assign(self.time[i] + self.t0)
+        return
 
     def _set_bcs(self, field_bcs):
         """
