@@ -56,7 +56,6 @@ class AllAtOnceFunction(TimePartitionMixin):
         """
         self.time_partition_setup(ensemble, time_partition)
 
-        self.t0 = fd.Constant(0)
         # function space for single timestep
         self.field_function_space = function_space
 

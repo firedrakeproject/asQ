@@ -39,6 +39,7 @@ class AllAtOnceForm(TimePartitionMixin):
         self.function_space = aaofunc.function_space
 
         self.dt = dt
+        self.t0 = fd.Constant(0)
         self.time = tuple(fd.Constant(0) for _ in range(self.aaofunc.nlocal_timesteps))
         for n in range((self.aaofunc.nlocal_timesteps)):
             self.time[n].assign(self.time[n] + self.dt*(self.aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
@@ -59,6 +60,11 @@ class AllAtOnceForm(TimePartitionMixin):
         self.F = aaofunc.copy(copy_values=False).zero()
 
         self.form = self._construct_form()
+
+    def time_update(self):
+        self.t0.assign(self.t0 + self.dt*self.aaofunc.ntimesteps)
+        for i in range(self.nlocal_timesteps):
+            self.time[i].assign(self.time[i] + self.dt*self.aaofunc.ntimesteps)
 
     def _set_bcs(self, field_bcs):
         """
