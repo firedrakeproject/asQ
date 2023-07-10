@@ -15,8 +15,8 @@ ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
 # set up the mesh
 
-nlayers = 30  # horizontal layers
-base_columns = 30  # number of columns
+nlayers = 35  # horizontal layers
+base_columns = 90  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -43,11 +43,11 @@ p_0 = fd.Constant(1000.0*100.0)  # reference pressure (Pa, not hPa)
 cv = fd.Constant(717.)  # SHC of dry air at const. volume (J/kg/K)
 T_0 = fd.Constant(273.15)  # ref. temperature
 
-dt = 100
+dt = 1.
 dT = fd.Constant(dt)
 
 # making a mountain out of a molehill
-a = 1000.
+a = 10000.
 xc = L/2.
 x, z = fd.SpatialCoordinate(mesh)
 hm = 1.
@@ -87,6 +87,9 @@ Vv = fd.FunctionSpace(mesh, V2v_elt, name="Vv")
 
 W = V1 * V2 * Vt  # velocity, density, temperature
 
+PETSc.Sys.Print(f"DoFs: {W.dim()}")
+PETSc.Sys.Print(f"DoFs/core: {W.dim()/ensemble.comm.size}")
+
 Un = fd.Function(W)
 
 x, z = fd.SpatialCoordinate(mesh)
@@ -101,7 +104,7 @@ Up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 un = Un.subfunctions[0]
 rhon = Un.subfunctions[1]
 thetan = Un.subfunctions[2]
-un.project(fd.as_vector([20.0, 0.0]))
+un.project(fd.as_vector([10.0, 0.0]))
 thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
 rhon.assign(1.0e-5)
@@ -130,7 +133,7 @@ hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
 rho_back = fd.Function(V2).assign(rhon)
 
 zc = H-10000.
-mubar = 0.3
+mubar = 0.15/dt
 mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(H-zc))**2)
 mu = fd.Function(V2).interpolate(mu_top/dT)
 
@@ -185,8 +188,6 @@ solver_parameters_diag = {
 
 for i in range(sum(time_partition)):
     solver_parameters_diag["diagfft_block_"+str(i)+"_"] = lines_parameters
-
-t = 0.
 
 alpha = 1.0e-4
 theta = 0.5
@@ -251,7 +252,7 @@ def window_postproc(pdg, wndw):
 
 
 # solve for each window
-pdg.solve(nwindows=1,
+pdg.solve(nwindows=2,
           preproc=window_preproc,
           postproc=window_postproc)
 
