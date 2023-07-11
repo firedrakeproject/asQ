@@ -12,11 +12,11 @@ comm = fd.COMM_WORLD
 
 # set up the mesh
 
-nt = 5
-dt = 2.5
+nt = 7200
+dt = 1.25
 
-nlayers = 140  # horizontal layers
-base_columns = 360  # number of columns
+nlayers = 280  # horizontal layers
+base_columns = 720  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -212,8 +212,8 @@ def write_to_file(time):
     ofile.write(uout, rhoout, thetaout, t=time)
 
 
-assign_out_functions()
-write_to_file(time=0)
+# assign_out_functions()
+# write_to_file(time=0)
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0
@@ -241,8 +241,8 @@ def postproc(app, it, time):
     linear_its += miniapp.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += miniapp.nlsolver.snes.getIterationNumber()
 
-    assign_out_functions()
-    write_to_file(time=time)
+    # assign_out_functions()
+    # write_to_file(time=time)
     PETSc.Sys.Print('')
 
     cfl = max_cfl(uout, dt)

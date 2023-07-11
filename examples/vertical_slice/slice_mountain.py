@@ -242,8 +242,8 @@ def window_preproc(pdg, wndw):
 def window_postproc(pdg, wndw):
     # postprocess this timeslice
     if is_last_slice:
-        assign_out_functions()
-        write_to_file()
+        # assign_out_functions()
+        # write_to_file()
         PETSc.Sys.Print('', comm=ensemble.comm)
 
         cfl = max_cfl(uout, dt)
