@@ -237,3 +237,72 @@ def test_mixed_heat_form(bc_opt):
             uparallel = aaoform.F.get_component(step, cpt)
             err = fd.errornorm(userial, uparallel)
             assert (err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_time_update():
+    # Given that the initial time step is at t=1. Test if we have correct time update from the first window to the next one.
+
+    nslices = fd.COMM_WORLD.size//2
+    slice_length = 2
+
+    time_partition = tuple((slice_length for _ in range(nslices)))
+    ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    x, y = fd.SpatialCoordinate(mesh)
+    V = fd.FunctionSpace(mesh, "CG", 1)
+
+    aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, V)
+
+    ics = fd.Function(V, name="ics")
+    ics.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    aaofunc.assign(ics)
+
+    dt = fd.Constant(0.01)
+    theta = fd.Constant(0.5)
+    alpha = 0.5
+
+    def form_function(u, v, t):
+        c = fd.Constant(0.1)
+        nu = fd.Constant(1) + c*fd.inner(u, u)
+        return fd.inner(nu*fd.grad(u), fd.grad(v))*fd.dx
+
+    def form_mass(u, v):
+        return u*v*fd.dx
+    aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
+                                form_mass, form_function,
+                                bcs=[], alpha=alpha)
+
+    # Time series of the first window.
+    aaoform.t0.assign(fd.Constant(1))
+    for n in range((aaofunc.nlocal_timesteps)):
+        aaoform.time[n].assign(aaoform.t0 + dt*(aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
+    # Test if we have the correct time series.
+    times = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+    for step in range(aaofunc.ntimesteps):
+        if aaoform.layout.is_local(step):
+            local_step = aaofunc.transform_index(step, from_range='window')
+            t = aaoform.time[local_step]
+            times.dlocal[local_step] = t
+
+    times.synchronise()
+    real_times = tuple(fd.Constant(0) for _ in range(aaofunc.ntimesteps))
+
+    for i in range(aaofunc.ntimesteps):
+        real_times[i].assign(fd.Constant(1 + (i+1)*dt))
+        assert (float(times.dglobal[i]) - float(real_times[i]) < 1e-10)
+
+    # Test the time series.
+    aaoform.time_update(t=aaoform.t0)
+    assert (float(aaoform.t0) - float((1 + 4*dt)) < 1e-12)
+    for step in range(aaofunc.ntimesteps):
+        if aaoform.layout.is_local(step):
+            local_step = aaofunc.transform_index(step, from_range='window')
+            t = aaoform.time[local_step]
+            times.dlocal[local_step] = t
+
+    times.synchronise()
+    for i in range(aaofunc.ntimesteps):
+        real_times[i].assign(aaoform.t0 + fd.Constant((i+1)*dt))
+        assert (float(times.dglobal[i])-float(real_times[i]) < 1e-12)
