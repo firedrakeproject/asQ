@@ -186,8 +186,8 @@ if is_last_slice:
 
 def window_postproc(pdg, wndw):
     last_timestep = fd.Constant((wndw+1)*window_length*dt)
-    PETSc.Sys.Print(last_timestep.values())
-    PETSc.Sys.Print(fd.norm(Subsidence(last_timestep)))
+    # PETSc.Sys.Print(last_timestep.values())
+    # PETSc.Sys.Print(fd.norm(Subsidence(last_timestep)))
     if is_last_slice:
         # The aaos is the AllAtOnceSystem which represents the time-dependent problem.
         # get_field extracts one timestep of the window. -1 is again used to get the last
