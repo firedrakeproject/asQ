@@ -1,6 +1,4 @@
-import matplotlib.pyplot as plt
 from math import pi
-from matplotlib.animation import FuncAnimation
 import firedrake as fd
 from firedrake.petsc import PETSc
 import asQ
@@ -10,7 +8,8 @@ import argparse
 parser = argparse.ArgumentParser(
     description='Paradiag for Stratigraphic model that simulate formation of sedimentary rock over geological time.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--nx', type=int, default=200, help='Number of cells along each square side.')
+parser.add_argument('--k', type=int, default=0, help='Level of refinement')
+parser.add_argument('--nx', type=int, default=300, help='Number of cells along each square side.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
@@ -40,8 +39,9 @@ ensemble = asQ.create_ensemble(time_partition)
 # # # === --- domain --- === # # #
 
 # The mesh needs to be created with the spatial communicator
-mesh = fd.SquareMesh(args.nx, args.nx, 100, quadrilateral=False, comm=ensemble.comm)
-
+mesh0 = fd.SquareMesh(args.nx, args.nx, 100, quadrilateral=False, comm=ensemble.comm)
+hierarchy = fd.MeshHierarchy(mesh0, args.k)
+mesh = hierarchy[-1]
 V = fd.FunctionSpace(mesh, "CG", args.degree)
 
 # # # === --- initial conditions --- === # # #
@@ -62,6 +62,13 @@ def L(G_0, d):
     return G_0*fd.conditional(d > 0, fd.exp(-d/10)/(1 + fd.exp(-50*d)), fd.exp((50-1/10)*d)/(fd.exp(50*d) + 1))
 
 
+def sea_level(A, t):
+    return A*fd.sin(2*pi*t/500000)
+
+
+def Subsidence(t):
+    return -((100-x)/10)*(t/100000)
+
 # # # === --- finite element forms --- === # # #
 
 
@@ -73,11 +80,14 @@ D_c = fd.Constant(.002)
 G_0 = fd.Constant(.004)
 A = fd.Constant(50)
 b = 100*fd.tanh(1/20*(x-50))
+E = fd.File('output/'+'land'+'.pvd', comm=ensemble.comm)
+B = fd.Function(V, name='starting_topo')
+B.interpolate(b)
+E.write(B)
 
 
 def form_function(s, q, t):
-    return D(D_c, A*fd.sin(2*pi*t/500000)-b-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, A*fd.sin(2*pi*t/500000)-b-s)*q*fd.dx
-
+    return D(D_c, sea_level(A, t)-b-Subsidence(t)-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, sea_level(A, t)-b-Subsidence(t)-s)*q*fd.dx
 
 # # # === --- PETSc solver parameters --- === # # #
 
@@ -85,8 +95,8 @@ def form_function(s, q, t):
 # The PETSc solver parameters used to solve the
 # blocks in step (b) of inverting the ParaDiag matrix.
 block_parameters = {
-    "ksp_type": "preonly",
-    "pc_type": "lu",
+    'ksp_type': 'preonly',
+    'pc_type': 'lu',
 }
 
 # The PETSc solver parameters for solving the all-at-once system.
@@ -105,21 +115,22 @@ block_parameters = {
 
 paradiag_parameters = {
     'snes': {
+        'ksp_ew': None,
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
-        'atol': 1e-12,
-        'stol': 1e-12,
+        'rtol': 1e-8,
+        'atol': 1e-8,
+        'stol': 1e-8,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
-        'atol': 1e-12,
-        'stol': 1e-12,
+        'rtol': 1e-8,
+        'atol': 1e-8,
+        'stol': 1e-8,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'
@@ -163,17 +174,28 @@ is_last_slice = pdg.layout.is_local(-1)
 if is_last_slice:
     qout = fd.Function(V)
     timeseries = [s0.copy(deepcopy=True)]
-
-
+    ofile = fd.File('output/'+'S'+'.pvd',
+                    comm=ensemble.comm)
+    b_subs_out = fd.Function(V, name="Topography_subsidence")
+    s_out = fd.Function(V, name="thickness")
+    d_out = fd.Function(V, name="depth")
+    surf_out = fd.Function(V, name="surface")
 # This is a callback which will be called after pdg solves each time-window
 # We can use this to save the last timestep of each window for plotting.
+
+
 def window_postproc(pdg, wndw):
+    last_timestep = fd.Constant((wndw+1)*window_length*dt)
+    PETSc.Sys.Print(last_timestep.values())
+    PETSc.Sys.Print(fd.norm(Subsidence(last_timestep)))
     if is_last_slice:
         # The aaos is the AllAtOnceSystem which represents the time-dependent problem.
         # get_field extracts one timestep of the window. -1 is again used to get the last
         # timestep and place it in qout.
-        pdg.aaos.get_field(-1, index_range='window', wout=qout)
-        timeseries.append(qout.copy(deepcopy=True))
+        pdg.aaos.get_field(-1, index_range='window', wout=s_out)
+        d_out.interpolate(sea_level(A, last_timestep)-b-Subsidence(last_timestep)-s_out)
+        surf_out.interpolate(b + Subsidence(last_timestep) + s_out)
+        ofile.write(s_out, d_out, surf_out)
 
 
 # Solve nwindows of the all-at-once system
@@ -198,24 +220,3 @@ PETSc.Sys.Print(f'linear iterations: {pdg.linear_iterations}  |  iterations per 
 # Number of iterations needed for each block in step-(b), total and per block solve
 # The number of iterations for each block will usually be different because of the different eigenvalues
 PETSc.Sys.Print(f'block linear iterations: {pdg.block_iterations._data}  |  iterations per block solve: {pdg.block_iterations._data/pdg.linear_iterations}')
-
-# We can write these diagnostics to file, along with some other useful information.
-# Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt
-asQ.write_paradiag_metrics(pdg)
-
-# Make an animation from the snapshots we collected and save it to periodic.mp4.
-if is_last_slice:
-
-    fn_plotter = fd.FunctionPlotter(mesh, num_sample_points=args.nsample)
-
-    fig, axes = plt.subplots()
-    axes.set_aspect('equal')
-    colors = fd.tripcolor(qout, num_sample_points=args.nsample, axes=axes)
-    fig.colorbar(colors)
-
-    def animate(q):
-        colors.set_array(fn_plotter(q))
-
-    animation = FuncAnimation(fig, animate, frames=timeseries)
-
-    animation.save("periodic.mp4", writer="ffmpeg")
