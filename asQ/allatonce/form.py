@@ -64,14 +64,11 @@ class AllAtOnceForm(TimePartitionMixin):
     def time_update(self, t=None):
 
         if t is not None:
-            t.assign(t + self.dt*self.aaofunc.ntimesteps)
-            for n in range((self.aaofunc.nlocal_timesteps)):
-                self.time[n].assign(t + self.dt*(self.aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
+            self.t0.assign(t)
 
-        else:
-            self.t0.assign(self.t0 + self.dt*self.aaofunc.ntimesteps)
-            for n in range((self.aaofunc.nlocal_timesteps)):
-                self.time[n].assign(self.t0 + self.dt*(self.aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
+        self.t0.assign(self.t0 + self.dt*self.aaofunc.ntimesteps)
+        for n in range((self.aaofunc.nlocal_timesteps)):
+            self.time[n].assign(self.t0 + self.dt*(self.aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
         return
 
     def _set_bcs(self, field_bcs):
