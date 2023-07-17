@@ -28,12 +28,12 @@ class Problem(object):
 
 
 if __name__ == "__main__":
-    N = 1000
+    N = 300
     problem = Problem(N, 1)
     mesh = problem.mesh()
     Z = problem.function_space(mesh)
     s0 = problem.initial_condition(Z)
-    s = fd.Function(Z)
+    s = fd.Function(Z, name="thickness")
     q = fd.TestFunction(Z)
     x, y = fd.SpatialCoordinate(mesh)
     PETSc.Sys.Print("Z.dim():%s" % Z.dim())
@@ -59,19 +59,34 @@ if __name__ == "__main__":
     G_0 = fd.Constant(4e-3)
 # b is the seabed.
     b = 100*fd.tanh((x-50)/20)
+    E = fd.File('output/'+'land'+'.pvd')
+    B = fd.Function(Z, name='starting_topo')
+    B.interpolate(b)
+    E.write(B)
+# Subsidence
+    Subsidence = -((100-x)/10)*(t/100000)
 # l is the sea level.
     l = A*fd.sin(2*pi*t/500000)
 # d is the water depth.
-    d = l-b-s
+    d = l-b-Subsidence-s
     D = 2*D_c/fd.sqrt(2*pi)*fd.exp(-1/2*((d-5)/10)**2)
     G = G_0*fd.conditional(d > 0, fd.exp(-d/10)/(1 + fd.exp(-50*d)), fd.exp((50-1/10)*d)/(fd.exp(50*d) + 1))
     F = D*fd.inner(fd.grad(s), fd.grad(q))*fd.dx - G*q*fd.dx
     F_euler = (fd.inner(s, q)*fd.dx - fd.inner(s0, q)*fd.dx + dt*(F))
     nvproblem = fd.NonlinearVariationalProblem(F_euler, s)
     solver = fd.NonlinearVariationalSolver(nvproblem, solver_parameters=sp)
-    outfile = fd.File("s.pvd")
-    while (float(t) < 128*float(dt)):
-        t.assign(float(t+dt))
+    ofile = fd.File('output/'+'S'+'.pvd')
+    d_out = fd.Function(Z, name="depth")
+    surf_out = fd.Function(Z, name="surface")
+
+    step = 0
+    while (float(t) < 50*float(dt)):
         solver.solve()
         s0.assign(s)
-        outfile.write(s)
+        step += 1
+        t.assign(t + dt)
+        if step % 4 == 0:
+            PETSc.Sys.Print("t=", t.values())
+            d_out.interpolate(l-b-Subsidence-s)
+            surf_out.interpolate(b + Subsidence + s)
+            ofile.write(s, d_out, surf_out)
