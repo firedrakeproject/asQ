@@ -256,53 +256,40 @@ def test_time_update():
     aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, V)
 
     ics = fd.Function(V, name="ics")
-    ics.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    ics.interpolate(fd.Constant(0))
     aaofunc.assign(ics)
 
-    dt = fd.Constant(0.01)
-    theta = fd.Constant(0.5)
+    dt = 0.01
+    theta = 0.5
     alpha = 0.5
 
     def form_function(u, v, t):
-        c = fd.Constant(0.1)
-        nu = fd.Constant(1) + c*fd.inner(u, u)
-        return fd.inner(nu*fd.grad(u), fd.grad(v))*fd.dx
+        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
         return u*v*fd.dx
+
     aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
                                 form_mass, form_function,
-                                bcs=[], alpha=alpha)
+                                alpha=alpha)
 
-    # Time series of the first window.
-    aaoform.t0.assign(fd.Constant(1))
-    for n in range((aaofunc.nlocal_timesteps)):
-        aaoform.time[n].assign(aaoform.t0 + dt*(aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
-    # Test if we have the correct time series.
+    # The time series we get from the allatonce form
     times = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
-    for step in range(aaofunc.ntimesteps):
-        if aaoform.layout.is_local(step):
-            local_step = aaofunc.transform_index(step, from_range='window')
-            t = aaoform.time[local_step]
-            times.dlocal[local_step] = t
 
+    for i in range(aaofunc.nlocal_timesteps):
+        times.dlocal[i] = aaoform.time[i]
     times.synchronise()
-    real_times = tuple(fd.Constant(0) for _ in range(aaofunc.ntimesteps))
 
+    assert (float(aaoform.t0) == 0)
     for i in range(aaofunc.ntimesteps):
-        real_times[i].assign(fd.Constant(1 + (i+1)*dt))
-        assert (float(times.dglobal[i]) - float(real_times[i]) < 1e-10)
+        assert (times.dglobal[i] == ((i + 1)*dt))
 
-    # Test the time series.
-    aaoform.time_update(t=aaoform.t0)
-    assert (float(aaoform.t0) - float((1 + 4*dt)) < 1e-12)
-    for step in range(aaofunc.ntimesteps):
-        if aaoform.layout.is_local(step):
-            local_step = aaofunc.transform_index(step, from_range='window')
-            t = aaoform.time[local_step]
-            times.dlocal[local_step] = t
+    aaoform.time_update(t=0)
 
+    for i in range(aaofunc.nlocal_timesteps):
+        times.dlocal[i] = aaoform.time[i]
     times.synchronise()
+
+    assert (float(aaoform.t0) == .04)
     for i in range(aaofunc.ntimesteps):
-        real_times[i].assign(aaoform.t0 + fd.Constant((i+1)*dt))
-        assert (float(times.dglobal[i])-float(real_times[i]) < 1e-12)
+        assert (times.dglobal[i] == ((4 + i + 1)*dt))
