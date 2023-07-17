@@ -80,7 +80,7 @@ if __name__ == "__main__":
     surf_out = fd.Function(Z, name="surface")
 
     step = 0
-    while (float(t) < 50*float(dt)):
+    while (float(t) < 140*float(dt)):
         solver.solve()
         s0.assign(s)
         step += 1
