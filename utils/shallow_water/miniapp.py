@@ -20,6 +20,8 @@ class ShallowWaterMiniApp(object):
                  coriolis_expression=swe.earth_coriolis_expression,
                  block_ctx={},
                  reference_depth=0,
+                 reference_state=False,
+                 linear=False,
                  velocity_function_space=swe.default_velocity_function_space,
                  depth_function_space=swe.default_depth_function_space,
                  record_diagnostics={'cfl': True, 'file': True},
@@ -37,8 +39,11 @@ class ShallowWaterMiniApp(object):
         :arg theta: parameter for the implicit theta-method integrator
         :arg alpha: value used for the alpha-circulant approximation in the paradiag method.
         :arg time_partition: a list with how many timesteps are on each of the ensemble time-ranks.
-        arg :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
+            arg :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
         :arg block_ctx: a dictionary of extra values required for the block system solvers.
+        :arg reference_depth: constant used to calculate elevation
+        :arg reference_state: Whether to create a reference state for the AllAtOnceSystem
+        :arg linear: if False, solve nonlinear shallow water equations, if True solve linear equations
         :arg velocity_function_space: function to return a firedrake FunctionSpace for the velocity field, given a mesh
         :arg depth_function_space: function to return a firedrake FunctionSpace for the depth field, given a mesh
         :arg record_diagnostics: List of bools whether to: record CFL at each timestep; save timesteps to file
@@ -68,15 +73,25 @@ class ShallowWaterMiniApp(object):
         self.topography_function = fd.Function(self.depth_function_space(),
                                                name='topography')
         self.topography_function.interpolate(self.topography)
+        if linear:
+            def form_function(u, h, v, q, t):
+                g = self.gravity
+                H = self.reference_depth
+                f = self.coriolis
+                return swe.linear.form_function(self.mesh, g, H, f, u, h, v, q, t)
 
-        def form_function(u, h, v, q):
-            g = self.gravity
-            b = self.topography
-            f = self.coriolis
-            return swe.nonlinear.form_function(self.mesh, g, b, f, u, h, v, q)
+            def form_mass(u, h, v, q):
+                return swe.linear.form_mass(self.mesh, u, h, v, q)
 
-        def form_mass(u, h, v, q):
-            return swe.nonlinear.form_mass(self.mesh, u, h, v, q)
+        else:
+            def form_function(u, h, v, q, t):
+                g = self.gravity
+                b = self.topography
+                f = self.coriolis
+                return swe.nonlinear.form_function(self.mesh, g, b, f, u, h, v, q, t)
+
+            def form_mass(u, h, v, q):
+                return swe.nonlinear.form_mass(self.mesh, u, h, v, q)
 
         self.form_function = form_function
         self.form_mass = form_mass
@@ -84,10 +99,17 @@ class ShallowWaterMiniApp(object):
         # initial conditions
 
         w0 = fd.Function(self.function_space())
-        u0, h0 = w0.split()
+        u0 = w0.subfunctions[self.velocity_index]
+        h0 = w0.subfunctions[self.depth_index]
 
         u0.project(velocity_expression(*x))
         h0.project(depth_expression(*x))
+
+        if reference_state:
+            self.reference_state = fd.Function(self.function_space())
+            reference_state = self.reference_state
+        else:
+            reference_state = None
 
         # non-petsc information for block solve
 
@@ -99,7 +121,7 @@ class ShallowWaterMiniApp(object):
             tm = mg.manifold_transfer_manager(self.function_space())
             transfer_managers.append(tm)
 
-        block_ctx['diag_transfer_managers'] = transfer_managers
+        block_ctx['diagfft_transfer_managers'] = transfer_managers
 
         self.paradiag = asQ.paradiag(
             ensemble=self.ensemble,
@@ -107,6 +129,7 @@ class ShallowWaterMiniApp(object):
             form_mass=form_mass,
             w0=w0, dt=dt, theta=theta,
             alpha=alpha, time_partition=time_partition,
+            reference_state=reference_state,
             solver_parameters=paradiag_sparameters,
             circ=None, ctx={}, block_ctx=block_ctx)
 
@@ -172,7 +195,7 @@ class ShallowWaterMiniApp(object):
             if v.function_space() == self.velocity_function_space():
                 u = v
             elif v.function_space() == self.function_space():
-                u = v.split()[self.velocity_index]
+                u = v.subfunctions[self.velocity_index]
             else:
                 raise ValueError("function v must be in FunctionSpace V1 or MixedFunctionSpace W")
         else:
@@ -201,7 +224,7 @@ class ShallowWaterMiniApp(object):
                 # global timestep over all windows
                 window_length = self.paradiag.ntimesteps
 
-                nt = window*window_length + self.save_step + 1
+                nt = (window - 1)*window_length + (self.save_step + 1)
                 dt = self.aaos.dt
                 t = nt*dt
 

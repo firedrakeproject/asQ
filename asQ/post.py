@@ -29,14 +29,14 @@ def write_timesteps(pdg,
     # functions for writing to file
     functions = []
     for cpt in range(pdg.ncpts):
-        V = pdg.W.split()[cpt]
+        V = pdg.W.subfunctions[cpt]
         if len(function_names) != 0:
             functions.append(fd.Function(V, name=function_names[cpt]))
         else:
             functions.append(fd.Function(V))
 
     # functions from entire local time-slice
-    walls = pdg.w_all.split()
+    walls = pdg.w_all.subfunctions
 
     # first timestep of this local time-slice
     timestep0 = sum(pdg.M[:pdg.rT])
@@ -100,7 +100,7 @@ def write_timeseries(pdg,
     # functions for writing to file
     functions = []
     for cpt in range(pdg.ncpts):
-        V = pdg.W.split()[cpt]
+        V = pdg.W.subfunctions[cpt]
         if len(function_names) != 0:
             functions.append(fd.Function(V, name=function_names[cpt]))
         else:
@@ -112,7 +112,7 @@ def write_timeseries(pdg,
                           comm=pdg.ensemble.comm)
 
     # functions from entire local time-slice
-    walls = pdg.w_all.split()
+    walls = pdg.w_all.subfunctions
 
     # first timestep of this local time-slice
     timestep_begin = sum(pdg.M[:pdg.rT])

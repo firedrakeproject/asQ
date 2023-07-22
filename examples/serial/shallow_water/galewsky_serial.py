@@ -7,6 +7,7 @@ from utils import mg
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
+from utils import diagnostics
 
 from utils.serial import SerialMiniApp
 
@@ -29,6 +30,9 @@ parser.add_argument('--show_args', action='store_true', help='Output all the arg
 
 args = parser.parse_known_args()
 args = args[0]
+
+nt = args.nt
+degree = args.degree
 
 if args.show_args:
     PETSc.Sys.Print(args)
@@ -55,7 +59,8 @@ coriolis = swe.earth_coriolis_expression(*x)
 
 # initial conditions
 w_initial = fd.Function(W)
-u_initial, h_initial = w_initial.split()
+u_initial = w_initial.subfunctions[0]
+h_initial = w_initial.subfunctions[1]
 
 u_initial.project(galewsky.velocity_expression(*x))
 h_initial.project(galewsky.depth_expression(*x))
@@ -83,15 +88,18 @@ sparameters = {
     'snes': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-12
+        'rtol': 1e-12,
+        'atol': 1e-0,
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-8,
-        'rtol': 1e-8,
         'monitor': None,
-        'converged_reason': None
+        'converged_reason': None,
+        'atol': 1e-5,
+        'rtol': 1e-5,
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
@@ -106,7 +114,7 @@ sparameters = {
                 'pc_patch_save_operators': True,
                 'pc_patch_partition_of_unity': True,
                 'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_codim': 0,
+                'pc_patch_construct_dim': 0,
                 'pc_patch_construct_type': 'vanka',
                 'pc_patch_local_type': 'additive',
                 'pc_patch_precompute_element_tensors': True,
@@ -135,6 +143,17 @@ miniapp = SerialMiniApp(dt, args.theta,
 miniapp.nlsolver.set_transfer_manager(
     mg.manifold_transfer_manager(W))
 
+potential_vorticity = diagnostics.potential_vorticity_calculator(
+    u_initial.function_space(), name='vorticity')
+
+uout = fd.Function(u_initial.function_space(), name='velocity')
+hout = fd.Function(h_initial.function_space(), name='elevation')
+ofile = fd.File(f"output/{args.filename}.pvd")
+# save initial conditions
+uout.assign(u_initial)
+hout.assign(h_initial)
+ofile.write(uout, hout, potential_vorticity(uout), time=0)
+
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0
 nonlinear_its = 0
@@ -152,6 +171,10 @@ def postproc(app, step, t):
 
     linear_its += app.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += app.nlsolver.snes.getIterationNumber()
+
+    uout.assign(miniapp.w0.subfunctions[0])
+    hout.assign(miniapp.w0.subfunctions[1])
+    ofile.write(uout, hout, potential_vorticity(uout), time=t)
 
 
 miniapp.solve(args.nt,

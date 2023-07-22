@@ -8,6 +8,11 @@ on:
   # And all pull requests
   pull_request:
 
+concurrency:
+  # Cancels jobs running if new commits are pushed
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: "Build and test asQ"
@@ -42,8 +47,6 @@ jobs:
         run: |
           . /home/firedrake/firedrake/bin/activate
           firedrake-status
-          FFTW_INCLUDE_DIR=/home/firedrake/firedrake/src/petsc/default/include FFTW_LIBRARY_DIR=/home/firedrake/firedrake/src/petsc/default/lib python -m pip install mpi4py-fft 
-          python -m pip install --upgrade scipy
           python -m pip install -e .
       - name: Lint
         run: |
@@ -52,4 +55,6 @@ jobs:
       - name: Test
         run: |
           . /home/firedrake/firedrake/bin/activate
-          python -m pytest -vvv -s -n 3 --durations=0 --timeout=600 --cov=asQ tests/
+          python --version
+          python -m pytest --version
+          python -m pytest -vvv -s -n 6 --durations=0 --timeout=600 --cov=asQ --cov-report=term tests/

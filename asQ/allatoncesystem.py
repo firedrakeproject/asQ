@@ -1,45 +1,198 @@
 import firedrake as fd
-from firedrake.petsc import PETSc
 from functools import reduce
 from operator import mul
-from .profiling import memprofile
+from asQ.profiling import profiler
+from asQ.common import get_option_from_list
+from functools import partial
 
 from asQ.parallel_arrays import in_range, DistributedDataLayout1D
 
 
+@profiler()
+def time_average(aaos, uout, uwrk, uall=None, average='window'):
+    """
+    Compute the time average of an all-at-once function
+    over either entire window or current slice.
+
+    :arg aaos: AllAtOnceSystem describing the function to average.
+    :arg uout: Function to save average into.
+    :arg uwrk: Function to use as working buffer.
+    :arg uall: all-at-once function to average. If None the AllAtOnceSystem's is used.
+    :arg average: range of time-average.
+        'window': compute over all timesteps in all-at-once function.
+        'slice': compute only over timesteps on local ensemble member.
+    """
+    if uall is None:
+        uall = aaos.w_all
+    ualls = uall.subfunctions
+
+    # accumulate over local slice
+    uout.assign(0)
+    uouts = uout.subfunctions
+    for i in range(aaos.nlocal_timesteps):
+        for uo, uc in zip(uouts, aaos.get_field_components(i, f_alls=ualls)):
+            uo.assign(uo + uc)
+
+    if average == 'slice':
+        nsamples = aaos.nlocal_timesteps
+        uout /= fd.Constant(nsamples)
+    elif average == 'window':
+        aaos.ensemble.allreduce(uout, uwrk)
+        nsamples = aaos.ntimesteps
+        uout.assign(uwrk/fd.Constant(nsamples))
+    else:
+        raise ValueError(f"average type must be 'window' or 'slice', not {average}")
+
+    return
+
+
 class JacobianMatrix(object):
-    @memprofile
-    def __init__(self, aaos):
+    """
+    PETSc options:
+
+    'aaos_jacobian_linearisation': <'consistent', 'user'>
+        Which form to linearise when constructing the Jacobian.
+        Default is 'consistent'.
+
+        'consistent': use the same form used in the AllAtOnceSystem residual.
+        'user': use the alternative forms given to the AllAtOnceSystem.
+
+    'aaos_jacobian_state': <'current', 'window', 'slice', 'linear', 'initial', 'reference', 'user'>
+        Which state to linearise around when constructing the Jacobian.
+        Default is 'current'.
+
+        'current': use the current state of the AllAtOnceSystem (i.e. current Newton iterate).
+        'window': use the time average over the entire AllAtOnceSystem.
+        'slice': use the time average over timesteps on the local Ensemble member.
+        'linear': the form being linearised is linear, so no update to the state is needed.
+        'initial': use the initial condition is used for all timesteps.
+        'reference': use the reference state of the AllAtOnceSystem for all timesteps.
+        'user': the state will be set manually by the user so no update is needed.
+    """
+    prefix = "aaos_jacobian_"
+
+    @profiler()
+    def __init__(self, aaos, snes=None):
         r"""
         Python matrix for the Jacobian of the all at once system
         :param aaos: The AllAtOnceSystem object
         """
         self.aaos = aaos
-        self.u = fd.Function(self.aaos.function_space_all)  # for the input function
-        self.F = fd.Function(self.aaos.function_space_all)  # for the output residual
-        self.F_prev = fd.Function(self.aaos.function_space_all)  # Where we compute the
-        # part of the output residual from neighbouring contributions
 
-        self.urecv = fd.Function(self.aaos.function_space)  # will contain the previous time value i.e. 3*r-1
-        # Jform missing contributions from the previous step
-        # Find u1 s.t. F[u1, u2, u3; v] = 0 for all v
-        # definition:
-        # dF_{u1}[u1, u2, u3; delta_u, v] =
-        #  lim_{eps -> 0} (F[u1+eps*delta_u,u2,u3;v]
-        #                  - F[u1,u2,u3;v])/eps
-        # Newton, solves for delta_u such that
-        # dF_{u1}[u1, u2, u3; delta_u, v] = -F[u1,u2,u3; v], for all v
-        # then updates u1 += delta_u
-        self.Jform = fd.derivative(self.aaos.aao_form, self.aaos.w_all)
+        if snes is not None:
+            self.snes = snes
+            prefix = snes.getOptionsPrefix()
+            prefix += self.prefix
+
+        # function to linearise around, and timestep from end of previous slice
+        self.u = fd.Function(self.aaos.function_space_all)
+        self.urecv = fd.Function(self.aaos.function_space)
+
+        # function the Jacobian acts on, and contribution from timestep at end of previous slice
+        self.x = fd.Function(self.aaos.function_space_all)
+        self.xrecv = fd.Function(self.aaos.function_space)
+
+        # output residual, and contribution from timestep at end of previous slice
+        self.F = fd.Function(self.aaos.function_space_all)
+        self.F_prev = fd.Function(self.aaos.function_space_all)
+
+        # working buffers for calculating time average when needed
+        self.ureduce = fd.Function(self.aaos.function_space)
+        self.uwrk = fd.Function(self.aaos.function_space)
+
+        # option for what form to linearise
+        valid_linearisations = ['consistent', 'user']
+
+        if snes is None:
+            self.jacobian_mass = aaos.jacobian_mass
+            self.jacobian_function = aaos.jacobian_function
+        else:
+            linear_option = f"{prefix}linearisation"
+
+            linear = get_option_from_list(linear_option, valid_linearisations, default_index=0)
+
+            if linear == 'consistent':
+                self.jacobian_mass = aaos.form_mass
+                self.jacobian_function = aaos.form_function
+            elif linear == 'user':
+                self.jacobian_mass = aaos.jacobian_mass
+                self.jacobian_function = aaos.jacobian_function
+
+        # all-at-once form to linearise
+        self.aao_form = self.aaos.construct_aao_form(wall=self.u, wrecv=self.urecv,
+                                                     mass=self.jacobian_mass,
+                                                     function=self.jacobian_function)
+
+        # Jform without contributions from the previous step
+        self.Jform = fd.derivative(self.aao_form, self.u)
         # Jform contributions from the previous step
-        self.Jform_prev = fd.derivative(self.aaos.aao_form,
-                                        self.aaos.w_recv)
+        self.Jform_prev = fd.derivative(self.aao_form, self.urecv)
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+        self.Jaction = fd.action(self.Jform, self.x)
+        self.Jaction_prev = fd.action(self.Jform_prev, self.xrecv)
+
+        # option for what state to linearise around
+        valid_jacobian_states = ['current', 'window', 'slice', 'linear', 'initial', 'reference', 'user']
+
+        if snes is None:
+            self.jacobian_state = lambda: 'current'
+        else:
+            state_option = f"{prefix}state"
+
+            self.jacobian_state = partial(get_option_from_list,
+                                          state_option, valid_jacobian_states, default_index=0)
+
+        jacobian_state = self.jacobian_state()
+
+        if jacobian_state == 'reference' and self.aaos.reference_state is None:
+            raise ValueError("AllAtOnceSystem must be provided a reference state to use \'reference\' for aaos_jacobian_state.")
+
+        self.update()
+
+    @profiler()
+    def update(self, X=None):
+        # update the state to linearise around from the current all-at-once solution
+
+        aaos = self.aaos
+        jacobian_state = self.jacobian_state()
+
+        def uniform_state(u):
+            self.urecv.assign(u)
+            for i in range(aaos.nlocal_timesteps):
+                aaos.set_field(i, u, f_alls=self.u.subfunctions)
+
+        if jacobian_state == 'linear':
+            pass
+
+        elif jacobian_state == 'current':
+            if X is None:
+                self.u.assign(aaos.w_all)
+                self.urecv.assign(aaos.w_recv)
+            else:
+                aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
+
+        elif jacobian_state in ('window', 'slice'):
+            time_average(aaos, self.ureduce, self.uwrk, average=jacobian_state)
+            uniform_state(self.ureduce)
+
+        elif jacobian_state == 'initial':
+            uniform_state(aaos.initial_condition)
+
+        elif jacobian_state == 'reference':
+            uniform_state(aaos.reference_state)
+
+        elif jacobian_state == 'user':
+            pass
+
+        return
+
+        self.Jaction = fd.action(self.Jform, self.u)
+        self.Jaction_prev = fd.action(self.Jform_prev, self.urecv)
+
+    @profiler()
     def mult(self, mat, X, Y):
 
-        self.aaos.update(X, wall=self.u, wrecv=self.urecv, blocking=True)
+        self.aaos.update(X, wall=self.x, wrecv=self.xrecv, blocking=True)
 
         # Set the flag for the circulant option
         if self.aaos.circ in ["quasi", "picard"]:
@@ -48,9 +201,8 @@ class JacobianMatrix(object):
             self.aaos.Circ.assign(0.0)
 
         # assembly stage
-        fd.assemble(fd.action(self.Jform, self.u), tensor=self.F)
-        fd.assemble(fd.action(self.Jform_prev, self.urecv),
-                    tensor=self.F_prev)
+        fd.assemble(self.Jaction, tensor=self.F)
+        fd.assemble(self.Jaction_prev, tensor=self.F_prev)
         self.F += self.F_prev
 
         # unset flag if alpha-circulant approximation only in Jacobian
@@ -64,7 +216,7 @@ class JacobianMatrix(object):
         # at boundary nodes
         for bc in self.aaos.boundary_conditions_all:
             bc.homogenize()
-            bc.apply(self.F, u=self.u)
+            bc.apply(self.F, u=self.x)
             bc.restore()
 
         with self.F.dat.vec_ro as v:
@@ -72,12 +224,15 @@ class JacobianMatrix(object):
 
 
 class AllAtOnceSystem(object):
-    @memprofile
+    @profiler()
     def __init__(self,
                  ensemble, time_partition,
                  dt, theta,
                  form_mass, form_function,
                  w0, bcs=[],
+                 reference_state=None,
+                 jacobian_function=None,
+                 jacobian_mass=None,
                  circ="", alpha=1e-3):
         """
         The all-at-once system representing multiple timesteps of a time-dependent finite-element problem.
@@ -86,6 +241,15 @@ class AllAtOnceSystem(object):
         :arg time_partition: a list of integers for the number of timesteps stored on each ensemble rank.
         :arg w0: a Function containing the initial data.
         :arg bcs: a list of DirichletBC boundary conditions on w0.function_space.
+        :arg reference_state: a Function in W to use as a reference state
+            e.g. in DiagFFTPC
+        :arg circ: a string describing the option on where to use the
+            alpha-circulant modification. "picard" - do a nonlinear wave
+            form relaxation method. "quasi" - do a modified Newton
+            method with alpha-circulant modification added to the
+            Jacobian. To make the alpha circulant modification only in the
+            preconditioner, simply set ksp_type:preonly in the solve options.
+        :arg alpha: float, circulant matrix parameter
         """
         self.layout = DistributedDataLayout1D(time_partition, ensemble.ensemble_comm)
 
@@ -95,16 +259,34 @@ class AllAtOnceSystem(object):
         self.nlocal_timesteps = self.layout.local_size
         self.ntimesteps = self.layout.global_size
 
-        self.initial_condition = w0
         self.function_space = w0.function_space()
+        self.initial_condition = fd.Function(self.function_space).assign(w0)
+
+        if reference_state is None:
+            self.reference_state = None
+        else:
+            if reference_state.function_space() != w0.function_space():
+                raise ValueError("AllAtOnceSystem reference state must be in the"
+                                 + " same function space as the initial condition.")
+            self.reference_state = fd.Function(self.function_space).assign(reference_state)
+
+        # need to make copy of bcs too instead of taking a reference
         self.boundary_conditions = bcs
-        self.ncomponents = len(self.function_space.split())
+        self.ncomponents = len(self.function_space.subfunctions)
 
         self.dt = dt
+        self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
+        for n in range((self.nlocal_timesteps)):
+            self.time[n].assign(self.time[n] + dt*(self.transform_index(n, from_range='slice', to_range='window') + 1))
+
+        self.t0 = fd.Constant(0.0)
         self.theta = theta
 
         self.form_mass = form_mass
         self.form_function = form_function
+
+        self.jacobian_mass = jacobian_mass if jacobian_mass is not None else form_mass
+        self.jacobian_function = jacobian_function if jacobian_function is not None else form_function
 
         self.circ = circ
         self.alpha = alpha
@@ -121,7 +303,7 @@ class AllAtOnceSystem(object):
                                                for _ in range(self.nlocal_timesteps)))
 
         self.w_all = fd.Function(self.function_space_all)
-        self.w_alls = self.w_all.split()
+        self.w_alls = self.w_all.subfunctions
 
         for i in range(self.nlocal_timesteps):
             self.set_field(i, self.initial_condition, index_range='slice')
@@ -140,9 +322,9 @@ class AllAtOnceSystem(object):
         self.w_recv = fd.Function(self.function_space)
         self.w_send = fd.Function(self.function_space)
 
-        self._set_aao_form()
-        self.jacobian = JacobianMatrix(self)
+        self.aao_form = self.construct_aao_form(self.w_all, self.w_recv)
 
+    @profiler()
     def set_boundary_conditions(self, bcs):
         """
         Set the boundary conditions onto solution at each timestep in the all-at-once system.
@@ -167,6 +349,7 @@ class AllAtOnceSystem(object):
 
         return bcs_all
 
+    @profiler()
     def transform_index(self, i, cpt=None, from_range='slice', to_range='slice'):
         '''
         Shift timestep or component index from one range to another, and accounts for -ve indices.
@@ -201,7 +384,7 @@ class AllAtOnceSystem(object):
             cpt = cpt % self.max_indices['component']
             return i*self.ncomponents + cpt
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def set_component(self, step, cpt, wnew, index_range='slice', f_alls=None):
         '''
         Set component of solution at a timestep to new value
@@ -220,7 +403,7 @@ class AllAtOnceSystem(object):
 
         f_alls[aao_index].assign(wnew)
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def get_component(self, step, cpt, index_range='slice', wout=None, name=None, f_alls=None, deepcopy=False):
         '''
         Get component of solution at a timestep
@@ -253,6 +436,7 @@ class AllAtOnceSystem(object):
             wreturn.assign(wget)
             return wreturn
 
+    @profiler()
     def get_field_components(self, step, index_range='slice', f_alls=None):
         '''
         Get tuple of the components of the all-at-once function for a timestep.
@@ -267,7 +451,7 @@ class AllAtOnceSystem(object):
         return tuple(self.get_component(step, cpt, f_alls=f_alls)
                      for cpt in range(self.ncomponents))
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def set_field(self, step, wnew, index_range='slice', f_alls=None):
         '''
         Set solution at a timestep to new value
@@ -281,7 +465,7 @@ class AllAtOnceSystem(object):
             self.set_component(step, cpt, wnew.sub(cpt),
                                index_range=index_range, f_alls=f_alls)
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def get_field(self, step, index_range='slice', wout=None, name=None, f_alls=None):
         '''
         Get solution at a timestep
@@ -303,7 +487,7 @@ class AllAtOnceSystem(object):
 
         return wget
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def for_each_timestep(self, callback):
         '''
         call callback for each timestep in each slice in the current window
@@ -320,7 +504,7 @@ class AllAtOnceSystem(object):
             self.get_field(slice_index, wout=w, index_range='slice')
             callback(window_index, slice_index, w)
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def next_window(self, w1=None):
         """
         Reset all-at-once-system ready for next time-window
@@ -343,10 +527,11 @@ class AllAtOnceSystem(object):
         # persistence forecast
         for i in range(self.nlocal_timesteps):
             self.set_field(i, self.initial_condition, index_range='slice')
-
+            self.time[i].assign(self.time[i] + self.dt*self.ntimesteps)
+        self.t0.assign(self.t0 + self.dt*self.ntimesteps)
         return
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def update_time_halos(self, wsend=None, wrecv=None, walls=None, blocking=True):
         '''
         Update wrecv with the last step from the previous slice (periodic) of walls
@@ -382,7 +567,7 @@ class AllAtOnceSystem(object):
         return sendrecv(fsend=wsend, dest=dst, sendtag=rank,
                         frecv=wrecv, source=src, recvtag=src)
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def update(self, X, wall=None, wsend=None, wrecv=None, blocking=True):
         '''
         Update self.w_alls and self.w_recv from PETSc Vec X.
@@ -402,11 +587,10 @@ class AllAtOnceSystem(object):
 
         return self.update_time_halos(wsend=wsend,
                                       wrecv=wrecv,
-                                      walls=wall.split(),
+                                      walls=wall.subfunctions,
                                       blocking=blocking)
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def _assemble_function(self, snes, X, Fvec):
         r"""
         This is the function we pass to the snes to assemble
@@ -429,13 +613,35 @@ class AllAtOnceSystem(object):
         with self.F_all.dat.vec_ro as v:
             v.copy(Fvec)
 
-    def _set_aao_form(self):
+    @profiler()
+    def construct_aao_form(self, wall=None, wrecv=None, mass=None, function=None):
         """
         Constructs the bilinear form for the all at once system.
         Specific to the theta-centred Crank-Nicholson method
-        """
 
-        w_alls = fd.split(self.w_all)
+        :arg wall: all-at-once function to construct the form over.
+            Defaults to the AllAtOnceSystem's.
+        :arg wrecv: last timestep from previous time slice.
+            Defaults to the AllAtOnceSystem's.
+        :arg mass: a function that returns a linear form on w0.function_space()
+            providing the mass operator for the time derivative.
+        :arg function: a function that returns a form on w0.function_space()
+            providing f(w) for the ODE w_t + f(w) = 0.
+        """
+        if wall is None:
+            w_alls = fd.split(self.w_all)
+        else:
+            w_alls = fd.split(wall)
+
+        if wrecv is None:
+            wrecv = self.w_recv
+
+        if mass is None:
+            mass = self.form_mass
+
+        if function is None:
+            function = self.form_function
+
         test_fns = fd.TestFunctions(self.function_space_all)
 
         dt = fd.Constant(self.dt)
@@ -449,7 +655,6 @@ class AllAtOnceSystem(object):
             return self.get_field_components(i, f_alls=test_fns)
 
         for n in range(self.nlocal_timesteps):
-
             # previous time level
             if n == 0:
                 if self.time_rank == 0:
@@ -457,13 +662,13 @@ class AllAtOnceSystem(object):
                     w0list = fd.split(self.initial_condition)
 
                     # circulant option for quasi-Jacobian
-                    wrecvlist = fd.split(self.w_recv)
+                    wrecvlist = fd.split(wrecv)
 
                     w0s = [w0list[i] + self.Circ*alpha*wrecvlist[i]
                            for i in range(self.ncomponents)]
                 else:
-                    # self.w_recv will contain the data from the previous slice
-                    w0s = fd.split(self.w_recv)
+                    # wrecv will contain the data from the previous slice
+                    w0s = fd.split(wrecv)
             else:
                 w0s = get_step(n-1)
 
@@ -473,13 +678,13 @@ class AllAtOnceSystem(object):
 
             # time derivative
             if n == 0:
-                aao_form = (1.0/dt)*self.form_mass(*w1s, *dws)
+                aao_form = (1.0/dt)*mass(*w1s, *dws)
             else:
-                aao_form += (1.0/dt)*self.form_mass(*w1s, *dws)
-            aao_form -= (1.0/dt)*self.form_mass(*w0s, *dws)
+                aao_form += (1.0/dt)*mass(*w1s, *dws)
+            aao_form -= (1.0/dt)*mass(*w0s, *dws)
 
             # vector field
-            aao_form += theta*self.form_function(*w1s, *dws)
-            aao_form += (1-theta)*self.form_function(*w0s, *dws)
+            aao_form += theta*function(*w1s, *dws, self.time[n])
+            aao_form += (1.0 - theta)*function(*w0s, *dws, self.time[n]-dt)
 
-        self.aao_form = aao_form
+        return aao_form

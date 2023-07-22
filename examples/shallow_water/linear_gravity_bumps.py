@@ -1,11 +1,9 @@
-
-import firedrake as fd  # noqa: F401
 from petsc4py import PETSc
 
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
-from utils.shallow_water import galewsky
+import utils.shallow_water.gravity_bumps as case
 
 from functools import partial
 
@@ -14,7 +12,7 @@ PETSc.Sys.popErrorHandler()
 # get command arguments
 import argparse
 parser = argparse.ArgumentParser(
-    description='Galewsky testcase for ParaDiag solver using fully implicit SWE solver.',
+    description='Gravity wave testcase for ParaDiag solver using fully implicit linear SWE solver.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 
@@ -23,8 +21,8 @@ parser.add_argument('--nwindows', type=int, default=1, help='Number of time-wind
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
-parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
-parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
+parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours.')
+parser.add_argument('--filename', type=str, default='gravity_waves', help='Name of output vtk files.')
 parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
@@ -40,7 +38,7 @@ PETSc.Sys.Print('')
 
 # time steps
 
-time_partition = tuple((args.slice_length for _ in range(args.nslices)))
+time_partition = [args.slice_length for _ in range(args.nslices)]
 window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
@@ -61,8 +59,13 @@ patch_parameters = {
     },
     'sub': {
         'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_shift_type': 'nonzero',
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_detect_saddle_point': None,
+        'pc_fieldsplit_schur_fact_type': 'full',
+        'pc_fieldsplit_schur_precondition': 'full',
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
     }
 }
 
@@ -78,52 +81,50 @@ mg_parameters = {
         'pc_type': 'python',
         'pc_python_type': 'firedrake.AssembledPC',
         'assembled_pc_type': 'lu',
-        'assembled_pc_factor_mat_solver_type': 'mumps',
-    },
+        'assembled_pc_factor_mat_solver_type': 'mumps'
+    }
 }
 
-block_params = {
+sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
-        'max_it': 50,
+        'max_it': 60
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
+    'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
 
-atol = 1e0
 sparameters_diag = {
+    'snes_type': 'ksponly',
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': atol,
         'rtol': 1e-10,
-        'stol': 1e-12,
-        'ksp_ew': None,
-        'ksp_ew_version': 1,
-        'ksp_ew_threshold': 1e-2,
+        'atol': 1e-0,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
+    'ksp_rtol': 1e-10,
+    'ksp_atol': 1-0,
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-5,
-        'atol': atol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_state': 'window',
-    'aaos_jacobian_state': 'current'
+    'diagfft_state': 'linear',
+    'aaos_jacobian_state': 'linear',
 }
 
-sparameters_diag['diagfft_block_'] = block_params
+sparameters_diag['diagfft_block'] = sparameters
+# for i in range(window_length):
+#     sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
@@ -133,22 +134,16 @@ create_mesh = partial(
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
 miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
-                                  topography_expression=galewsky.topography_expression,
-                                  velocity_expression=galewsky.velocity_expression,
-                                  depth_expression=galewsky.depth_expression,
-                                  reference_depth=galewsky.H0,
-                                  reference_state=True,
+                                  topography_expression=case.topography_expression,
+                                  velocity_expression=case.velocity_expression,
+                                  depth_expression=case.depth_expression,
+                                  reference_depth=case.H,
                                   create_mesh=create_mesh,
+                                  linear=True,
                                   dt=dt, theta=0.5,
                                   alpha=args.alpha, time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
-                                  record_diagnostics={'cfl': True, 'file': False})
-
-
-ics = miniapp.aaos.initial_condition
-miniapp.aaos.reference_state.assign(ics)
-miniapp.aaos.reference_state.subfunctions[0].assign(0)
-miniapp.aaos.reference_state.subfunctions[1].assign(galewsky.H0)
+                                  file_name='output/'+args.filename)
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -163,7 +158,6 @@ def window_postproc(swe_app, pdg, wndw):
         time = nt*miniapp.aaos.dt
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)
-        PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
         PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
         PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
         PETSc.Sys.Print('', comm=comm)
