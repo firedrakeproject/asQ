@@ -284,7 +284,7 @@ def test_time_update():
     for i in range(aaofunc.ntimesteps):
         assert (times.dglobal[i] == ((i + 1)*dt))
     # Test time seried of the second window with the optional argument t=0.
-    aaoform.time_update(t=0)
+    aaoform.time_update(t=.04)
 
     for i in range(aaofunc.nlocal_timesteps):
         times.dlocal[i] = aaoform.time[i]
