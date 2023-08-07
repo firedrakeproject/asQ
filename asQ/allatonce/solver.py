@@ -21,6 +21,26 @@ class AllAtOnceSolver(TimePartitionMixin):
                  post_jacobian_callback=lambda solver, X, J: None):
         """
         Solves an all-at-once form over an all-at-once function.
+
+        :arg aaoform: the AllAtOnceForm to solve.
+        :arg aaofunc: the AllAtOnceFunction solution.
+        :arg solver_parameters: solver parameters to pass to PETSc.
+            This should be a dict mapping PETSc options to values.
+        :arg appctx: A dictionary containing application context that is
+            passed to the preconditioner if matrix-free.
+        :arg options_prefix: an optional prefix used to distinguish PETSc options.
+            Use this option if you want to pass options to the solver from the
+            command line in addition to through the solver_parameters dict.
+        :arg jacobian_form: an AllAtOnceForm to create the AllAtOnceJacobian from.
+            Allows the Jacobian to be defined around a form different to that being solved.
+        :arg jacobian_reference_state: a firedrake.Function to pass to the AllAtOnceJacobian
+            as a reference state.
+        :arg pre_function_callback: A user-defined function that will be called immediately
+            before residual assembly. This can be used, for example, to update a coefficient
+            function that has a complicated dependence on the unknown solution.
+        :arg post_function_callback: As above, but called immediately after residual assembly.
+        :arg pre_jacobian_callback: As above, but called immediately before Jacobian assembly.
+        :arg post_jacobian_callback: As above, but called immediately after Jacobian assembly.
         """
         self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
         self.aaofunc = aaofunc
@@ -107,6 +127,11 @@ class AllAtOnceSolver(TimePartitionMixin):
     @PETSc.Log.EventDecorator()
     @memprofile
     def solve(self, rhs=None):
+        """
+        Solve the all-at-once system.
+
+        :arg rhs: optional constant part of the system.
+        """
         with self.aaofunc.global_vec() as gvec, self.options.inserted_options():
             if rhs is None:
                 self.snes.solve(None, gvec)
