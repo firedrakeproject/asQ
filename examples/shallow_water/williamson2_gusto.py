@@ -106,19 +106,31 @@ eqn = gusto.ShallowWaterEquations(domain,
                                   swe_parameters,
                                   fexpr=case2.coriolis_expression(*x))
 
-from gusto.labels import replace_subject, replace_test_function, time_derivative
+from gusto.labels import replace_subject, replace_test_function, time_derivative, prognostic
 from gusto.fml.form_manipulation_labelling import all_terms, drop
+from gusto import Term
+from firedrake.formmanipulation import split_form
 
 
 def extract_form_mass(u, h, v, q, residual=None):
     M = residual.label_map(lambda t: t.has_label(time_derivative),
                            map_if_false=drop)
 
-    M = M.label_map(all_terms, replace_subject(u, idx=0))
-    M = M.label_map(all_terms, replace_subject(h, idx=1))
+    Mu = M.label_map(lambda t: t.get(prognostic) == "u",
+                     lambda t: Term(split_form(t.form)[0].form, t.labels),
+                     drop)
 
-    M = M.label_map(all_terms, replace_test_function(q, idx=1))
-    M = M.label_map(all_terms, replace_test_function(v, idx=0))
+    Mh = M.label_map(lambda t: t.get(prognostic) == "D",
+                     lambda t: Term(split_form(t.form)[1].form, t.labels),
+                     drop)
+
+    Mu = Mu.label_map(all_terms, replace_test_function(v))
+    Mu = Mu.label_map(all_terms, replace_subject(u, idx=0))
+
+    Mh = Mh.label_map(all_terms, replace_test_function(q))
+    Mh = Mh.label_map(all_terms, replace_subject(h, idx=1))
+
+    M = Mu + Mh
     return M.form
 
 
@@ -126,11 +138,21 @@ def extract_form_function(u, h, v, q, t, residual=None):
     K = residual.label_map(lambda t: t.has_label(time_derivative),
                            map_if_true=drop)
 
-    K = K.label_map(all_terms, replace_subject(u, idx=0))
-    K = K.label_map(all_terms, replace_subject(h, idx=1))
+    Ku = K.label_map(lambda t: t.get(prognostic) == "u",
+                     lambda t: Term(split_form(t.form)[0].form, t.labels),
+                     drop)
 
-    K = K.label_map(all_terms, replace_test_function(q, idx=1))
-    K = K.label_map(all_terms, replace_test_function(v, idx=0))
+    Kh = K.label_map(lambda t: t.get(prognostic) == "D",
+                     lambda t: Term(split_form(t.form)[1].form, t.labels),
+                     drop)
+
+    Ku = Ku.label_map(all_terms, replace_test_function(v))
+    Ku = Ku.label_map(all_terms, replace_subject(u, idx=0))
+
+    Kh = Kh.label_map(all_terms, replace_test_function(q))
+    Kh = Kh.label_map(all_terms, replace_subject(h, idx=1))
+
+    K = Ku + Kh
     return K.form
 
 
@@ -304,6 +326,7 @@ pdg_gusto.solve(nwindows=args.nwindows,
                 preproc=window_preproc,
                 postproc=window_postproc)
 
+PETSc.Sys.Print('')
 PETSc.Sys.Print("Solving with the old forms")
 
 pdg.solve(nwindows=args.nwindows,
