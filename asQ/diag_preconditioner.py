@@ -25,18 +25,20 @@ class DiagFFTPC(TimePartitionMixin):
         Which form to linearise when constructing the block Jacobians.
         Default is 'consistent'.
 
-        'consistent': use the same form used in the AllAtOnceSystem residual.
-        'user': use the alternative forms given to the AllAtOnceSystem.
+        'consistent': use the same form used in the AllAtOnceForm residual.
+        'user': use the alternative forms given in the appctx.
+            If this option is specified then the appctx must contain form_mass
+            and form_function entries with keys 'pc_form_mass' and 'pc_form_function'.
 
     'diagfft_state': <'window', 'slice', 'linear', 'initial', 'reference'>
         Which state to linearise around when constructing the block Jacobians.
         Default is 'window'.
 
-        'window': use the time average over the entire AllAtOnceSystem.
+        'window': use the time average over the entire AllAtOnceFunction.
         'slice': use the time average over timesteps on the local Ensemble member.
-        'linear': the form linearised is already linear, so no update to the state is needed
-        'initial': use the initial condition is used for all timesteps.
-        'reference': use the reference state of the AllAtOnceSystem for all timesteps.
+        'linear': the form linearised is already linear, so no update to the state is needed.
+        'initial': the initial condition of the AllAtOnceFunction is used for all timesteps.
+        'reference': use the reference state of the AllAtOnceJacobian for all timesteps.
 
     'diagfft_mass': <LinearSolver options>
         The solver options for the Riesz map.
@@ -50,17 +52,18 @@ class DiagFFTPC(TimePartitionMixin):
 
     'diagfft_dt': <float>
         The timestep size to use in the preconditioning matrix.
-        Defaults to the timestep size used in the Jacobian.
+        Defaults to the timestep size used in the AllAtOnceJacobian.
 
     'diagfft_theta': <float>
         The implicit theta method parameter to use in the preconditioning matrix.
-        Defaults to the implicit theta method parameter used in the Jacobian.
+        Defaults to the implicit theta method parameter used in the AllAtOnceJacobian.
 
     'diagfft_alpha': <float>
         The circulant parameter to use in the preconditioning matrix.
         Defaults to 1e-3.
     """
     prefix = "diagfft_"
+    default_alpha = 1e-3
 
     def __init__(self):
         r"""A preconditioner for all-at-once systems with alpha-circulant
@@ -122,7 +125,7 @@ class DiagFFTPC(TimePartitionMixin):
             f"{prefix}theta", default=aaoform.theta)
 
         self.alpha = PETSc.Options().getReal(
-            f"{prefix}alpha", default=1e-3)
+            f"{prefix}alpha", default=self.default_alpha)
 
         dt = self.dt
         theta = self.theta
@@ -330,7 +333,7 @@ class DiagFFTPC(TimePartitionMixin):
         """
         Update diagnostic information from block linear solvers.
 
-        Must be called exactly once at the end of each apply()
+        Must be called exactly once at the end of each apply().
         """
         for i in range(self.nlocal_timesteps):
             its = self.Jsolvers[i].snes.getLinearSolveIterations()
@@ -340,11 +343,11 @@ class DiagFFTPC(TimePartitionMixin):
     @memprofile
     def update(self, pc):
         '''
-        we need to update u0 from w_all, containing state.
-        we copy w_all into the "real" and "imaginary" parts of u0
-        this is so that when we linearise the nonlinearity, we get
-        an operator that is block diagonal in the 2x2 system coupling
-        real and imaginary parts.
+        we need to update u0 according to the diagfft_state option.
+        we copy the state into both the "real" and "imaginary" parts
+        of u0. this is so that when we linearise the nonlinearity,
+        we get an operator that is block diagonal in the 2x2 system
+        coupling real and imaginary parts.
         '''
         jac_state = self.jac_state()
         if jac_state == 'linear':
