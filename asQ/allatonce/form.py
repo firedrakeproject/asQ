@@ -38,7 +38,7 @@ class AllAtOnceForm(TimePartitionMixin):
         self.field_function_space = aaofunc.field_function_space
         self.function_space = aaofunc.function_space
 
-        self.dt = dt
+        self.dt = fd.Constant(dt)
         self.t0 = fd.Constant(0)
         self.time = tuple(fd.Constant(0) for _ in range(self.aaofunc.nlocal_timesteps))
         for n in range((self.aaofunc.nlocal_timesteps)):
