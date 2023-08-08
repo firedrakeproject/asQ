@@ -284,15 +284,17 @@ def test_time_update():
     for i in range(aaofunc.ntimesteps):
         assert (times.dglobal[i] == ((i + 1)*dt))
     # Test time seried of the second window with the optional argument t=0.
-    aaoform.time_update(t=.04)
+    np.random.seed(10)
+    t_1 = np.random.random()
+    aaoform.time_update(t=t_1)
 
     for i in range(aaofunc.nlocal_timesteps):
         times.dlocal[i] = aaoform.time[i]
     times.synchronise()
 
-    assert (float(aaoform.t0) == .04)
+    assert (float(aaoform.t0) == t_1)
     for i in range(aaofunc.ntimesteps):
-        assert (times.dglobal[i] == ((4 + i + 1)*dt))
+        assert (times.dglobal[i] == (t_1 + (i + 1)*dt))
 
     # Test the time series of the third window with the optional argument t=None.
     aaoform.time_update()
@@ -301,6 +303,6 @@ def test_time_update():
         times.dlocal[i] = aaoform.time[i]
     times.synchronise()
 
-    assert (float(aaoform.t0) == .08)
+    assert (float(aaoform.t0) == t_1 + 4*dt)
     for i in range(aaofunc.ntimesteps):
-        assert (times.dglobal[i] == ((8 + i + 1)*dt))
+        assert (times.dglobal[i] == (t_1 + 4*dt + (i + 1)*dt))
