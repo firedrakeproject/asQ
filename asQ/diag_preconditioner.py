@@ -94,8 +94,7 @@ class DiagFFTPC(TimePartitionMixin):
         jacobian.pc = self
         aaofunc = jacobian.current_state
         self.aaofunc = aaofunc
-
-        aaoform = jacobian.aaoform
+        self.aaoform = jacobian.aaoform
 
         appctx = jacobian.appctx
 
@@ -119,15 +118,16 @@ class DiagFFTPC(TimePartitionMixin):
 
         # diagonalisation options
         self.dt = PETSc.Options().getReal(
-            f"{prefix}dt", default=aaoform.dt)
+            f"{prefix}dt", default=self.aaoform.dt)
 
         self.theta = PETSc.Options().getReal(
-            f"{prefix}theta", default=aaoform.theta)
+            f"{prefix}theta", default=self.aaoform.theta)
 
         self.alpha = PETSc.Options().getReal(
             f"{prefix}alpha", default=self.default_alpha)
 
         dt = self.dt
+        self.t_average = fd.Constant(self.aaoform.t0 + (self.aaofunc.ntimesteps + 1)*self.dt/2)
         theta = self.theta
         alpha = self.alpha
         nt = self.ntimesteps
@@ -156,7 +156,7 @@ class DiagFFTPC(TimePartitionMixin):
 
         # set the boundary conditions to zero for the residual
         self.CblockV_bcs = tuple((cb
-                                  for bc in aaoform.field_bcs
+                                  for bc in self.aaoform.field_bcs
                                   for cb in cpx.DirichletBC(self.CblockV, self.blockV,
                                                             bc, 0*bc.function_arg)))
 
@@ -252,8 +252,8 @@ class DiagFFTPC(TimePartitionMixin):
                                              default_index=0)
 
         if linearisation == 'consistent':
-            form_mass = aaoform.form_mass
-            form_function = aaoform.form_function
+            form_mass = self.aaoform.form_mass
+            form_function = self.aaoform.form_function
         elif linearisation == 'user':
             try:
                 form_mass = appctx['pc_form_mass']
@@ -276,7 +276,7 @@ class DiagFFTPC(TimePartitionMixin):
             d2 = self.D2[ii]
 
             M, D1r, D1i = cpx.BilinearForm(self.CblockV, d1, form_mass, return_z=True)
-            K, D2r, D2i = cpx.derivative(d2, form_function, self.u0, return_z=True)
+            K, D2r, D2i = cpx.derivative(d2, partial(form_function, t=self.t_average), self.u0, return_z=True)
 
             A = M + K
 
@@ -366,6 +366,7 @@ class DiagFFTPC(TimePartitionMixin):
         cpx.set_real(self.u0, ustate)
         cpx.set_imag(self.u0, ustate)
 
+        self.t_average.assign(self.aaoform.t0 + (self.aaofunc.ntimesteps + 1)*self.dt/2)
         return
 
     @PETSc.Log.EventDecorator()

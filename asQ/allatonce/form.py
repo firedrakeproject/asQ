@@ -35,11 +35,14 @@ class AllAtOnceForm(TimePartitionMixin):
         self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
 
         self.aaofunc = aaofunc
-
         self.field_function_space = aaofunc.field_function_space
         self.function_space = aaofunc.function_space
 
         self.dt = fd.Constant(dt)
+        self.t0 = fd.Constant(0)
+        self.time = tuple(fd.Constant(0) for _ in range(self.aaofunc.nlocal_timesteps))
+        for n in range((self.aaofunc.nlocal_timesteps)):
+            self.time[n].assign(self.t0 + self.dt*(self.aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
         self.theta = fd.Constant(theta)
 
         self.form_mass = form_mass
@@ -58,6 +61,16 @@ class AllAtOnceForm(TimePartitionMixin):
         self.F = aaofunc.copy(copy_values=False).zero()
 
         self.form = self._construct_form()
+
+    def time_update(self, t=None):
+
+        if t is not None:
+            self.t0.assign(t)
+        else:
+            self.t0.assign(self.t0 + self.dt*self.aaofunc.ntimesteps)
+        for n in range((self.aaofunc.nlocal_timesteps)):
+            self.time[n].assign(self.t0 + self.dt*(self.aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
+        return
 
     def _set_bcs(self, field_bcs):
         """
@@ -191,7 +204,7 @@ class AllAtOnceForm(TimePartitionMixin):
             form -= (1.0/dt)*form_mass(*uns, *vs)
 
             # vector field
-            form += theta*form_function(*un1s, *vs)
-            form += (1.0 - theta)*form_function(*uns, *vs)
+            form += theta*form_function(*un1s, *vs, self.time[n])
+            form += (1.0 - theta)*form_function(*uns, *vs, self.time[n]-dt)
 
         return form

@@ -34,9 +34,13 @@ def test_heat_jacobian():
     # build the all-at-once form
 
     dt = fd.Constant(0.01)
+    time = tuple(fd.Constant(0) for _ in range(aaofunc.ntimesteps))
+    for i in range(aaofunc.ntimesteps):
+        time[i].assign((i+1)*dt)
+
     theta = fd.Constant(0.75)
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
@@ -63,8 +67,7 @@ def test_heat_jacobian():
         unp1 = ufulls[i]
         v = vfulls[i]
         tform = form_mass(unp1 - un, v/dt)
-        tform += theta*form_function(unp1, v) + (1-theta)*form_function(un, v)
-
+        tform += theta*form_function(unp1, v, time[i]) + (1-theta)*form_function(un, v, time[i]-dt)
         if i == 0:
             fullform = tform
         else:
@@ -141,9 +144,13 @@ def test_mixed_heat_jacobian():
     # build the all-at-once form
 
     dt = fd.Constant(0.01)
+    time = tuple(fd.Constant(0) for _ in range(aaofunc.ntimesteps))
+    for i in range(aaofunc.ntimesteps):
+        time[i].assign((i+1)*dt)
+
     theta = fd.Constant(0.75)
 
-    def form_function(u, p, v, q):
+    def form_function(u, p, v, q, t):
         return (fd.div(v)*p - fd.div(u)*q)*fd.dx
 
     def form_mass(u, p, v, q):
@@ -172,8 +179,7 @@ def test_mixed_heat_jacobian():
         v = vfulls[2*i:2*(i+1)]
 
         tform = (1/dt)*(form_mass(*unp1, *v) - form_mass(*un, *v))
-        tform += theta*form_function(*unp1, *v) + (1-theta)*form_function(*un, *v)
-
+        tform += theta*form_function(*unp1, *v, time[i]) + (1-theta)*form_function(*un, *v, time[i]-dt)
         if i == 0:
             fullform = tform
         else:

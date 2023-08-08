@@ -196,5 +196,6 @@ class Paradiag(TimePartitionMixin):
             if wndw != nwindows-1:
                 self.aaofunc.bcast_field(-1, self.aaofunc.initial_condition)
                 self.aaofunc.assign(self.aaofunc.initial_condition)
-
+                self.aaoform.time_update()
+                self.solver.jacobian_form.time_update()
         self.sync_diagnostics()

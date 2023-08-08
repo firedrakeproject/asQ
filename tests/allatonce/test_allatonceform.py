@@ -41,9 +41,13 @@ def test_heat_form(bc_opt, alpha):
     # build the all-at-once form
 
     dt = fd.Constant(0.01)
+    time = tuple(fd.Constant(0) for _ in range(aaofunc.ntimesteps))
+    for i in range(aaofunc.ntimesteps):
+        time[i].assign((i+1)*dt)
+
     theta = fd.Constant(0.75)
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         c = fd.Constant(0.1)
         nu = fd.Constant(1) + c*fd.inner(u, u)
         return fd.inner(nu*fd.grad(u), fd.grad(v))*fd.dx
@@ -91,8 +95,7 @@ def test_heat_form(bc_opt, alpha):
         unp1 = ufulls[i]
         v = vfulls[i]
         tform = form_mass(unp1 - un, v/dt)
-        tform += theta*form_function(unp1, v) + (1-theta)*form_function(un, v)
-
+        tform += theta*form_function(unp1, v, time[i]) + (1-theta)*form_function(un, v, time[i]-dt)
         if i == 0:
             fullform = tform
         else:
@@ -151,9 +154,13 @@ def test_mixed_heat_form(bc_opt):
     # build the all-at-once form
 
     dt = fd.Constant(0.01)
+    time = tuple(fd.Constant(0) for _ in range(aaofunc.ntimesteps))
+    for i in range(aaofunc.ntimesteps):
+        time[i].assign((i+1)*dt)
+
     theta = fd.Constant(0.75)
 
-    def form_function(u, p, v, q):
+    def form_function(u, p, v, q, t):
         return (fd.div(v)*p - fd.div(u)*q)*fd.dx
 
     def form_mass(u, p, v, q):
@@ -200,8 +207,7 @@ def test_mixed_heat_form(bc_opt):
         v = vfulls[2*i:2*(i+1)]
 
         tform = (1/dt)*(form_mass(*unp1, *v) - form_mass(*un, *v))
-        tform += theta*form_function(*unp1, *v) + (1-theta)*form_function(*un, *v)
-
+        tform += theta*form_function(*unp1, *v, time[i]) + (1-theta)*form_function(*un, *v, time[i]-dt)
         if i == 0:
             fullform = tform
         else:
@@ -231,3 +237,72 @@ def test_mixed_heat_form(bc_opt):
             uparallel = aaoform.F.get_component(step, cpt)
             err = fd.errornorm(userial, uparallel)
             assert (err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_time_update():
+    # Given that the initial time step is at t=1. Test if we have correct time update from the first window to the next one.
+
+    nslices = fd.COMM_WORLD.size//2
+    slice_length = 2
+
+    time_partition = tuple((slice_length for _ in range(nslices)))
+    ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    x, y = fd.SpatialCoordinate(mesh)
+    V = fd.FunctionSpace(mesh, "CG", 1)
+
+    aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, V)
+
+    ics = fd.Function(V, name="ics")
+    ics.interpolate(fd.Constant(0))
+    aaofunc.assign(ics)
+
+    dt = 0.01
+    theta = 0.5
+    alpha = 0.5
+
+    def form_function(u, v, t):
+        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
+                                form_mass, form_function,
+                                alpha=alpha)
+
+    # The time series we get from the allatonce form
+    times = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+
+    for i in range(aaofunc.nlocal_timesteps):
+        times.dlocal[i] = aaoform.time[i]
+    times.synchronise()
+
+    assert (float(aaoform.t0) == 0)
+    for i in range(aaofunc.ntimesteps):
+        assert (times.dglobal[i] == ((i + 1)*dt))
+    # Test time seried of the second window with the optional argument t=0.
+    np.random.seed(10)
+    t_1 = np.random.random()
+    aaoform.time_update(t=t_1)
+
+    for i in range(aaofunc.nlocal_timesteps):
+        times.dlocal[i] = aaoform.time[i]
+    times.synchronise()
+
+    assert (float(aaoform.t0) == t_1)
+    for i in range(aaofunc.ntimesteps):
+        assert (times.dglobal[i] == (t_1 + (i + 1)*dt))
+
+    # Test the time series of the third window with the optional argument t=None.
+    aaoform.time_update()
+
+    for i in range(aaofunc.nlocal_timesteps):
+        times.dlocal[i] = aaoform.time[i]
+    times.synchronise()
+
+    assert (float(aaoform.t0) == t_1 + 4*dt)
+    for i in range(aaofunc.ntimesteps):
+        assert (times.dglobal[i] == (t_1 + 4*dt + (i + 1)*dt))

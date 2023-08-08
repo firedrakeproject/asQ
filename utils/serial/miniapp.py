@@ -25,6 +25,7 @@ class SerialMiniApp(object):
         :arg solver_parameters: options dictionary for nonlinear solver
         '''
         self.dt = dt
+        self.time = fd.Constant(dt)
         self.theta = theta
 
         self.initial_condition = w_initial
@@ -64,7 +65,7 @@ class SerialMiniApp(object):
 
         dqdt = form_mass(*w1s, *v) - form_mass(*w0s, *v)
 
-        L = theta*form_function(*w1s, *v) + (1 - theta)*form_function(*w0s, *v)
+        L = theta*form_function(*w1s, *v, self.time) + (1 - theta)*form_function(*w0s, *v, self.time - dt)
 
         return dt1*dqdt + L
 
@@ -74,16 +75,14 @@ class SerialMiniApp(object):
         '''
         Integrate forward nt timesteps
         '''
-        time = 0
         for step in range(nt):
-            preproc(self, step, time)
+            preproc(self, step, self.time)
 
             self.nlsolver.solve()
             self.w0.assign(self.w1)
+            self.time.assign(self.time + self.dt)
 
-            time += self.dt
-
-            postproc(self, step, time)
+            postproc(self, step, self.time)
 
 
 class ComparisonMiniapp(object):

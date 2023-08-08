@@ -35,7 +35,7 @@ def test_solve_heat_equation():
     dt = 0.01
     theta = 1.0
 
-    def form_function(u, v):
+    def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
@@ -144,7 +144,7 @@ def test_solve_mixed_wave_equation(extrude):
     c = fd.Constant(10)
     eps = fd.Constant(0.001)
 
-    def form_function(uu, up, vu, vp):
+    def form_function(uu, up, vu, vp, t):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
                 - fd.div(uu) * vp) * fd.dx
 
