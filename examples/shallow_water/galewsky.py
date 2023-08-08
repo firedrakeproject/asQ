@@ -1,6 +1,8 @@
 
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 
+import asQ
+import firedrake as fd  # noqa: F401
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
@@ -134,6 +136,27 @@ create_mesh = partial(
     ref_level=args.ref_level,
     coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
 
+# check convergence of each timestep
+
+
+def post_function_callback(aaosolver, X, F):
+    residuals = asQ.SharedArray(time_partition,
+                                comm=aaosolver.ensemble.ensemble_comm)
+    # all-at-once residual
+    res = aaosolver.aaoform.F
+    for i in range(res.nlocal_timesteps):
+        w = res.get_field(i)
+        # residuals.dlocal[i] = fd.norm(w)
+        with w.dat.vec_ro as vec:
+            residuals.dlocal[i] = vec.norm()
+    residuals.synchronise()
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('Field residuals:')
+    fr = [f"{r:.4e}" for r in residuals.data()]
+    PETSc.Sys.Print(fr)
+    PETSc.Sys.Print('')
+
+
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
 miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
@@ -146,8 +169,8 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   dt=dt, theta=0.5,
                                   time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
-                                  file_name='output/'+args.filename)
-
+                                  file_name='output/'+args.filename,
+                                  post_function_callback=post_function_callback)
 
 ics = miniapp.aaofunc.initial_condition
 reference_state = miniapp.solver.jacobian.reference_state
@@ -180,8 +203,7 @@ miniapp.solve(nwindows=args.nwindows,
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
-from asQ import write_paradiag_metrics
-write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
+asQ.write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
 
 PETSc.Sys.Print('')
 

@@ -14,11 +14,12 @@ __all__ = ['time_average', 'AllAtOnceFunction']
 def time_average(aaofunc, uout, uwrk, average='window'):
     """
     Compute the time average of an all-at-once function
-    over either entire window or current slice.
+    over either the entire window or the current slice.
 
     :arg aaofunc: AllAtOnceFunction to average.
     :arg uout: Function to save average into.
     :arg uwrk: Function to use as working buffer.
+        TODO: make this optional once Ensemble.allreduce accepts MPI.IN_PLACE.
     :arg average: range of time-average.
         'window': compute over all timesteps in all-at-once function.
         'slice': compute only over timesteps on local ensemble member.
@@ -83,19 +84,6 @@ class AllAtOnceFunction(TimePartitionMixin):
                                                     comm=ensemble.global_comm)
             self._vec.setFromOptions()
 
-    def copy(self, copy_values=True):
-        """
-        Return a deep copy of the AllAtOnceFunction.
-
-        :arg copy_values: If true, the values of the current AllAtOnceFunction
-            will be copied into the new AllAtOnceFunction.
-        """
-        new = AllAtOnceFunction(self.ensemble, self.time_partition,
-                                self.field_function_space)
-        if copy_values:
-            new.assign(self)
-        return new
-
     def transform_index(self, i, cpt=None, from_range='slice', to_range='slice'):
         '''
         Shift timestep index or component index from one range to another,
@@ -112,6 +100,9 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         If cpt is None, shifts from one timestep range to another. If cpt is not None,
         returns index in flattened all-at-once function of component cpt in timestep i.
+        This is only different from the value returned if cpt is None if a single timestep
+        is defined on a MixedFunctionSpace.
+
         Raises IndexError if original or shifted index is out of bounds.
 
         :arg i: timestep index to shift.
@@ -119,10 +110,12 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg from_range: range of i. Either slice or window.
         :arg to_range: range to shift i to. Either 'slice' or 'window'.
         '''
-        if from_range == 'component' or to_range == 'component':
-            raise ValueError("from_range and to_range apply to the timestep index and cannot be 'component'")
-
         idxtypes = {'slice': 'l', 'window': 'g'}
+
+        if from_range not in idxtypes:
+            raise ValueError("from_range must be "+" or ".join(idxtypes.keys()))
+        if to_range not in idxtypes:
+            raise ValueError("to_range must be "+" or ".join(idxtypes.keys()))
 
         i = self.layout.transform_index(i, itype=idxtypes[from_range], rtype=idxtypes[to_range])
 
@@ -142,7 +135,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg cpt: index of component.
         :arg usrc: new solution for component cpt of timestep step.
         :arg index_range: is index in window or slice?
-        :arg funcs: an indexable of the all-at-once function to set timestep in.
+        :arg funcs: an indexable of the all-at-once function to set component in.
             If None, self.function.subfunctions is used.
         '''
         # index of component in all at once function
@@ -163,9 +156,9 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg uout: Function to place value of component in (if None then component is returned).
         :arg name: name of returned function if deepcopy=True.
             Ignored if uout is not None or deepcopy=False.
-        :arg funcs: an indexable of the all-at-once function to set timestep in.
+        :arg funcs: an indexable of the all-at-once function to get component from.
             If None, self.function.subfunctions is used
-        :arg deepcopy: if True, new function is returned. If false, handle to component
+        :arg deepcopy: if True, new function is returned. If False, handle to component
             of funcs is returned. Ignored if uout is not None.
         '''
         # index of component in all at once function
@@ -194,7 +187,7 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         :arg step: index of timestep.
         :arg index_range: is index in window or slice?
-        :arg funcs: an indexable of the all-at-once function to set timestep in.
+        :arg funcs: an indexable of the all-at-once function to get components from.
             If None, self.function.subfunctions is used.
         '''
         return tuple(self.get_component(step, cpt, index_range=index_range, funcs=funcs)
@@ -206,7 +199,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         Set solution at a timestep to new value.
 
         :arg step: index of timestep to set.
-        :arg usrc: new solution for timestep
+        :arg usrc: new solution for timestep.
         :arg index_range: is index in window or slice?
         :arg funcs: an indexable of the all-at-once function to set timestep in.
             If None, self.function.subfunctions is used.
@@ -223,9 +216,9 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg step: index of timestep to get.
         :arg index_range: is index in window or slice?
         :arg uout: function to set to value of timestep (timestep returned if None).
-        :arg name: name of returned function. Ignored if uout is not None
-        :arg funcs: an indexable of the all-at-once function to set timestep in.
-            If None, self.function.subfunctions is used
+        :arg name: name of returned function. Ignored if uout is not None.
+        :arg funcs: an indexable of the all-at-once function to get timestep from.
+            If None, self.function.subfunctions is used.
         '''
         if uout is None:
             uget = fd.Function(self.field_function_space, name=name)
@@ -264,7 +257,8 @@ class AllAtOnceFunction(TimePartitionMixin):
         '''
         Update uprev with the last step from the previous time slice (periodic).
 
-        :arg blocking: Whether to use blocking MPI communications. If False then a list of MPI requests is returned
+        :arg blocking: Whether to use blocking MPI communications.
+            If False then a list of MPI requests is returned.
         '''
         # sending last timestep on current slice to next slice
         self.get_field(-1, uout=self.unext, index_range='slice')
@@ -284,14 +278,29 @@ class AllAtOnceFunction(TimePartitionMixin):
         return sendrecv(fsend=self.unext, dest=dst, sendtag=rank,
                         frecv=self.uprev, source=src, recvtag=src)
 
+    def copy(self, copy_values=True):
+        """
+        Return a deep copy of the AllAtOnceFunction.
+
+        :arg copy_values: If true, the values of the current AllAtOnceFunction
+            will be copied into the new AllAtOnceFunction.
+        """
+        new = AllAtOnceFunction(self.ensemble, self.time_partition,
+                                self.field_function_space)
+        if copy_values:
+            new.assign(self)
+        return new
+
     @PETSc.Log.EventDecorator()
     @memprofile
     def assign(self, src, update_halos=True, blocking=True):
         """
-        Set value of AllAtOnceFunction from another AllAtOnceFunction or PETSc Vec.
+        Set value of AllAtOnceFunction from another object.
 
-        :arg src: object to set value from. Either another AllAtOnceFunction or a
-            PETSc Vec the same size as the AllAtOnceFunction.global_vec.
+        :arg src: object to set value from. Can be one of: Either another AllAtOnceFunction or a
+            - AllAtOnceFunction: assign all values from src.
+            - PETSc Vec: assign self.function from src via self.global_vec.
+            - firedrake.Function: assign initial condition and all timesteps from src.
         :arg update_halos: if True then the time-halos will be updated.
         :arg blocking: if update_halos is True, then this argument determines
             whether blocking communication is used. A list of MPI Requests is returned
@@ -346,31 +355,37 @@ class AllAtOnceFunction(TimePartitionMixin):
     def global_vec(self):
         """
         Context manager for the global PETSc Vec with read/write access.
+
+        It is invalid to access the Vec outside of a context manager.
         """
         # fvec shares the same storage as _vec, so we need this context
         # manager to make sure that the data gets copied to/from the
         # Function.dat storage and _vec.
-        with self.function.dat.vec as fvec:  # noqa: F841
+        with self.function.dat.vec:
             yield self._vec
 
     @contextlib.contextmanager
     def global_vec_ro(self):
         """
         Context manager for the global PETSc Vec with read only access.
+
+        It is invalid to access the Vec outside of a context manager.
         """
         # fvec shares the same storage as _vec, so we need this context
         # manager to make sure that the data gets copied into _vec from
         # the Function.dat storage.
-        with self.function.dat.vec_ro as fvec:  # noqa: F841
+        with self.function.dat.vec_ro:
             yield self._vec
 
     @contextlib.contextmanager
     def global_vec_wo(self):
         """
         Context manager for the global PETSc Vec with write only access.
+
+        It is invalid to access the Vec outside of a context manager.
         """
         # fvec shares the same storage as _vec, so we need this context
         # manager to make sure that the data gets copied back into the
         # Function.dat storage from _vec.
-        with self.function.dat.vec_wo as fvec:  # noqa: F841
+        with self.function.dat.vec_wo:
             yield self._vec

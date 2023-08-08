@@ -19,8 +19,8 @@ class AllAtOnceForm(TimePartitionMixin):
         of a time-dependent finite-element problem.
 
         :arg aaofunction: AllAtOnceFunction to create the form over.
-        :arg dt: float, the timestep size.
-        :arg theta: float, implicit timestepping parameter.
+        :arg dt: the timestep size.
+        :arg theta: implicit timestepping parameter.
         :arg form_mass: a function that returns a linear form on aaofunction.field_function_space
             providing the mass operator for the time derivative.
             Must have signature `def form_mass(*u, *v):` where *u and *v are a split(TrialFunction)
@@ -43,7 +43,8 @@ class AllAtOnceForm(TimePartitionMixin):
         self.time = tuple(fd.Constant(0) for _ in range(self.aaofunc.nlocal_timesteps))
         for n in range((self.aaofunc.nlocal_timesteps)):
             self.time[n].assign(self.t0 + self.dt*(self.aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
-        self.theta = theta
+        self.theta = fd.Constant(theta)
+
         self.form_mass = form_mass
         self.form_function = form_function
 
@@ -156,7 +157,7 @@ class AllAtOnceForm(TimePartitionMixin):
     def _construct_form(self):
         """
         Constructs the bilinear form for the all at once system.
-        Specific to the theta-centred Crank-Nicholson method
+        Specific to the theta-centred Crank-Nicholson method.
         """
         aaofunc = self.aaofunc
 
@@ -170,9 +171,8 @@ class AllAtOnceForm(TimePartitionMixin):
 
         test_funcs = fd.TestFunctions(aaofunc.function_space)
 
-        dt = fd.Constant(self.dt)
-        theta = fd.Constant(self.theta)
-        # alpha = fd.Constant(0) if self.alpha is None else self.alpha
+        dt = self.dt
+        theta = self.theta
 
         def get_step(i):
             return aaofunc.get_field_components(i, funcs=funcs)

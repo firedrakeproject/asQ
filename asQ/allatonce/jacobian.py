@@ -19,9 +19,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
         Default is 'current'.
 
         'current': Use the current state of the AllAtOnceFunction (i.e. current Newton iterate).
-        'window': Use the time average over the entire AllAtOncFunction at all timesteps.
+        'window': Use the time average over the entire AllAtOnceFunction at all timesteps.
         'slice': Use the time average over timesteps on the local Ensemble member at each local timestep.
-        'linear': Do not update the state. This option is used when the form being linearised is linear.
+        'linear': Do not update the state. This option should be used when the form being linearised is linear.
         'initial': Use the initial condition at all timesteps.
         'reference': Use a provided reference state at all timesteps.
         'user': The state will be set manually by the user so no update is needed.
@@ -35,9 +35,14 @@ class AllAtOnceJacobian(TimePartitionMixin):
                  options_prefix="",
                  appctx={}):
         """
-        Python matrix a PETSc Mat for the Jacobian of an AllAtOnceForm.
+        Python context for a PETSc Mat for the Jacobian of an AllAtOnceForm.
 
         :arg aaoform: The AllAtOnceForm object to linearise.
+        :arg current_state: The AllAtOnceFunction being solved for.
+        :arg reference_state: A firedrake.Function for a single timestep.
+            Only needed if 'aaos_jacobian_state' is 'reference'.
+        :arg options_prefix: string prefix for the Jacobian PETSc options.
+        :arg appctx: the appcontext for the Jacobian and the preconditioner.
         """
         self.time_partition_setup(aaoform.ensemble, aaoform.time_partition)
         prefix = self.prefix + options_prefix
@@ -139,6 +144,12 @@ class AllAtOnceJacobian(TimePartitionMixin):
     @PETSc.Log.EventDecorator()
     @memprofile
     def mult(self, mat, X, Y):
+        """
+        Apply the action of the matrix to a PETSc Vec.
+
+        :arg X: a PETSc Vec to apply the action on.
+        :arg Y: a PETSc Vec for the result.
+        """
 
         # we could use nonblocking here and overlap comms with assembling form
         self.x.assign(X, update_halos=True, blocking=True)
