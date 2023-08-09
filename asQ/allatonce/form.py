@@ -15,8 +15,8 @@ class AllAtOnceForm(TimePartitionMixin):
                  form_mass, form_function,
                  bcs=[], alpha=None):
         """
-        The all-at-once form representing the implicit theta-method over multiple timesteps
-        of a time-dependent finite-element problem.
+        The all-at-once form representing the implicit theta-method (trapezium rule version)
+        over multiple timesteps of a time-dependent finite-element problem.
 
         :arg aaofunction: AllAtOnceFunction to create the form over.
         :arg dt: the timestep size.
@@ -63,13 +63,25 @@ class AllAtOnceForm(TimePartitionMixin):
         self.form = self._construct_form()
 
     def time_update(self, t=None):
+        """
+        Update the time points that the form is defined over.
 
+        Default behaviour is to update the initial time t0 to be the
+        time of the final timestep. The last timestep of the
+        AllAtOnceFunction can then be used as the new initial condition.
+        The time at each timestep is updated according to the initial time.
+
+        :arg t: New initial time t0. If None then the current final
+            time is used as the new initial time.
+        """
         if t is not None:
             self.t0.assign(t)
         else:
-            self.t0.assign(self.t0 + self.dt*self.aaofunc.ntimesteps)
-        for n in range((self.aaofunc.nlocal_timesteps)):
-            self.time[n].assign(self.t0 + self.dt*(self.aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
+            self.t0.assign(self.t0 + self.dt*self.ntimesteps)
+
+        for n in range((self.nlocal_timesteps)):
+            time_idx = self.aaofunc.transform_index(n, from_range='slice', to_range='window')
+            self.time[n].assign(self.t0 + self.dt*(time_idx + 1))
         return
 
     def _set_bcs(self, field_bcs):
@@ -156,8 +168,8 @@ class AllAtOnceForm(TimePartitionMixin):
 
     def _construct_form(self):
         """
-        Constructs the bilinear form for the all at once system.
-        Specific to the theta-centred Crank-Nicholson method.
+        Constructs the (possibly nonlinear) form for the all at once system.
+        Specific to the implicit theta-method (trapezium rule version).
         """
         aaofunc = self.aaofunc
 
