@@ -11,8 +11,8 @@ __all__ = ['create_ensemble', 'Paradiag']
 
 def create_ensemble(time_partition, comm=fd.COMM_WORLD):
     '''
-    Create an Ensemble for the given slice partition
-    Checks that the number of slices and the size of the communicator are compatible
+    Create an Ensemble for the given slice partition.
+    Checks that the number of slices and the size of the communicator are compatible.
 
     :arg time_partition: a list of integers, the number of timesteps on each time-rank
     :arg comm: the global communicator for the ensemble
@@ -31,52 +31,63 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
 class Paradiag(TimePartitionMixin):
     @memprofile
     def __init__(self, ensemble,
-                 form_function, form_mass,
-                 ics, dt, theta,
                  time_partition,
+                 form_mass, form_function,
+                 ics, dt, theta,
                  solver_parameters={},
                  appctx={}, bcs=[],
                  options_prefix="",
                  reference_state=None,
                  function_alpha=None, jacobian_alpha=None,
-                 jacobian_function=None, jacobian_mass=None,
+                 jacobian_mass=None, jacobian_function=None,
                  pc_function=None, pc_mass=None,
                  pre_function_callback=None, post_function_callback=None,
                  pre_jacobian_callback=None, post_jacobian_callback=None):
         """A class to implement paradiag timestepping.
 
-        :arg ensemble: the ensemble communicator
-        :arg form_function: a function that returns a form
-            on ics.function_space() providing f(w) for the ODE w_t + f(w) = 0.
-        :arg form_mass: a function that returns a linear form on
-            ics.function_space providing the mass operator for the time derivative.
-        :arg linearised_function: a function that returns a form
-            on ics.function_space() which will be linearised to approximate
-            derivative(f(w), w) for the ODE w_t + f(w) = 0.
-        :arg linearised_mass: a function that returns a linear form on ics.function_space
-            providing which will be linearised to approximate the form_mass
-        :arg ics: a Function from ics.function_space containing the initial data.
+        :arg ensemble: time-parallel ensemble communicator. The timesteps are partitioned
+            over the ensemble members according to time_partition so
+            ensemble.ensemble_comm.size == len(time_partition) must be True.
+        :arg time_partition: a list of integers for the number of timesteps stored on each
+            ensemble rank.
+        :arg form_mass: a function that returns a linear form on ics.function_space()
+            providing the time derivative mass operator for  the PDE w_t + f(w) = 0.
+            Must have signature `def form_mass(*u, *v):` where *u and *v are a split(TrialFunction)
+            and a split(TestFunction) from ics.function_space().
+        :arg form_function: a function that returns a form on ics.function_space()
+            providing f(w) for the PDE w_t + f(w) = 0.
+            Must have signature `def form_function(*u, *v):` where *u and *v are a split(Function)
+            and a split(TestFunction) from ics.function_space().
+        :arg ics: a Function containing the initial conditions.
         :arg dt: float, the timestep size.
         :arg theta: float, implicit timestepping parameter.
-        :arg alpha: float, circulant matrix parameter.
-        :arg time_partition: a list of integers, the number of timesteps
-            assigned to each rank.
-        :arg bcs: a list of DirichletBC boundary conditions on ics.function_space.
         :arg solver_parameters: options dictionary for nonlinear solver.
-        :arg reference_state: a Function in W to use as a reference state
-            e.g. in DiagFFTPC.
-        :arg circ: a string describing the option on where to use the
-            alpha-circulant modification. "picard" - do a nonlinear wave
-            form relaxation method. "quasi" - do a modified Newton
-            method with alpha-circulant modification added to the
-            Jacobian. To make the alpha circulant modification only in the
-            preconditioner, simply set ksp_type:preonly in the solve options.
-        :arg tol: float, the tolerance for the relaxation method (if used)
-        :arg maxits: integer, the maximum number of iterations for the
-            relaxation method, if used.
-        :arg block_ctx: non-petsc context for solvers.
-        :arg block_mat_type: set the type of the diagonal block systems.
-            Default is aij.
+        :arg appctx: A dictionary containing application context that is
+            passed to the preconditioner if matrix-free.
+        :arg bcs: a list of DirichletBC boundary conditions on ics.function_space.
+        :arg options_prefix: an optional prefix used to distinguish PETSc options.
+            Use this option if you want to pass options to the solver from the
+            command line in addition to through the solver_parameters dict.
+        :arg reference_state: A reference firedrake.Function in ics.function_space().
+            Only needed if 'aaos_jacobian_state' or 'diagfft_state' is 'reference'.
+        :arg function_alpha: float, circulant matrix parameter used in the nonlinear residual.
+            This is used for the waveform relaxation method. If None then no circulant
+            approximation used.
+        :arg jacobian_alpha: float, circulant matrix parameter used in the Jacobian.
+            This introduces the circulant approximation in the AllAtOnceJacobian but not in the
+            nonlinear residual. If None then no circulant approximation used in the Jacobian.
+        :arg jacobian_mass: equivalent to form_mass, but used to construct the AllAtOnceJacobian
+            not the nonlinear residual.
+        :arg jacobian_function: equivalent to form_function, but used to construct the
+            AllAtOnceJacobian not the nonlinear residual.
+        :arg pc_mass: equivalent to form_mass, but used to construct the preconditioner.
+        :arg pc_function: equivalent to form_function, but used to construct the preconditioner.
+        :arg pre_function_callback: A user-defined function that will be called immediately
+            before residual assembly. This can be used, for example, to update a coefficient
+            function that has a complicated dependence on the unknown solution.
+        :arg post_function_callback: As above, but called immediately after residual assembly.
+        :arg pre_jacobian_callback: As above, but called immediately before Jacobian assembly.
+        :arg post_jacobian_callback: As above, but called immediately after Jacobian assembly.
         """
         self.time_partition_setup(ensemble, time_partition)
 

@@ -135,8 +135,9 @@ class ComparisonMiniapp(object):
                                         serial_sparameters)
 
         # set up paradiag
-        self.paradiag = asQ.Paradiag(ensemble,
-                                     form_function, form_mass,
+        self.paradiag = asQ.Paradiag(ensemble=ensemble,
+                                     form_mass=form_mass,
+                                     form_function=form_function,
                                      ics=w_initial, dt=dt, theta=theta,
                                      time_partition=time_partition,
                                      bcs=boundary_conditions,

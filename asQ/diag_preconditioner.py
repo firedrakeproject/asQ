@@ -41,7 +41,7 @@ class DiagFFTPC(TimePartitionMixin):
         'reference': use the reference state of the AllAtOnceJacobian for all timesteps.
 
     'diagfft_mass': <LinearSolver options>
-        The solver options for the Riesz map.
+        The solver options for the Riesz map into the complex space.
         Use 'diagfft_mass_fieldsplit' if the single-timestep function space is mixed.
         Default is {'pc_type': 'lu'}
 

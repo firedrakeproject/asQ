@@ -51,8 +51,11 @@ class AllAtOnceFunction(TimePartitionMixin):
         A function representing multiple timesteps of a time-dependent finite-element problem,
         i.e. the solution to an all-at-once system.
 
-        :arg ensemble: time-parallel ensemble communicator.
-        :arg time_partition: a list of integers for the number of timesteps stored on each ensemble rank.
+        :arg ensemble: time-parallel ensemble communicator. The timesteps are partitioned
+            over the ensemble members according to time_partition so
+            ensemble.ensemble_comm.size == len(time_partition) must be True.
+        :arg time_partition: a list of integers for the number of timesteps stored on each
+            ensemble rank.
         :arg function_space: a FunctionSpace for the solution at a single timestep.
         """
         self.time_partition_setup(ensemble, time_partition)

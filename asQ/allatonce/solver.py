@@ -37,8 +37,8 @@ class AllAtOnceSolver(TimePartitionMixin):
         :arg jacobian_reference_state: a firedrake.Function to pass to the
             AllAtOnceJacobian as a reference state.
         :arg pre_function_callback: A user-defined function that will be called immediately
-            before residual assembly. This can be used, for example, to update a
-            coefficient function that has a complicated dependence on the unknown solution.
+            before residual assembly. This can be used, for example, to update a coefficient
+            function that has a complicated dependence on the unknown solution.
         :arg post_function_callback: As above, but called immediately after residual assembly.
         :arg pre_jacobian_callback: As above, but called immediately before Jacobian assembly.
         :arg post_jacobian_callback: As above, but called immediately after Jacobian assembly.
