@@ -176,7 +176,7 @@ class Paradiag(TimePartitionMixin):
               rhs=None,
               verbose=False):
         """
-        Solve the system (either in one shot or as a relaxation method).
+        Solve multiple windows of the all-at-once system.
 
         preproc and postproc must have call signature (paradiag, int)
         :arg nwindows: number of windows to solve for
@@ -192,10 +192,8 @@ class Paradiag(TimePartitionMixin):
             postproc(self, wndw, rhs)
 
             converged_reason = self.solver.snes.getConvergedReason()
-            is_linear = (
-                'snes_type' in self.solver.flat_solver_parameters
-                and self.solver.flat_solver_parameters['snes_type'] == 'ksponly'
-            )
+            is_linear = self.solver.snes.getType() == 'ksponly'
+
             if is_linear and (converged_reason == 5):
                 pass
             elif not (1 < converged_reason < 5):
