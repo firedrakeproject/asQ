@@ -185,6 +185,10 @@ class AllAtOnceFunction(TimePartitionMixin):
         '''
         Get tuple of the components of the all-at-once function for a timestep.
 
+        This is equivalent to u.subfunctions if u was the Function for a single timestep.
+        If the argument funcs is firedrake.split(self.function) then this is equivalent
+        to firedrake.split(u) if u was the Function for a single timestep.
+
         :arg step: index of timestep.
         :arg index_range: is index in window or slice?
         :arg funcs: an indexable of the all-at-once function to get components from.
@@ -205,7 +209,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             If None, self.function.subfunctions is used.
         '''
         for cpt in range(self.ncomponents):
-            self.set_component(step, cpt, usrc.sub(cpt),
+            self.set_component(step, cpt, usrc.subfunctions[cpt],
                                index_range=index_range, funcs=funcs)
 
     @PETSc.Log.EventDecorator()
