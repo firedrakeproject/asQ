@@ -40,7 +40,7 @@ ensemble = asQ.create_ensemble(time_partition)
 # # # === --- domain --- === # # #
 
 # The mesh needs to be created with the spatial communicator
-mesh = fd.SquareMesh(args.nx, args.nx, 100, quadrilateral=False, comm=ensemble.comm)
+mesh = fd.SquareMesh(args.nx, args.nx, 100000, quadrilateral=False, comm=ensemble.comm)
 
 V = fd.FunctionSpace(mesh, "CG", args.degree)
 
@@ -54,7 +54,7 @@ s0.interpolate(fd.Constant(0.0))
 
 # The sediment movement D
 def D(D_c, d):
-    return D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
+    return D_c*2*1e6/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
 
 
 # The carbonate growth L.
@@ -72,7 +72,7 @@ def form_mass(s, q):
 D_c = fd.Constant(.002)
 G_0 = fd.Constant(.004)
 A = fd.Constant(50)
-b = 100*fd.tanh(1/20*(x-50))
+b = 100*fd.tanh(1/20000*(x-50000))
 
 
 def form_function(s, q, t):
@@ -108,18 +108,18 @@ paradiag_parameters = {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
-        'atol': 1e-12,
-        'stol': 1e-12,
+        'rtol': 1e-8,
+        'atol': 1e-2,
+        'stol': 1e-8,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
-        'atol': 1e-12,
-        'stol': 1e-12,
+        'rtol': 1e-8,
+        'atol': 1e-2,
+        'stol': 1e-8,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC'
