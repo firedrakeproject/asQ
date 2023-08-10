@@ -2,7 +2,7 @@ import asQ
 import firedrake as fd
 import numpy as np
 import pytest
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 from functools import reduce
 from operator import mul
 
