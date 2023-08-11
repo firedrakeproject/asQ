@@ -132,6 +132,7 @@ class ShallowWaterMiniApp(TimePartitionMixin):
             form_mass=form_mass,
             ics=w0, dt=dt, theta=theta,
             time_partition=time_partition,
+            appctx=appctx,
             reference_state=reference_state,
             solver_parameters=paradiag_sparameters,
             pre_function_callback=pre_function_callback,
