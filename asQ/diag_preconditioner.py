@@ -4,7 +4,7 @@ from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc
 # from mpi4py_fft.pencil import Pencil, Subcomm
 from asQ.pencil import Pencil, Subcomm
-from asQ.profiling import memprofile
+from asQ.profiling import profiler
 from asQ.common import get_option_from_list
 from asQ.allatonce.function import time_average as time_average_function
 from asQ.allatonce.mixin import TimePartitionMixin
@@ -65,20 +65,21 @@ class DiagFFTPC(TimePartitionMixin):
     prefix = "diagfft_"
     default_alpha = 1e-3
 
+    @profiler()
     def __init__(self):
         r"""A preconditioner for all-at-once systems with alpha-circulant
         block diagonal structure, using FFT.
         """
         self.initialized = False
 
-    @memprofile
+    @profiler()
     def setUp(self, pc):
         """Setup method called by PETSc."""
         if not self.initialized:
             self.initialize(pc)
         self.update(pc)
 
-    @memprofile
+    @profiler()
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -265,6 +266,7 @@ class DiagFFTPC(TimePartitionMixin):
 
         self.form_mass = form_mass
         self.form_function = form_function
+        form_function = partial(form_function, t=self.t_average)
 
         # Now need to build the block solver
         self.u0 = fd.Function(self.CblockV)  # time average to linearise around
@@ -276,7 +278,7 @@ class DiagFFTPC(TimePartitionMixin):
             d2 = self.D2[ii]
 
             M, D1r, D1i = cpx.BilinearForm(self.CblockV, d1, form_mass, return_z=True)
-            K, D2r, D2i = cpx.derivative(d2, partial(form_function, t=self.t_average), self.u0, return_z=True)
+            K, D2r, D2i = cpx.derivative(d2, form_function, self.u0, return_z=True)
 
             A = M + K
 
@@ -329,6 +331,7 @@ class DiagFFTPC(TimePartitionMixin):
                                             comm=self.ensemble.ensemble_comm)
         self.initialized = True
 
+    @profiler()
     def _record_diagnostics(self):
         """
         Update diagnostic information from block linear solvers.
@@ -339,8 +342,7 @@ class DiagFFTPC(TimePartitionMixin):
             its = self.Jsolvers[i].snes.getLinearSolveIterations()
             self.block_iterations.dlocal[i] += its
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def update(self, pc):
         '''
         we need to update u0 according to the diagfft_state option.
@@ -369,8 +371,7 @@ class DiagFFTPC(TimePartitionMixin):
         self.t_average.assign(self.aaoform.t0 + (self.aaofunc.ntimesteps + 1)*self.dt/2)
         return
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def apply(self, pc, x, y):
 
         # copy petsc vec into Function
@@ -392,12 +393,17 @@ class DiagFFTPC(TimePartitionMixin):
         parray = (1.0+0.j)*(self.Gam_slice*parray.T).T*np.sqrt(self.ntimesteps)
         # transfer forward
         self.a0[:] = parray[:]
-        self.transfer.forward(self.a0, self.a1)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.forward(self.a0, self.a1)
+
         # FFT
-        self.a1[:] = fft(self.a1, axis=0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+            self.a1[:] = fft(self.a1, axis=0)
 
         # transfer backward
-        self.transfer.backward(self.a1, self.a0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.backward(self.a1, self.a0)
+
         # Copy into xfi, xfr
         parray[:] = self.a0[:]
         with self.xfr.function.dat.vec_wo as v:
@@ -408,24 +414,25 @@ class DiagFFTPC(TimePartitionMixin):
 
         # Do the block solves
 
-        for i in range(self.nlocal_timesteps):
-            # copy the data into solver input
-            self.xtemp.assign(0.)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.block_solves"):
+            for i in range(self.nlocal_timesteps):
+                # copy the data into solver input
+                self.xtemp.assign(0.)
 
-            cpx.set_real(self.xtemp, self.xfr.get_field_components(i))
-            cpx.set_imag(self.xtemp, self.xfi.get_field_components(i))
+                cpx.set_real(self.xtemp, self.xfr.get_field_components(i))
+                cpx.set_imag(self.xtemp, self.xfi.get_field_components(i))
 
-            # Do a project for Riesz map, to be superceded
-            # when we get Cofunction
-            self.Proj.solve(self.Jprob_in, self.xtemp)
+                # Do a project for Riesz map, to be superceded
+                # when we get Cofunction
+                self.Proj.solve(self.Jprob_in, self.xtemp)
 
-            # solve the block system
-            self.Jprob_out.assign(0.)
-            self.Jsolvers[i].solve()
+                # solve the block system
+                self.Jprob_out.assign(0.)
+                self.Jsolvers[i].solve()
 
-            # copy the data from solver output
-            cpx.get_real(self.Jprob_out, self.xfr.get_field_components(i))
-            cpx.get_imag(self.Jprob_out, self.xfi.get_field_components(i))
+                # copy the data from solver output
+                cpx.get_real(self.Jprob_out, self.xfr.get_field_components(i))
+                cpx.get_imag(self.Jprob_out, self.xfi.get_field_components(i))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
@@ -438,12 +445,18 @@ class DiagFFTPC(TimePartitionMixin):
                                          self.blockV.node_set.size))
         # transfer forward
         self.a0[:] = parray[:]
-        self.transfer.forward(self.a0, self.a1)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.forward(self.a0, self.a1)
+
         # IFFT
-        self.a1[:] = ifft(self.a1, axis=0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+            self.a1[:] = ifft(self.a1, axis=0)
+
         # transfer backward
-        self.transfer.backward(self.a1, self.a0)
+        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+            self.transfer.backward(self.a1, self.a0)
         parray[:] = self.a0[:]
+
         # scale
         parray = ((1.0/self.Gam_slice)*parray.T).T
         # Copy into xfi, xfr
@@ -455,5 +468,6 @@ class DiagFFTPC(TimePartitionMixin):
 
         self._record_diagnostics()
 
+    @profiler()
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError

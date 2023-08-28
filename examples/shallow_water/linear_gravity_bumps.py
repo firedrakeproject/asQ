@@ -1,4 +1,4 @@
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 
 from utils import units
 from utils.planets import earth
@@ -59,13 +59,8 @@ patch_parameters = {
     },
     'sub': {
         'ksp_type': 'preonly',
-        'pc_type': 'fieldsplit',
-        'pc_fieldsplit_type': 'schur',
-        'pc_fieldsplit_detect_saddle_point': None,
-        'pc_fieldsplit_schur_fact_type': 'full',
-        'pc_fieldsplit_schur_precondition': 'full',
-        'fieldsplit_ksp_type': 'preonly',
-        'fieldsplit_pc_type': 'lu',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
     }
 }
 

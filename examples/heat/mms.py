@@ -113,19 +113,24 @@ paradiag_parameters = {
     'snes': {
         'monitor': None,
         'converged_reason': None,
+        'rtol': 1e-10,
         'atol': 1e-8,
+        'stol': 1e-12,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
+        'rtol': 1e-10,
         'atol': 1e-8,
+        'stol': 1e-12,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
     'diagfft_alpha': args.alpha,
 }
+
 # We need to add a block solver parameters dictionary for each block.
 # Here they are all the same but they could be different.
 for i in range(window_length):

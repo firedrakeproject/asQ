@@ -1,6 +1,6 @@
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 
-from asQ.profiling import memprofile
+from asQ.profiling import profiler
 from asQ.allatonce import AllAtOnceJacobian
 from asQ.allatonce.mixin import TimePartitionMixin
 
@@ -8,7 +8,7 @@ __all__ = ['AllAtOnceSolver']
 
 
 class AllAtOnceSolver(TimePartitionMixin):
-    @memprofile
+    @profiler()
     def __init__(self, aaoform, aaofunc,
                  solver_parameters={},
                  appctx={},
@@ -126,7 +126,7 @@ class AllAtOnceSolver(TimePartitionMixin):
         self.options.set_from_options(self.snes)
 
     @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def solve(self, rhs=None):
         """
         Solve the all-at-once system.

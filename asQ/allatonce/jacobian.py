@@ -2,7 +2,7 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 from functools import partial
 
-from asQ.profiling import memprofile
+from asQ.profiling import profiler
 from asQ.common import get_option_from_list
 from asQ.allatonce.mixin import TimePartitionMixin
 from asQ.allatonce.function import time_average
@@ -29,7 +29,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
     """
     prefix = "aaos_jacobian_"
 
-    @memprofile
+    @profiler()
     def __init__(self, aaoform, current_state,
                  reference_state=None,
                  options_prefix="",
@@ -142,7 +142,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         return
 
     @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def mult(self, mat, X, Y):
         """
         Apply the action of the matrix to a PETSc Vec.

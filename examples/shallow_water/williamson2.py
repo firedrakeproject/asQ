@@ -1,6 +1,6 @@
 
 import firedrake as fd
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 import asQ
 
 from utils import mg
@@ -26,7 +26,8 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
-parser.add_argument('--filename', type=str, default='w5diag', help='Name of output vtk files')
+parser.add_argument('--coords_degree', type=int, default=1, help='Degree of polynomials for sphere mesh approximation.')
+parser.add_argument('--filename', type=str, default='williamson2', help='Name of output vtk files')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space).')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
@@ -47,7 +48,6 @@ window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
-
 # multigrid mesh set up
 
 ensemble = asQ.create_ensemble(time_partition)
@@ -109,13 +109,8 @@ patch_parameters = {
     },
     'sub': {
         'ksp_type': 'preonly',
-        'pc_type': 'fieldsplit',
-        'pc_fieldsplit_type': 'schur',
-        'pc_fieldsplit_detect_saddle_point': None,
-        'pc_fieldsplit_schur_fact_type': 'full',
-        'pc_fieldsplit_schur_precondition': 'full',
-        'fieldsplit_ksp_type': 'preonly',
-        'fieldsplit_pc_type': 'lu',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
     }
 }
 
@@ -141,7 +136,7 @@ sparameters = {
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
-        'max_it': 60
+        'max_it': 50,
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
@@ -158,8 +153,9 @@ sparameters_diag = {
         'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
-        # 'ksp_ew': None,
-        # 'ksp_ew_version': 1,
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-2,
     },
     'mat_type': 'matfree',
     'ksp_type': 'preonly',

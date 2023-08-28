@@ -92,20 +92,23 @@ block_parameters = {
 #    The solver options for this are:
 #    'ksp_type': 'preonly'
 
-
 paradiag_parameters = {
     'snes_type': 'ksponly',
     'snes': {
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-8,
+        'rtol': 1e-10,
+        'atol': 1e-12,
+        'stol': 1e-12,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'preonly',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-8,
+        'rtol': 1e-10,
+        'atol': 1e-12,
+        'stol': 1e-12,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
@@ -116,7 +119,6 @@ paradiag_parameters = {
 # Here they are all the same but they could be different.
 for i in range(window_length):
     paradiag_parameters['diagfft_block_'+str(i)+'_'] = block_parameters
-
 
 # # # === --- Setup ParaDiag --- === # # #
 
@@ -154,7 +156,6 @@ def window_postproc(pdg, wndw, rhs):
             t = pdg.aaoform.time[local_step]
             q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
             pdg.aaofunc.get_field(local_step, uout=qp)
-
             errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
             times.dlocal[local_step] = t
 

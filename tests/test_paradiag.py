@@ -1,7 +1,7 @@
 import asQ
 import firedrake as fd
 import pytest
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 from functools import reduce
 from operator import mul
 
@@ -589,7 +589,6 @@ def test_solve_para_form(bc_opt, extruded):
 
     un.assign(u0)
     v = fd.TestFunction(V)
-
     eqn = (unp1 - un)*v*fd.dx
     eqn += fd.Constant(dt*(1-theta))*form_function(un, v, time - dt)
     eqn += fd.Constant(dt*theta)*form_function(unp1, v, time)

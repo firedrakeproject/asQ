@@ -1,5 +1,4 @@
-
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 
 from utils import units
 from utils.planets import earth
@@ -43,7 +42,6 @@ time_partition = [args.slice_length for _ in range(args.nslices)]
 window_length = sum(time_partition)
 
 dt = args.dt*units.hour
-
 # parameters for the implicit diagonal solve in step-(b)
 patch_parameters = {
     'pc_patch': {
@@ -58,13 +56,8 @@ patch_parameters = {
     },
     'sub': {
         'ksp_type': 'preonly',
-        'pc_type': 'fieldsplit',
-        'pc_fieldsplit_type': 'schur',
-        'pc_fieldsplit_detect_saddle_point': None,
-        'pc_fieldsplit_schur_fact_type': 'full',
-        'pc_fieldsplit_schur_precondition': 'full',
-        'fieldsplit_ksp_type': 'preonly',
-        'fieldsplit_pc_type': 'lu',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
     }
 }
 

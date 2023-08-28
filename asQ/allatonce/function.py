@@ -3,8 +3,7 @@ from firedrake.petsc import PETSc
 from functools import reduce
 from operator import mul
 import contextlib
-
-from asQ.profiling import memprofile
+from asQ.profiling import profiler
 from asQ.parallel_arrays import in_range
 from asQ.allatonce.mixin import TimePartitionMixin
 
@@ -45,7 +44,7 @@ def time_average(aaofunc, uout, uwrk, average='window'):
 
 
 class AllAtOnceFunction(TimePartitionMixin):
-    @memprofile
+    @profiler()
     def __init__(self, ensemble, time_partition, function_space):
         """
         A function representing multiple timesteps of a time-dependent finite-element problem,
@@ -299,7 +298,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         return new
 
     @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def assign(self, src, update_halos=True, blocking=True):
         """
         Set value of AllAtOnceFunction from another object.
@@ -345,7 +344,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             return self.update_time_halos(blocking=blocking)
 
     @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def zero(self, subset=None):
         """
         Set all values to zero.

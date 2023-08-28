@@ -1,7 +1,7 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 
-from asQ.profiling import memprofile
+from asQ.profiling import profiler
 from asQ.allatonce import AllAtOnceFunction
 from asQ.allatonce.mixin import TimePartitionMixin
 
@@ -9,7 +9,7 @@ __all__ = ['AllAtOnceForm']
 
 
 class AllAtOnceForm(TimePartitionMixin):
-    @memprofile
+    @profiler()
     def __init__(self,
                  aaofunc, dt, theta,
                  form_mass, form_function,
@@ -125,7 +125,7 @@ class AllAtOnceForm(TimePartitionMixin):
                              bcs=self.field_bcs, alpha=self.alpha)
 
     @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def assemble(self, func=None, tensor=None):
         """
         Evaluates the form.

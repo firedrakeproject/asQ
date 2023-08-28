@@ -1,4 +1,3 @@
-
 from firedrake.petsc import PETSc
 
 import asQ
@@ -62,13 +61,8 @@ patch_parameters = {
     },
     'sub': {
         'ksp_type': 'preonly',
-        'pc_type': 'fieldsplit',
-        'pc_fieldsplit_type': 'schur',
-        'pc_fieldsplit_detect_saddle_point': None,
-        'pc_fieldsplit_schur_fact_type': 'full',
-        'pc_fieldsplit_schur_precondition': 'full',
-        'fieldsplit_ksp_type': 'preonly',
-        'fieldsplit_pc_type': 'lu',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
     }
 }
 
@@ -94,10 +88,10 @@ sparameters = {
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
-        'max_it': 60
+        'max_it': 50,
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
+    'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
@@ -112,6 +106,7 @@ sparameters_diag = {
         'stol': 1e-12,
         'ksp_ew': None,
         'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-2,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
@@ -170,7 +165,8 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename,
-                                  post_function_callback=post_function_callback)
+                                  post_function_callback=post_function_callback,
+                                  record_diagnostics={'cfl': True, 'file': False})
 
 ics = miniapp.aaofunc.initial_condition
 reference_state = miniapp.solver.jacobian.reference_state

@@ -1,6 +1,6 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
-from .profiling import memprofile
+from asQ.profiling import profiler
 
 from asQ.allatonce import AllAtOnceFunction, AllAtOnceForm, AllAtOnceSolver
 from asQ.allatonce.mixin import TimePartitionMixin
@@ -9,6 +9,7 @@ from asQ.parallel_arrays import SharedArray
 __all__ = ['create_ensemble', 'Paradiag']
 
 
+@profiler()
 def create_ensemble(time_partition, comm=fd.COMM_WORLD):
     '''
     Create an Ensemble for the given slice partition.
@@ -29,7 +30,7 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
 
 
 class Paradiag(TimePartitionMixin):
-    @memprofile
+    @profiler()
     def __init__(self, ensemble,
                  time_partition,
                  form_mass, form_function,
@@ -40,7 +41,7 @@ class Paradiag(TimePartitionMixin):
                  reference_state=None,
                  function_alpha=None, jacobian_alpha=None,
                  jacobian_mass=None, jacobian_function=None,
-                 pc_function=None, pc_mass=None,
+                 pc_mass=None, pc_function=None,
                  pre_function_callback=None, post_function_callback=None,
                  pre_jacobian_callback=None, post_jacobian_callback=None):
         """A class to implement paradiag timestepping.
@@ -136,6 +137,7 @@ class Paradiag(TimePartitionMixin):
                                             comm=self.ensemble.ensemble_comm)
         self.reset_diagnostics()
 
+    @profiler()
     def reset_diagnostics(self):
         """
         Set all diagnostic information to initial values, e.g. iteration counts to zero
@@ -146,6 +148,7 @@ class Paradiag(TimePartitionMixin):
         self.total_windows = 0
         self.block_iterations.data()[:] = 0
 
+    @profiler()
     def _record_diagnostics(self):
         """
         Update diagnostic information from snes.
@@ -157,6 +160,7 @@ class Paradiag(TimePartitionMixin):
         self.total_timesteps += sum(self.time_partition)
         self.total_windows += 1
 
+    @profiler()
     def sync_diagnostics(self):
         """
         Synchronise diagnostic information over all time-ranks.
@@ -167,8 +171,7 @@ class Paradiag(TimePartitionMixin):
         pc_block_iterations.synchronise()
         self.block_iterations.data(deepcopy=False)[:] = pc_block_iterations.data(deepcopy=False)
 
-    @PETSc.Log.EventDecorator()
-    @memprofile
+    @profiler()
     def solve(self,
               nwindows=1,
               preproc=lambda pdg, w, rhs: None,

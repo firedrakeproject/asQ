@@ -75,7 +75,6 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         self.topography_function = fd.Function(self.depth_function_space(),
                                                name='topography')
         self.topography_function.interpolate(self.topography)
-
         if linear:
             def form_function(u, h, v, q, t):
                 g = self.gravity

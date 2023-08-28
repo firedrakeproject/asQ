@@ -1,4 +1,3 @@
-
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from math import pi, cos, sin
@@ -24,7 +23,9 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--nsample', type=int, default=32, help='Number of sample points for plotting.')
-parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
+parser.add_argument('--mpeg', action='store_true', help='Output an mpeg of the timeseries.')
+parser.add_argument('--write_metrics', action='store_true', help='Write various solver metrics to file.')
+parser.add_argument('--show_args', action='store_true', default=True, help='Output all the arguments.')
 
 args = parser.parse_known_args()
 args = args[0]
@@ -114,6 +115,7 @@ def form_function(q, phi, t):
 block_parameters = {
     'ksp_type': 'preonly',
     'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps'
 }
 
 # The PETSc solver parameters for solving the all-at-once system.
@@ -130,19 +132,25 @@ block_parameters = {
 #    The solver options for this are:
 #    'ksp_type': 'preonly'
 
+atol = 1e-10
+rtol = 1e-8
 paradiag_parameters = {
     'snes_type': 'ksponly',
     'snes': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-8,
+        'rtol': rtol,
+        'atol': atol,
+        'stol': 1e-12,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'gmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-8,
+        'rtol': rtol,
+        'atol': atol,
+        'stol': 1e-12,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
@@ -228,10 +236,11 @@ PETSc.Sys.Print(f'block linear iterations: {block_iterations.data()}  |  iterati
 
 # We can write these diagnostics to file, along with some other useful information.
 # Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt
-asQ.write_paradiag_metrics(pdg)
+if args.write_metrics:
+    asQ.write_paradiag_metrics(pdg)
 
 # Make an animation from the snapshots we collected and save it to periodic.mp4.
-if is_last_slice and False:
+if is_last_slice and args.mpeg:
 
     fn_plotter = fd.FunctionPlotter(mesh, num_sample_points=args.nsample)
 
