@@ -128,7 +128,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             cpt = cpt % self.ncomponents
             return i*self.ncomponents + cpt
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def set_component(self, step, cpt, usrc, index_range='slice', funcs=None):
         '''
         Set component of solution at a timestep to new value.
@@ -147,7 +147,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             funcs = self.function.subfunctions
         funcs[aao_index].assign(usrc)
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def get_component(self, step, cpt, uout=None, index_range='slice', funcs=None, name=None, deepcopy=False):
         '''
         Get component of solution at a timestep.
@@ -199,7 +199,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         return tuple(self.get_component(step, cpt, index_range=index_range, funcs=funcs)
                      for cpt in range(self.ncomponents))
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def set_field(self, step, usrc, index_range='slice', funcs=None):
         '''
         Set solution at a timestep to new value.
@@ -214,7 +214,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             self.set_component(step, cpt, usrc.subfunctions[cpt],
                                index_range=index_range, funcs=funcs)
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def get_field(self, step, uout=None, index_range='slice', name=None, funcs=None):
         '''
         Get solution at a timestep.
@@ -238,7 +238,7 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         return uget
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def bcast_field(self, step, u):
         """
         Broadcast solution at given timestep to all time-ranks.
@@ -258,7 +258,7 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         return u
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def update_time_halos(self, blocking=True):
         '''
         Update uprev with the last step from the previous time slice (periodic).
@@ -284,6 +284,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         return sendrecv(fsend=self.unext, dest=dst, sendtag=rank,
                         frecv=self.uprev, source=src, recvtag=src)
 
+    @profiler()
     def copy(self, copy_values=True):
         """
         Return a deep copy of the AllAtOnceFunction.
@@ -297,13 +298,12 @@ class AllAtOnceFunction(TimePartitionMixin):
             new.assign(self)
         return new
 
-    @PETSc.Log.EventDecorator()
     @profiler()
     def assign(self, src, update_halos=True, blocking=True):
         """
         Set value of AllAtOnceFunction from another object.
 
-        :arg src: object to set value from. Can be one of: Either another AllAtOnceFunction or a
+        :arg src: object to set value from. Can be one of:
             - AllAtOnceFunction: assign all values from src.
             - PETSc Vec: assign self.function from src via self.global_vec.
             - firedrake.Function: assign initial condition and all timesteps from src.
@@ -343,7 +343,6 @@ class AllAtOnceFunction(TimePartitionMixin):
         if update_halos:
             return self.update_time_halos(blocking=blocking)
 
-    @PETSc.Log.EventDecorator()
     @profiler()
     def zero(self, subset=None):
         """
@@ -358,6 +357,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         return self
 
     @contextlib.contextmanager
+    @profiler()
     def global_vec(self):
         """
         Context manager for the global PETSc Vec with read/write access.
@@ -371,6 +371,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             yield self._vec
 
     @contextlib.contextmanager
+    @profiler()
     def global_vec_ro(self):
         """
         Context manager for the global PETSc Vec with read only access.
@@ -384,6 +385,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             yield self._vec
 
     @contextlib.contextmanager
+    @profiler()
     def global_vec_wo(self):
         """
         Context manager for the global PETSc Vec with write only access.

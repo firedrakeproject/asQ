@@ -1,7 +1,0 @@
-dt = [0.0625]
-theta = [0.5]
-time_partition = (2, 2)
-comm.size = 1
-ensemble_comm.size = 2
-global_comm.size = 2
-alpha = 0.0001
