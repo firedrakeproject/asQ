@@ -116,10 +116,6 @@ class DiagFFTPC(object):
         # sanity check
         assert (self.blockV.dim()*paradiag.nlocal_timesteps == W_all.dim())
 
-        # Input/Output wrapper Functions for all-at-once residual being acted on
-        self.xf = fd.Function(W_all)  # input
-        self.yf = fd.Function(W_all)  # output
-
         # Gamma coefficients
         exponents = np.arange(self.ntimesteps)/self.ntimesteps
         self.Gam = paradiag.alpha**exponents
@@ -165,20 +161,43 @@ class DiagFFTPC(object):
         self.xfr = fd.Function(W_all)
 
         # setting up the FFT stuff
+        self.smaller_transpose = True
         # construct simply dist array and 1d fftn:
         subcomm = Subcomm(self.ensemble.ensemble_comm, [0, 1])
+
         # dimensions of space-time data in this ensemble_comm
         nlocal = self.blockV.node_set.size
         NN = np.array([self.ntimesteps, nlocal], dtype=int)
+
         # transfer pencil is aligned along axis 1
         self.p0 = Pencil(subcomm, NN, axis=1)
-        # a0 is the local part of our fft working array
-        # has shape of (partition/P, nlocal)
-        self.a0 = np.zeros(self.p0.subshape, complex)
         self.p1 = self.p0.pencil(0)
-        # a0 is the local part of our other fft working array
-        self.a1 = np.zeros(self.p1.subshape, complex)
-        self.transfer = self.p0.transfer(self.p1, complex)
+
+        # data types
+        rtype = self.xfr.dat[0].data.dtype
+        ctype = complex
+
+        # set up real valued transfer
+        self.rtransfer = self.p0.transfer(self.p1, rtype)
+
+        # a0 is the local part of the original data (i.e. distributed in time)
+        # has shape of (nlocal_timesteps, nlocal)
+        self.ra0 = np.zeros(self.p0.subshape, rtype)
+
+        # a1 is the local part of the transposed data (i.e. distributed in space)
+        # has shape of (ntimesteps, ...)
+        self.ra1 = np.zeros(self.p1.subshape, rtype)
+
+        # set up complex valued transfer
+        self.ctransfer = self.p0.transfer(self.p1, ctype)
+
+        # a0 is the local part of the original data (i.e. distributed in time)
+        # has shape of (nlocal_timesteps, nlocal)
+        self.ca0 = np.zeros(self.p0.subshape, ctype)
+
+        # a1 is the local part of the transposed data (i.e. distributed in space)
+        # has shape of (ntimesteps, ...)
+        self.ca1 = np.zeros(self.p1.subshape, ctype)
 
         # setting up the Riesz map
         default_riesz_method = {
@@ -351,98 +370,117 @@ class DiagFFTPC(object):
         return
 
     @profiler()
+    def _transfer_forward1(self):
+        if self.smaller_transpose:
+            self.rtransfer.forward(self.ra0, self.ra1)
+            self.ca1[:] = self.ra1[:]
+        else:
+            self.ca0[:] = self.ra0[:]
+            self.ctransfer.forward(self.ca0, self.ca1)
+
+    @profiler()
+    def _fft(self):
+        self.ca1[:] = fft(self.ca1, axis=0)
+
+    @profiler()
+    def _transfer_backward2(self):
+        self.ctransfer.backward(self.ca1, self.ca0)
+
+    @profiler()
+    def _transfer_forward3(self):
+        self.ctransfer.forward(self.ca0, self.ca1)
+
+    @profiler()
+    def _ifft(self):
+        self.ca1[:] = ifft(self.ca1, axis=0)
+
+    @profiler()
+    def _transfer_backward4(self):
+        if self.smaller_transpose:
+            self.ra1[:] = self.ca1.real[:]
+            self.rtransfer.backward(self.ra1, self.ra0)
+        else:
+            self.ctransfer.backward(self.ca1, self.ca0)
+            self.ra0[:] = self.ca0.real[:]
+
+    @profiler()
     def apply(self, pc, x, y):
 
-        # copy petsc vec into Function
-        # hopefully this works
-        with self.xf.dat.vec_wo as v:
-            x.copy(v)
-
         # get array of basis coefficients
-        with self.xf.dat.vec_ro as v:
-            parray = v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                        self.blockV.node_set.size))
         # This produces an array whose rows are time slices
         # and columns are finite element basis coefficients
+        self.ra0[:] = x.array_r.reshape((self.aaos.nlocal_timesteps,
+                                         self.blockV.node_set.size))
 
         ######################
         # Diagonalise - scale, transfer, FFT, transfer, Copy
-        # Scale
+
+        # scale
         # is there a better way to do this with broadcasting?
-        parray = (1.0+0.j)*(self.Gam_slice*parray.T).T*np.sqrt(self.ntimesteps)
-        # transfer forward
-        self.a0[:] = parray[:]
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
-            self.transfer.forward(self.a0, self.a1)
+        self.ra0[:] = (self.Gam_slice*self.ra0.T).T*np.sqrt(self.ntimesteps)
 
-        # FFT
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
-            self.a1[:] = fft(self.a1, axis=0)
-
-        # transfer backward
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
-            self.transfer.backward(self.a1, self.a0)
+        self.ensemble.global_comm.Barrier()
+        self._transfer_forward1()
+        self.ensemble.global_comm.Barrier()
+        self._fft()
+        self.ensemble.global_comm.Barrier()
+        self._transfer_backward2()
+        self.ensemble.global_comm.Barrier()
 
         # Copy into xfi, xfr
-        parray[:] = self.a0[:]
         with self.xfr.dat.vec_wo as v:
-            v.array[:] = parray.real.reshape(-1)
+            v.array[:] = self.ca0.real.reshape(-1)
         with self.xfi.dat.vec_wo as v:
-            v.array[:] = parray.imag.reshape(-1)
+            v.array[:] = self.ca0.imag.reshape(-1)
         #####################
 
         # Do the block solves
 
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.block_solves"):
-            for i in range(self.aaos.nlocal_timesteps):
-                # copy the data into solver input
-                self.xtemp.assign(0.)
+        for i in range(self.aaos.nlocal_timesteps):
+            # copy the data into solver input
+            self.xtemp.assign(0.)
 
-                cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-                cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+            cpx.set_real(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+            cpx.set_imag(self.xtemp, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
-                # Do a project for Riesz map, to be superceded
-                # when we get Cofunction
+            # Do a project for Riesz map, to be superceded
+            # when we get Cofunction
+            with PETSc.Log.Event("asQ.DiagFFTPC.apply.riesz_map"):
                 self.Proj.solve(self.Jprob_in, self.xtemp)
 
-                # solve the block system
+            # solve the block system
+            with PETSc.Log.Event("asQ.DiagFFTPC.apply.block_solves"):
                 self.Jprob_out.assign(0.)
                 self.Jsolvers[i].solve()
 
-                # copy the data from solver output
-                cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
-                cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
+            # copy the data from solver output
+            cpx.get_real(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfr.subfunctions))
+            cpx.get_imag(self.Jprob_out, self.aaos.get_field_components(i, f_alls=self.xfi.subfunctions))
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
         # get array of basis coefficients
-        with self.xfi.dat.vec_ro as v:
-            parray = 1j*v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                           self.blockV.node_set.size))
         with self.xfr.dat.vec_ro as v:
-            parray += v.array_r.reshape((self.aaos.nlocal_timesteps,
-                                         self.blockV.node_set.size))
-        # transfer forward
-        self.a0[:] = parray[:]
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
-            self.transfer.forward(self.a0, self.a1)
+            self.ca0.real[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
+                                                  self.blockV.node_set.size))
+        with self.xfi.dat.vec_ro as v:
+            self.ca0.imag[:] = v.array_r.reshape((self.aaos.nlocal_timesteps,
+                                                  self.blockV.node_set.size))
 
-        # IFFT
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
-            self.a1[:] = ifft(self.a1, axis=0)
-
-        # transfer backward
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
-            self.transfer.backward(self.a1, self.a0)
-        parray[:] = self.a0[:]
+        self.ensemble.global_comm.Barrier()
+        self._transfer_forward3()
+        self.ensemble.global_comm.Barrier()
+        self._ifft()
+        self.ensemble.global_comm.Barrier()
+        self._transfer_backward4()
+        self.ensemble.global_comm.Barrier()
 
         # scale
-        parray = ((1.0/self.Gam_slice)*parray.T).T
-        # Copy into xfi, xfr
-        with self.yf.dat.vec_wo as v:
-            v.array[:] = parray.reshape(-1).real
-        with self.yf.dat.vec_ro as v:
-            v.copy(y)
+        self.ra0[:] = ((1.0/self.Gam_slice)*self.ra0[:].T).T
+
+        # Copy into output
+        y.array[:] = self.ra0.reshape(-1)
+
         ################
 
         self._record_diagnostics()
