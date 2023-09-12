@@ -60,11 +60,11 @@ h_initial.project(case.depth_expression(*x))
 
 
 # shallow water equation forms
-def form_function(u, h, v, q):
+def form_function(u, h, v, q, t):
     return swe.linear.form_function(mesh,
                                     earth.Gravity, case.H,
                                     coriolis,
-                                    u, h, v, q)
+                                    u, h, v, q, t)
 
 
 def form_mass(u, h, v, q):

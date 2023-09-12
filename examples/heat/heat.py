@@ -93,8 +93,8 @@ block_parameters = {
 #    'ksp_type': 'preonly'
 
 paradiag_parameters = {
+    'snes_type': 'ksponly',
     'snes': {
-        'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-10,
@@ -111,7 +111,8 @@ paradiag_parameters = {
         'stol': 1e-12,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfft_alpha': args.alpha,
 }
 
 # We need to add a block solver parameters dictionary for each block.
@@ -119,25 +120,23 @@ paradiag_parameters = {
 for i in range(window_length):
     paradiag_parameters['diagfft_block_'+str(i)+'_'] = block_parameters
 
-
 # # # === --- Setup ParaDiag --- === # # #
 
 
 # Give everything to asQ to create the paradiag object.
 # the circ parameter determines where the alpha-circulant
 # approximation is introduced. None means only in the preconditioner.
-pdg = asQ.paradiag(ensemble=ensemble,
+pdg = asQ.Paradiag(ensemble=ensemble,
                    form_function=form_function,
                    form_mass=form_mass,
-                   w0=w0, dt=dt, theta=args.theta,
-                   alpha=args.alpha, time_partition=time_partition,
-                   solver_parameters=paradiag_parameters,
-                   circ=None)
+                   ics=w0, dt=dt, theta=args.theta,
+                   time_partition=time_partition,
+                   solver_parameters=paradiag_parameters)
 
 
 # This is a callback which will be called before pdg solves each time-window
 # We can use this to make the output a bit easier to read
-def window_preproc(pdg, wndw):
+def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
@@ -150,22 +149,20 @@ errors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
 times = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
 
 
-def window_postproc(pdg, wndw):
-    aaos = pdg.aaos
-
-    for step in range(aaos.ntimesteps):
-        if aaos.layout.is_local(step):
-            local_step = aaos.transform_index(step, from_range='window')
-            t = aaos.time[local_step]
+def window_postproc(pdg, wndw, rhs):
+    for step in range(pdg.aaofunc.ntimesteps):
+        if pdg.aaoform.layout.is_local(step):
+            local_step = pdg.aaofunc.transform_index(step, from_range='window')
+            t = pdg.aaoform.time[local_step]
             q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
-            aaos.get_field(local_step, wout=qp)
+            pdg.aaofunc.get_field(local_step, uout=qp)
             errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
             times.dlocal[local_step] = t
 
     errors.synchronise()
     times.synchronise()
 
-    for step in range(aaos.ntimesteps):
+    for step in range(pdg.aaofunc.ntimesteps):
         PETSc.Sys.Print(f"Time={str(times.dglobal[step]).ljust(8, ' ')}, qerr={errors.dglobal[step]}")
 
 
