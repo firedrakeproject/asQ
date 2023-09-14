@@ -105,7 +105,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         self.update()
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def update(self, X=None):
         """
         Update the state to linearise around according to aaos_jacobian_state.
@@ -141,7 +141,6 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         return
 
-    @PETSc.Log.EventDecorator()
     @profiler()
     def mult(self, mat, X, Y):
         """

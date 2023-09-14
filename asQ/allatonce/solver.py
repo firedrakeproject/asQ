@@ -125,7 +125,6 @@ class AllAtOnceSolver(TimePartitionMixin):
         # complete the snes setup
         self.options.set_from_options(self.snes)
 
-    @PETSc.Log.EventDecorator()
     @profiler()
     def solve(self, rhs=None):
         """
