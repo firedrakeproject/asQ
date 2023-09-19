@@ -8,7 +8,7 @@ import asQ
 
 PETSc.Sys.Print("Setting up problem")
 
-time_partition = tuple((1 for _ in range(4)))
+time_partition = tuple((2 for _ in range(4)))
 
 ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
@@ -151,39 +151,10 @@ for bc in bcs:
     bc.apply(Un)
 
 # Parameters for the newton iterations
-solver_parameters = {
-    "snes": {
-        "monitor": None,
-        "converged_reason": None,
-        "stol": 1e-12,
-        "atol": 1e-6,
-        "rtol": 1e-6,
-        "ksp_ew": None,
-        "ksp_ew_version": 1,
-        "ksp_ew_threshold": 1e-5,
-        "ksp_ew_rtol0": 1e-3,
-    },
-    "ksp_type": "gmres",
-    "ksp": {
-        "monitor": None,
-        "converged_reason": None,
-        "atol": 1e-7,
-    },
-    "pc_type": "python",
-    "pc_python_type": "firedrake.AssembledPC",
-    "assembled": {
-        "pc_type": "python",
-        "pc_python_type": "firedrake.ASMVankaPC",
-        "pc_vanka": {
-            "construct_dim": 0,
-            "sub_sub_pc_type": "lu",
-            "sub_sub_pc_factor_mat_solver_type": 'mumps',
-        },
-    },
-}
+atol = 1e-6
 
 lines_parameters = {
-    "ksp_type": "gmres",
+    "ksp_type": "fgmres",
     "ksp_rtol": 1e-5,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
@@ -198,15 +169,39 @@ lines_parameters = {
     },
 }
 
-atol = 1e-6
+serial_parameters = {
+    "snes": {
+        "atol": atol,
+        "rtol": 1e-8,
+        "stol": 1e-12,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-5,
+        "ksp_ew_rtol0": 1e-3,
+    },
+    "ksp": {
+        "atol": atol,
+    },
+}
+serial_parameters.update(lines_parameters)
+
+if ensemble.ensemble_comm.rank == 0:
+    serial_parameters['snes']['monitor'] = None
+    serial_parameters['snes']['converged_reason'] = None
+    serial_parameters['ksp']['monitor'] = None
+    serial_parameters['ksp']['converged_reason'] = None
+
 parallel_parameters = {
     "snes": {
         "monitor": None,
         "converged_reason": None,
-        "rtol": 1e-8,
         "atol": atol,
+        "rtol": 1e-8,
+        "stol": 1e-12,
         "ksp_ew": None,
         "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-5,
+        "ksp_ew_rtol0": 1e-3,
     },
     "ksp_type": "fgmres",
     "mat_type": "matfree",
@@ -219,43 +214,10 @@ parallel_parameters = {
     "pc_python_type": "asQ.DiagFFTPC"
 }
 
-serial_parameters = {
-    "snes": {
-        "stol": 1e-12,
-        "atol": 1e-6,
-        "rtol": 1e-6,
-        "ksp_ew": None,
-        "ksp_ew_version": 1,
-        "ksp_ew_threshold": 1e-5,
-        "ksp_ew_rtol0": 1e-3,
-    },
-    "ksp_type": "gmres",
-    "ksp": {
-        "atol": 1e-7,
-    },
-    "pc_type": "python",
-    "pc_python_type": "firedrake.AssembledPC",
-    "assembled": {
-        "pc_type": "python",
-        "pc_python_type": "firedrake.ASMVankaPC",
-        "pc_vanka": {
-            "construct_dim": 0,
-            "sub_sub_pc_type": "lu",
-            "sub_sub_pc_factor_mat_solver_type": 'mumps',
-        },
-    },
-}
-
-if ensemble.ensemble_comm.rank == 0:
-    serial_parameters['snes']['monitor'] = None
-    serial_parameters['snes']['converged_reason'] = None
-    serial_parameters['ksp']['monitor'] = None
-    serial_parameters['ksp']['converged_reason'] = None
-
-theta = 0.5
-
 for i in range(sum(time_partition)):
     parallel_parameters["diagfft_block_"+str(i)+"_"] = lines_parameters
+
+theta = 0.5
 
 miniapp = ComparisonMiniapp(ensemble, time_partition,
                             form_mass=form_mass,
@@ -295,7 +257,7 @@ def parallel_postproc(pdg, wndw, rhs):
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-errors = miniapp.solve(nwindows=2,
+errors = miniapp.solve(nwindows=1,
                        preproc=preproc,
                        serial_postproc=serial_postproc,
                        parallel_postproc=parallel_postproc)
