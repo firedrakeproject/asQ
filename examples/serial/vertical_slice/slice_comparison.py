@@ -1,58 +1,26 @@
-
 import firedrake as fd
-from firedrake.petsc import PETSc
-
-import asQ
-
-from utils import units
-from utils.diagnostics import convective_cfl_calculator
+from math import pi
+from utils.serial import ComparisonMiniapp
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
+from firedrake.petsc import PETSc
+import asQ
 
-from utils.serial import ComparisonMiniapp
+PETSc.Sys.Print("Setting up problem")
 
-PETSc.Sys.popErrorHandler()
+time_partition = tuple((1 for _ in range(4)))
 
-# get command arguments
-import argparse
-parser = argparse.ArgumentParser(
-    description='Compare the serial and parallel solutions to the vertical slice testcase.',
-    formatter_class=argparse.ArgumentDefaultsHelpFormatter
-)
+ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
-parser.add_argument('--nlayers', type=int, default=35, help='Number of horizontal layers.')
-parser.add_argument('--ncolumns', type=int, default=90, help='Number of vertical columns.')
-parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
-parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
-parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
-parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
-parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
-parser.add_argument('--horizontal_degree', type=int, default=1, help='Degree of the pressure function space in the horizontal direction.')
-parser.add_argument('--vertical_degree', type=int, default=1, help='Degree of the pressure function space in the vertical direction.')
-parser.add_argument('--theta', type=float, default=0.5, help='Parameter for implicit theta method. 0.5 for trapezium rule, 1 for backwards Euler.')
-parser.add_argument('--filename', type=str, default='slice', help='Name of output vtk files')
-parser.add_argument('--print_norms', type=bool, default=False, help='Print the norm of each timestep')
-parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
+comm = ensemble.comm
 
-args = parser.parse_known_args()
-args = args[0]
+# set up the mesh
 
-if args.show_args:
-    PETSc.Sys.Print(args)
+nt = 5
+dt = 2.5
 
-PETSc.Sys.Print('')
-PETSc.Sys.Print('### === --- Setting up --- === ###')
-PETSc.Sys.Print('')
-
-# time steps
-
-time_partition = [args.slice_length for _ in range(args.nslices)]
-
-dt = args.dt*units.hour
-
-ensemble = asQ.create_ensemble(time_partition)
-
-# extruded slice mesh
+nlayers = 35  # horizontal layers
+base_columns = 90  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -62,18 +30,17 @@ distribution_parameters = {
 }
 
 # surface mesh of ground
-base_mesh = fd.PeriodicIntervalMesh(args.ncolumns, L,
+base_mesh = fd.PeriodicIntervalMesh(base_columns, L,
                                     distribution_parameters=distribution_parameters,
-                                    comm=ensemble.comm)
+                                    comm=comm)
 
 # volume mesh of the slice
 mesh = fd.ExtrudedMesh(base_mesh,
-                       layers=args.nlayers,
-                       layer_height=H/args.nlayers)
+                       layers=nlayers,
+                       layer_height=H/nlayers)
 n = fd.FacetNormal(mesh)
 x, z = fd.SpatialCoordinate(mesh)
 
-# problem parameters
 g = fd.Constant(9.810616)
 N = fd.Constant(0.01)  # Brunt-Vaisala frequency (1/s)
 cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
@@ -82,9 +49,7 @@ kappa = fd.Constant(2.0/7.0)  # R_d/c_p
 p_0 = fd.Constant(1000.0*100.0)  # reference pressure (Pa, not hPa)
 cv = fd.Constant(717.)  # SHC of dry air at const. volume (J/kg/K)
 T_0 = fd.Constant(273.15)  # ref. temperature
-cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
 
-dt = 1.
 dT = fd.Constant(dt)
 
 # making a mountain out of a molehill
@@ -103,13 +68,15 @@ else:
     xexpr = fd.as_vector([x, z + ((H-z)/H)*zs])
 mesh.coordinates.interpolate(xexpr)
 
-# function spaces
-S1 = fd.FiniteElement("CG", fd.interval, args.horizontal_degree+1)
-S2 = fd.FiniteElement("DG", fd.interval, args.horizontal_degree)
+horizontal_degree = 1
+vertical_degree = 1
+
+S1 = fd.FiniteElement("CG", fd.interval, horizontal_degree+1)
+S2 = fd.FiniteElement("DG", fd.interval, horizontal_degree)
 
 # vertical base spaces
-T0 = fd.FiniteElement("CG", fd.interval, args.vertical_degree+1)
-T1 = fd.FiniteElement("DG", fd.interval, args.vertical_degree)
+T0 = fd.FiniteElement("CG", fd.interval, vertical_degree+1)
+T1 = fd.FiniteElement("DG", fd.interval, vertical_degree)
 
 # build spaces V2, V3, Vt
 V2h_elt = fd.HDiv(fd.TensorProductElement(S1, T1))
@@ -126,9 +93,8 @@ Vv = fd.FunctionSpace(mesh, V2v_elt, name="Vv")
 W = V1 * V2 * Vt  # velocity, density, temperature
 
 PETSc.Sys.Print(f"DoFs: {W.dim()}")
-PETSc.Sys.Print(f"DoFs/core: {W.dim()/ensemble.comm.size}")
+PETSc.Sys.Print(f"DoFs/core: {W.dim()/comm.size}")
 
-# initial conditions
 Un = fd.Function(W)
 
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
@@ -137,15 +103,12 @@ thetab = Tsurf*fd.exp(N**2*z/g)
 
 Up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
-un = Un.subfunctions[0]
-rhon = Un.subfunctions[1]
-thetan = Un.subfunctions[2]
+un, rhon, thetan = Un.subfunctions
 un.project(fd.as_vector([10.0, 0.0]))
 thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
 rhon.assign(1.0e-5)
 
-# hydrostatic background state
 PETSc.Sys.Print("Calculating hydrostatic state")
 
 Pi = fd.Function(V2)
@@ -174,8 +137,6 @@ mubar = 0.15/dt
 mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(H-zc))**2)
 mu = fd.Function(V2).interpolate(mu_top/dT)
 
-
-# vertical slice forms
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
                                   cp=cp, g=g, R_d=R_d,
                                   p_0=p_0, kappa=kappa, mu=mu)
@@ -189,148 +150,128 @@ bcs = [fd.DirichletBC(W.sub(0), zv, "bottom"),
 for bc in bcs:
     bc.apply(Un)
 
-
-
-# solver parameters for the implicit solve
-serial_sparameters = {
-    'snes': {
-        'atol': 1e-0,
-        'rtol': 1e-12,
-        'stol': 1e-12,
+# Parameters for the newton iterations
+solver_parameters = {
+    "snes": {
+        "monitor": None,
+        "converged_reason": None,
+        "stol": 1e-12,
+        "atol": 1e-6,
+        "rtol": 1e-6,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-5,
+        "ksp_ew_rtol0": 1e-3,
     },
-    'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    'ksp': {
-        'atol': 1e-8,
-        'rtol': 1e-8,
+    "ksp_type": "gmres",
+    "ksp": {
+        "monitor": None,
+        "converged_reason": None,
+        "atol": 1e-7,
     },
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'multiplicative',
-    'mg': {
-        'levels': {
-            'ksp_type': 'gmres',
-            'ksp_max_it': 5,
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.PatchPC',
-            'patch': {
-                'pc_patch_save_operators': True,
-                'pc_patch_partition_of_unity': True,
-                'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_codim': 0,
-                'pc_patch_construct_type': 'vanka',
-                'pc_patch_local_type': 'additive',
-                'pc_patch_precompute_element_tensors': True,
-                'pc_patch_symmetrise_sweep': False,
-                'sub_ksp_type': 'preonly',
-                'sub_pc_type': 'lu',
-                'sub_pc_factor_shift_type': 'nonzero',
-            },
+    "pc_type": "python",
+    "pc_python_type": "firedrake.AssembledPC",
+    "assembled": {
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMVankaPC",
+        "pc_vanka": {
+            "construct_dim": 0,
+            "sub_sub_pc_type": "lu",
+            "sub_sub_pc_factor_mat_solver_type": 'mumps',
         },
-        'coarse': {
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.AssembledPC',
-            'assembled_pc_type': 'lu',
-            'assembled_pc_factor_mat_solver_type': 'mumps',
+    },
+}
+
+lines_parameters = {
+    "ksp_type": "gmres",
+    "ksp_rtol": 1e-5,
+    "pc_type": "python",
+    "pc_python_type": "firedrake.AssembledPC",
+    "assembled": {
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMVankaPC",
+        "pc_vanka": {
+            "construct_dim": 0,
+            "sub_sub_pc_type": "lu",
+            "sub_sub_pc_factor_mat_solver_type": 'mumps',
         },
-    }
+    },
+}
+
+atol = 1e-6
+parallel_parameters = {
+    "snes": {
+        "monitor": None,
+        "converged_reason": None,
+        "rtol": 1e-8,
+        "atol": atol,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+    },
+    "ksp_type": "fgmres",
+    "mat_type": "matfree",
+    "ksp": {
+        "monitor": None,
+        "converged_reason": None,
+        "atol": atol,
+    },
+    "pc_type": "python",
+    "pc_python_type": "asQ.DiagFFTPC"
+}
+
+serial_parameters = {
+    "snes": {
+        "stol": 1e-12,
+        "atol": 1e-6,
+        "rtol": 1e-6,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-5,
+        "ksp_ew_rtol0": 1e-3,
+    },
+    "ksp_type": "gmres",
+    "ksp": {
+        "atol": 1e-7,
+    },
+    "pc_type": "python",
+    "pc_python_type": "firedrake.AssembledPC",
+    "assembled": {
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMVankaPC",
+        "pc_vanka": {
+            "construct_dim": 0,
+            "sub_sub_pc_type": "lu",
+            "sub_sub_pc_factor_mat_solver_type": 'mumps',
+        },
+    },
 }
 
 if ensemble.ensemble_comm.rank == 0:
-    serial_sparameters['snes']['monitor'] = None
-    serial_sparameters['snes']['converged_reason'] = None
-    serial_sparameters['ksp']['monitor'] = None
-    serial_sparameters['ksp']['converged_reason'] = None
+    serial_parameters['snes']['monitor'] = None
+    serial_parameters['snes']['converged_reason'] = None
+    serial_parameters['ksp']['monitor'] = None
+    serial_parameters['ksp']['converged_reason'] = None
 
-# parameters for the implicit diagonal solve in step-(b)
-block_sparameters = {
-    'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    'ksp': {
-        'atol': 1e-8,
-        'rtol': 1e-8,
-    },
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
-    'pc_mg_type': 'multiplicative',
-    'mg': {
-        'levels': {
-            'ksp_type': 'gmres',
-            'ksp_max_it': 5,
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.PatchPC',
-            'patch': {
-                'pc_patch_save_operators': True,
-                'pc_patch_partition_of_unity': True,
-                'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_codim': 0,
-                'pc_patch_construct_type': 'vanka',
-                'pc_patch_local_type': 'additive',
-                'pc_patch_precompute_element_tensors': True,
-                'pc_patch_symmetrise_sweep': False,
-                'sub_ksp_type': 'preonly',
-                'sub_pc_type': 'lu',
-                'sub_pc_factor_shift_type': 'nonzero',
-            },
-        },
-        'coarse': {
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.AssembledPC',
-            'assembled_pc_type': 'lu',
-            'assembled_pc_factor_mat_solver_type': 'mumps',
-        },
-    }
-}
+theta = 0.5
 
-parallel_sparameters = {
-    'snes': {
-        'linesearch_type': 'basic',
-        'monitor': None,
-        'converged_reason': None,
-        'atol': 1e-0,
-        'rtol': 1e-12,
-        'stol': 1e-12,
-        'ksp_ew': None,
-        'ksp_ew_version': 1,
-        'ksp_ew_threshold': 1e-2,
-    },
-    'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    'ksp': {
-        'monitor': None,
-        'converged_reason': None,
-        'atol': 1e-0,
-    },
-    'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft': {
-        'alpha': args.alpha
-    }
-}
-
-parallel_sparameters['diagfft_block_'] = block_sparameters
-
-appctx = {}
-transfer_managers = []
-for _ in range(time_partition[ensemble.ensemble_comm.rank]):
-    tm = mg.manifold_transfer_manager(W)
-    transfer_managers.append(tm)
-appctx['diagfft_transfer_managers'] = transfer_managers
+for i in range(sum(time_partition)):
+    parallel_parameters["diagfft_block_"+str(i)+"_"] = lines_parameters
 
 miniapp = ComparisonMiniapp(ensemble, time_partition,
                             form_mass=form_mass,
                             form_function=form_function,
-                            w_initial=w_initial,
-                            dt=dt, theta=args.theta,
-                            serial_sparameters=serial_sparameters,
-                            parallel_sparameters=parallel_sparameters,
-                            appctx=appctx)
+                            w_initial=Un, dt=dt, theta=theta,
+                            boundary_conditions=bcs,
+                            serial_sparameters=serial_parameters,
+                            parallel_sparameters=parallel_parameters)
+pdg = miniapp.paradiag
+aaofunc = pdg.aaofunc
+is_last_slice = pdg.layout.is_local(-1)
 
-miniapp.serial_app.nlsolver.set_transfer_manager(
-    mg.manifold_transfer_manager(W))
+PETSc.Sys.Print("Solving problem")
 
 rank = ensemble.ensemble_comm.rank
-norm0 = fd.norm(w_initial)
+norm0 = fd.norm(Un)
 
 
 def preproc(serial_app, paradiag, wndw):
@@ -342,21 +283,10 @@ def preproc(serial_app, paradiag, wndw):
 
 
 def serial_postproc(app, it, t):
-    if not args.print_norms:
-        return
-    if rank == 0:
-        PETSc.Sys.Print(f'Rank {rank}: Serial timestep {it} norm {fd.norm(app.w0)/norm0}', comm=ensemble.comm)
-    ensemble.global_comm.Barrier()
     return
 
 
 def parallel_postproc(pdg, wndw, rhs):
-    if args.print_norms:
-        aaos = miniapp.paradiag.aaos
-        for step in range(aaos.nlocal_timesteps):
-            it = aaos.transform_index(step, from_range='slice', to_range='window')
-            w = aaos.get_field(step)
-            PETSc.Sys.Print(f'Rank {rank}: Parallel timestep {it} norm {fd.norm(w)/norm0}', comm=ensemble.comm)
     PETSc.Sys.Print('')
     PETSc.Sys.Print('=== --- Serial solve --- ===')
     PETSc.Sys.Print('')
@@ -365,7 +295,7 @@ def parallel_postproc(pdg, wndw, rhs):
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-errors = miniapp.solve(nwindows=args.nwindows,
+errors = miniapp.solve(nwindows=2,
                        preproc=preproc,
                        serial_postproc=serial_postproc,
                        parallel_postproc=parallel_postproc)

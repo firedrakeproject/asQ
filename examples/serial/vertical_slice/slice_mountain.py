@@ -15,8 +15,8 @@ comm = fd.COMM_WORLD
 nt = 5
 dt = 2.5
 
-nlayers = 140  # horizontal layers
-base_columns = 360  # number of columns
+nlayers = 35  # horizontal layers
+base_columns = 90  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -31,8 +31,11 @@ base_mesh = fd.PeriodicIntervalMesh(base_columns, L,
                                     comm=comm)
 
 # volume mesh of the slice
-mesh = fd.ExtrudedMesh(base_mesh, layers=nlayers, layer_height=H/nlayers)
+mesh = fd.ExtrudedMesh(base_mesh,
+                       layers=nlayers,
+                       layer_height=H/nlayers)
 n = fd.FacetNormal(mesh)
+x, z = fd.SpatialCoordinate(mesh)
 
 g = fd.Constant(9.810616)
 N = fd.Constant(0.01)  # Brunt-Vaisala frequency (1/s)
@@ -48,7 +51,6 @@ dT = fd.Constant(dt)
 # making a mountain out of a molehill
 a = 10000.
 xc = L/2.
-x, z = fd.SpatialCoordinate(mesh)
 hm = 1.
 zs = hm*a**2/((x-xc)**2 + a**2)
 
@@ -91,18 +93,13 @@ PETSc.Sys.Print(f"DoFs/core: {W.dim()/comm.size}")
 
 Un = fd.Function(W)
 
-x, z = fd.SpatialCoordinate(mesh)
-
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
 Tsurf = fd.Constant(300.)
 thetab = Tsurf*fd.exp(N**2*z/g)
 
-cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
 Up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
-un = Un.subfunctions[0]
-rhon = Un.subfunctions[1]
-thetan = Un.subfunctions[2]
+un, rhon, thetan = Un.subfunctions
 un.project(fd.as_vector([10.0, 0.0]))
 thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
