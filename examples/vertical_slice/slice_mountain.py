@@ -167,11 +167,13 @@ lines_parameters = {
     },
 }
 
+atol = 1e-6
 solver_parameters_diag = {
     "snes": {
         "monitor": None,
         "converged_reason": None,
         "rtol": 1e-8,
+        "atol": atol,
         "ksp_ew": None,
         "ksp_ew_version": 1,
     },
@@ -180,7 +182,7 @@ solver_parameters_diag = {
     "ksp": {
         "monitor": None,
         "converged_reason": None,
-        "atol": 1e-6,
+        "atol": atol,
     },
     "pc_type": "python",
     "pc_python_type": "asQ.DiagFFTPC"
