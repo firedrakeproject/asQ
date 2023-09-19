@@ -14,7 +14,7 @@ class SerialMiniApp(object):
                  form_mass,
                  form_function,
                  solver_parameters,
-                 bcs=None):
+                 bcs=[]):
         '''
         A miniapp to integrate a finite element form forward in time using the implicit theta method
 
@@ -83,7 +83,6 @@ class SerialMiniApp(object):
 
             self.w0.assign(self.w1)
             self.time.assign(self.time + self.dt)
-            postproc(self, step, self.time)
 
 
 class ComparisonMiniapp(object):
@@ -133,7 +132,8 @@ class ComparisonMiniapp(object):
         # set up serial solver
         self.serial_app = SerialMiniApp(dt, theta, w_initial,
                                         form_mass, form_function,
-                                        serial_sparameters)
+                                        serial_sparameters,
+                                        bcs=boundary_conditions)
 
         # set up paradiag
         self.paradiag = asQ.Paradiag(ensemble=ensemble,
@@ -159,6 +159,7 @@ class ComparisonMiniapp(object):
         '''
 
         pdg = self.paradiag
+        aaofunc = pdg.aaofunc
 
         window_length = pdg.ntimesteps
         errors = np.zeros(nwindows*window_length)
@@ -170,7 +171,7 @@ class ComparisonMiniapp(object):
             # only calculate error if timestep it is on this parallel time-slice
             if pdg.layout.is_local(it):
                 # get serial and parallel solutions
-                pdg.aaofunc.get_field(it, uout=self.wparallel, index_range='window')
+                aaofunc.get_field(it, uout=self.wparallel, index_range='window')
 
                 self.wserial.assign(self.serial_app.w1)
 
@@ -189,10 +190,6 @@ class ComparisonMiniapp(object):
 
             preproc(self.serial_app, pdg, wndw)
 
-            if wndw > 0:
-                pdg.aaofunc.bcast_field(-1, self.aaofunc.initial_condition)
-                pdg.aaofunc.assign(self.aaofunc.initial_condition)
-
             pdg.solve(nwindows=1,
                       preproc=parallel_preproc,
                       postproc=parallel_postproc)
@@ -202,6 +199,14 @@ class ComparisonMiniapp(object):
                                   postproc=partial(serial_error_postproc, wndw=wndw))
 
             postproc(self.serial_app, pdg, wndw)
+
+            # reset window using last timestep as new initial condition
+            # but don't wipe all-at-once function at last window
+            if wndw != nwindows-1:
+                aaofunc.bcast_field(-1, aaofunc.initial_condition)
+                aaofunc.assign(aaofunc.initial_condition)
+                pdg.aaoform.time_update()
+                pdg.solver.jacobian_form.time_update()
 
         # collect full error series on all ranks
         global_errors = np.zeros_like(errors)
