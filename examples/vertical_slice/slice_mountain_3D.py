@@ -1,10 +1,10 @@
 import firedrake as fd
-import asQ
 from math import pi
 from utils.diagnostics import convective_cfl_calculator
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
 from firedrake.petsc import PETSc
+import asQ
 
 PETSc.Sys.Print("Setting up problem")
 
@@ -12,6 +12,8 @@ PETSc.Sys.Print("Setting up problem")
 time_partition = tuple((1 for _ in range(2)))
 
 ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+
+comm = ensemble.comm
 
 # set up the mesh
 
@@ -36,7 +38,6 @@ base_mesh = fd.PeriodicRectangleMesh(nx, ny, Lx, Ly,
 # volume mesh of the slice
 mesh = fd.ExtrudedMesh(base_mesh, layers=nz, layer_height=Lz/nz)
 n = fd.FacetNormal(mesh)
-
 
 g = fd.Constant(9.810616)
 N = fd.Constant(0.01)  # Brunt-Vaisala frequency (1/s)
@@ -108,7 +109,7 @@ Up = fd.as_vector([fd.Constant(0.0), fd.Constant(0.0), fd.Constant(1.0)])  # up 
 un = Un.subfunctions[0]
 rhon = Un.subfunctions[1]
 thetan = Un.subfunctions[2]
-un.project(fd.as_vector([20.0, 0.0, 0.0]))
+un.project(fd.as_vector([10.0, 0.0, 0.0]))
 thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
 rhon.assign(1.0e-5)

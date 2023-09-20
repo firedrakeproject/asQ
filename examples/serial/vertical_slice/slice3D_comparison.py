@@ -1,24 +1,29 @@
 import firedrake as fd
-import asQ
 from math import pi
-from utils.diagnostics import convective_cfl_calculator
+from utils.serial import ComparisonMiniapp
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
 from firedrake.petsc import PETSc
+import asQ
 
 PETSc.Sys.Print("Setting up problem")
 
 # set up the ensemble communicator for space-time parallelism
-time_partition = tuple((1 for _ in range(4)))
+time_partition = tuple((2 for _ in range(1)))
 
 ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
-# set up the mesh
+comm = ensemble.comm
 
-nlayers = 35  # horizontal layers
-base_columns = 90  # number of columns
-L = 144e3
-H = 35e3  # Height position of the model top
+# set up the mesh
+dt = 5.
+
+nx = 8  # number streamwise of columns
+ny = 8  # number spanwise of columns
+nz = 12  # horizontal layers
+Lx = 16e3
+Ly = 12e3
+Lz = 12e3  # Height position of the model top
 
 distribution_parameters = {
     "partition": True,
@@ -26,14 +31,15 @@ distribution_parameters = {
 }
 
 # surface mesh of ground
-base_mesh = fd.PeriodicIntervalMesh(base_columns, L,
-                                    distribution_parameters=distribution_parameters,
-                                    comm=ensemble.comm)
+base_mesh = fd.PeriodicRectangleMesh(nx, ny, Lx, Ly,
+                                     direction='both', quadrilateral=True,
+                                     distribution_parameters=distribution_parameters,
+                                     comm=comm)
 
 # volume mesh of the slice
-mesh = fd.ExtrudedMesh(base_mesh, layers=nlayers, layer_height=H/nlayers)
+mesh = fd.ExtrudedMesh(base_mesh, layers=nz, layer_height=Lz/nz)
 n = fd.FacetNormal(mesh)
-x, z = fd.SpatialCoordinate(mesh)
+x, y, z = fd.SpatialCoordinate(mesh)
 
 g = fd.Constant(9.810616)
 N = fd.Constant(0.01)  # Brunt-Vaisala frequency (1/s)
@@ -43,32 +49,33 @@ kappa = fd.Constant(2.0/7.0)  # R_d/c_p
 p_0 = fd.Constant(1000.0*100.0)  # reference pressure (Pa, not hPa)
 cv = fd.Constant(717.)  # SHC of dry air at const. volume (J/kg/K)
 T_0 = fd.Constant(273.15)  # ref. temperature
-cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
 
-dt = 1.
 dT = fd.Constant(dt)
 
 # making a mountain out of a molehill
-a = 10000.
-xc = L/2.
+a = 1000.
+xc = Lx/2.
+yc = Ly/2.
+x, y, z = fd.SpatialCoordinate(mesh)
 hm = 1.
-zs = hm*a**2/((x-xc)**2 + a**2)
+r2 = ((x - xc)/a)**2 + ((y - yc)/(2*a))**2
+zs = hm*fd.exp(-r2)
 
 smooth_z = True
 name = "mountain_nh"
 if smooth_z:
     name += '_smootherz'
     zh = 5000.
-    xexpr = fd.as_vector([x, fd.conditional(z < zh, z + fd.cos(0.5*pi*z/zh)**6*zs, z)])
+    xexpr = fd.as_vector([x, y, fd.conditional(z < zh, z + fd.cos(0.5*pi*z/zh)**6*zs, z)])
 else:
-    xexpr = fd.as_vector([x, z + ((H-z)/H)*zs])
+    xexpr = fd.as_vector([x, y, z + ((Lz-z)/Lz)*zs])
 mesh.coordinates.interpolate(xexpr)
 
 horizontal_degree = 1
 vertical_degree = 1
 
-S1 = fd.FiniteElement("CG", fd.interval, horizontal_degree+1)
-S2 = fd.FiniteElement("DG", fd.interval, horizontal_degree)
+S1 = fd.FiniteElement("RTCF", fd.quadrilateral, horizontal_degree+1)
+S2 = fd.FiniteElement("DQ", fd.quadrilateral, horizontal_degree)
 
 # vertical base spaces
 T0 = fd.FiniteElement("CG", fd.interval, vertical_degree+1)
@@ -89,7 +96,7 @@ Vv = fd.FunctionSpace(mesh, V2v_elt, name="Vv")
 W = V1 * V2 * Vt  # velocity, density, temperature
 
 PETSc.Sys.Print(f"DoFs: {W.dim()}")
-PETSc.Sys.Print(f"DoFs/core: {W.dim()/ensemble.comm.size}")
+PETSc.Sys.Print(f"DoFs/core: {W.dim()/comm.size}")
 
 Un = fd.Function(W)
 
@@ -97,12 +104,10 @@ Un = fd.Function(W)
 Tsurf = fd.Constant(300.)
 thetab = Tsurf*fd.exp(N**2*z/g)
 
-Up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
+Up = fd.as_vector([fd.Constant(0.0), fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
-un = Un.subfunctions[0]
-rhon = Un.subfunctions[1]
-thetan = Un.subfunctions[2]
-un.project(fd.as_vector([10.0, 0.0]))
+un, rhon, thetan = Un.subfunctions
+un.project(fd.as_vector([10.0, 0.0, 0.0]))
 thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
 rhon.assign(1.0e-5)
@@ -130,9 +135,9 @@ hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
 
 rho_back = fd.Function(V2).assign(rhon)
 
-zc = H-10000.
+zc = Lz-10000.
 mubar = 0.15/dt
-mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(H-zc))**2)
+mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(Lz-zc))**2)
 mu = fd.Function(V2).interpolate(mu_top/dT)
 
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
@@ -141,14 +146,16 @@ form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
 
 form_mass = get_form_mass()
 
-zv = fd.as_vector([fd.Constant(0.), fd.Constant(0.)])
+zv = fd.as_vector([fd.Constant(0.), fd.Constant(0.), fd.Constant(0.)])
 bcs = [fd.DirichletBC(W.sub(0), zv, "bottom"),
        fd.DirichletBC(W.sub(0), zv, "top")]
 
 for bc in bcs:
     bc.apply(Un)
 
-# Parameters for the diag
+# Parameters for the newton iterations
+atol = 1e-6
+
 lines_parameters = {
     "ksp_type": "gmres",
     "ksp_rtol": 1e-5,
@@ -165,15 +172,40 @@ lines_parameters = {
     },
 }
 
-atol = 1e-6
-solver_parameters_diag = {
+serial_parameters = {
+    "snes": {
+        "atol": atol,
+        "rtol": 1e-8,
+        "stol": 1e-12,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-5,
+        "ksp_ew_rtol0": 1e-3,
+    },
+    "ksp": {
+        "atol": atol,
+    },
+}
+serial_parameters.update(lines_parameters)
+serial_parameters["ksp_type"] = "fgmres"
+
+if ensemble.ensemble_comm.rank == 0:
+    serial_parameters['snes']['monitor'] = None
+    serial_parameters['snes']['converged_reason'] = None
+    serial_parameters['ksp']['monitor'] = None
+    serial_parameters['ksp']['converged_reason'] = None
+
+parallel_parameters = {
     "snes": {
         "monitor": None,
         "converged_reason": None,
-        "rtol": 1e-8,
         "atol": atol,
+        "rtol": 1e-8,
+        "stol": 1e-12,
         "ksp_ew": None,
         "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-5,
+        "ksp_ew_rtol0": 1e-3,
     },
     "ksp_type": "fgmres",
     "mat_type": "matfree",
@@ -183,103 +215,59 @@ solver_parameters_diag = {
         "atol": atol,
     },
     "pc_type": "python",
-    "pc_python_type": "asQ.DiagFFTPC"
+    "pc_python_type": "asQ.DiagFFTPC",
 }
 
 for i in range(sum(time_partition)):
-    solver_parameters_diag["diagfft_block_"+str(i)+"_"] = lines_parameters
+    parallel_parameters["diagfft_block_"+str(i)+"_"] = lines_parameters
 
-alpha = 1.0e-4
 theta = 0.5
 
-pdg = asQ.paradiag(ensemble=ensemble,
-                   form_function=form_function,
-                   form_mass=form_mass, w0=Un,
-                   dt=dt, theta=theta,
-                   alpha=alpha, time_partition=time_partition, bcs=bcs,
-                   solver_parameters=solver_parameters_diag,
-                   circ="none")
-
-aaos = pdg.aaos
+miniapp = ComparisonMiniapp(ensemble, time_partition,
+                            form_mass=form_mass,
+                            form_function=form_function,
+                            w_initial=Un, dt=dt, theta=theta,
+                            boundary_conditions=bcs,
+                            serial_sparameters=serial_parameters,
+                            parallel_sparameters=parallel_parameters)
+pdg = miniapp.paradiag
+aaofunc = pdg.aaofunc
 is_last_slice = pdg.layout.is_local(-1)
 
 PETSc.Sys.Print("Solving problem")
 
-# only last slice does diagnostics/output
-if is_last_slice:
-    uout = fd.Function(V1, name='velocity')
-    thetaout = fd.Function(Vt, name='temperature')
-    rhoout = fd.Function(V2, name='density')
-
-    ofile = fd.File('output/slice_mountain_diag.pvd',
-                    comm=ensemble.comm)
-
-    def assign_out_functions():
-        aaos.get_component(-1, 0, wout=uout)
-        aaos.get_component(-1, 1, wout=rhoout)
-        aaos.get_component(-1, 2, wout=thetaout)
-
-        rhoout.assign(rhoout - rho_back)
-        thetaout.assign(thetaout - theta_back)
-
-    def write_to_file():
-        ofile.write(uout, rhoout, thetaout)
-
-    cfl_calc = convective_cfl_calculator(mesh)
-    cfl_series = []
-
-    def max_cfl(u, dt):
-        with cfl_calc(u, dt).dat.vec_ro as v:
-            return v.max()[1]
+rank = ensemble.ensemble_comm.rank
+norm0 = fd.norm(Un)
 
 
-def window_preproc(pdg, wndw):
+def preproc(serial_app, paradiag, wndw):
     PETSc.Sys.Print('')
-    PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
+    PETSc.Sys.Print(f'### === --- Time window {wndw} --- === ###')
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('=== --- Parallel solve --- ===')
     PETSc.Sys.Print('')
 
 
-def window_postproc(pdg, wndw):
-    # postprocess this timeslice
-    if is_last_slice:
-        assign_out_functions()
-        write_to_file()
-        PETSc.Sys.Print('', comm=ensemble.comm)
-
-        cfl = max_cfl(uout, dt)
-        cfl_series.append(cfl)
-        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
+def serial_postproc(app, it, t):
+    return
 
 
-# solve for each window
-pdg.solve(nwindows=2,
-          preproc=window_preproc,
-          postproc=window_postproc)
+def parallel_postproc(pdg, wndw, rhs):
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('=== --- Serial solve --- ===')
+    PETSc.Sys.Print('')
+    return
+
+
+PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
+
+errors = miniapp.solve(nwindows=1,
+                       preproc=preproc,
+                       serial_postproc=serial_postproc,
+                       parallel_postproc=parallel_postproc)
 
 PETSc.Sys.Print('')
-PETSc.Sys.Print('### === --- Iteration counts --- === ###')
-PETSc.Sys.Print('')
+PETSc.Sys.Print('### === --- Errors --- === ###')
 
-from asQ import write_paradiag_metrics
-write_paradiag_metrics(pdg, directory='metrics')
-
-nw = pdg.total_windows
-nt = pdg.total_timesteps
-PETSc.Sys.Print(f'windows: {nw}')
-PETSc.Sys.Print(f'timesteps: {nt}')
-PETSc.Sys.Print('')
-
-lits = pdg.linear_iterations
-nlits = pdg.nonlinear_iterations
-blits = pdg.block_iterations.data()
-
-PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
-PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
-PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
-PETSc.Sys.Print('')
-
-ensemble.global_comm.Barrier()
-if is_last_slice:
-    PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
-    PETSc.Sys.Print('', comm=ensemble.comm)
+for it, err in enumerate(errors):
+    PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
