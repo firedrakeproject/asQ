@@ -1,5 +1,4 @@
 import firedrake as fd
-from firedrake.petsc import PETSc
 from functools import partial
 
 from asQ.profiling import profiler
