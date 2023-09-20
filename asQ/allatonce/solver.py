@@ -113,7 +113,6 @@ class AllAtOnceSolver(TimePartitionMixin):
         self.jacobian_mat = jacobian_mat
 
         def form_jacobian(snes, X, J, P):
-            # copy the snes state vector into self.X
             self.pre_jacobian_callback(self, X, J)
             self.jacobian.update(X)
             self.post_jacobian_callback(self, X, J)
