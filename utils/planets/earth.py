@@ -31,8 +31,8 @@ def cart_to_sphere_coords(x, y, z):
     zr = z/r
     zr_corr = fd.min_value(fd.max_value(zr, -1), 1)  # avoid roundoff errors at poles
     theta = fd.asin(zr_corr)
-    lamda = fd.atan2(y, x)
-    return theta, lamda
+    lamda0 = fd.atan2(y, x)
+    return theta, lamda0
 
 
 # convert vector in spherical coordinates to cartesian coordinates
