@@ -17,10 +17,10 @@ comm = ensemble.comm
 # set up the mesh
 
 nt = 5
-dt = 2.5
+dt = 5
 
-nlayers = 35  # horizontal layers
-base_columns = 90  # number of columns
+nlayers = 70  # horizontal layers
+base_columns = 180  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -132,10 +132,11 @@ hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
 
 rho_back = fd.Function(V2).assign(rhon)
 
-zc = H-10000.
-mubar = 0.15/dt
-mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(H-zc))**2)
-mu = fd.Function(V2).interpolate(mu_top/dT)
+zc = fd.Constant(H-10000.)
+mubar = fd.Constant(0.15/dt)
+mu_top = fd.conditional(z <= zc, 0.0,
+                        mubar*fd.sin(fd.Constant(pi/2.)*(z-zc)/(fd.Constant(H)-zc))**2)
+mu = fd.Function(V2).interpolate(mu_top)
 
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
                                   cp=cp, g=g, R_d=R_d,
@@ -257,7 +258,7 @@ def parallel_postproc(pdg, wndw, rhs):
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-errors = miniapp.solve(nwindows=1,
+errors = miniapp.solve(nwindows=20,
                        preproc=preproc,
                        serial_postproc=serial_postproc,
                        parallel_postproc=parallel_postproc)
