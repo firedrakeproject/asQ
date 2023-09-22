@@ -5,8 +5,11 @@ import asQ.complex_proxy.vector as cpx
 import pytest
 
 
-def assemble(form):
-    return fd.assemble(form).riesz_representation(riesz_map='l2')
+def assemble(form, tensor=None):
+    if tensor:
+        return fd.assemble(form, tensor=tensor).riesz_representation(riesz_map='l2')
+    else:
+        return fd.assemble(form).riesz_representation(riesz_map='l2')
 
 
 cell = fd.Cell('triangle')
