@@ -5,8 +5,10 @@ import pytest
 from functools import reduce
 from operator import mul
 
+
 def assemble(form):
     return fd.assemble.riesz_representation(riesz_map='l2')
+
 
 bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 

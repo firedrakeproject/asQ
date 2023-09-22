@@ -4,8 +4,10 @@ import asQ.complex_proxy.vector as cpx
 
 import pytest
 
+
 def assemble(form):
     return fd.assemble.riesz_representation(riesz_map='l2')
+
 
 cell = fd.Cell('triangle')
 
@@ -271,7 +273,7 @@ def test_linear_form(mesh, elem, z):
         return fd.inner(f, v)*fd.dx
 
     v = fd.TestFunction(V)
-    rhs = assemble(L(v)) 
+    rhs = assemble(L(v))
 
     ur = fd.Function(V)
     ui = fd.Function(V)

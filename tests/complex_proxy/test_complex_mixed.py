@@ -4,8 +4,10 @@ import asQ.complex_proxy.mixed as cpx
 
 import pytest
 
+
 def assemble(form):
     return fd.assemble.riesz_representation(riesz_map='l2')
+
 
 cell = fd.Cell('triangle')
 
