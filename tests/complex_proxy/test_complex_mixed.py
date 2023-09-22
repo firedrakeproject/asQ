@@ -6,7 +6,7 @@ import pytest
 
 
 def assemble(form):
-    return fd.assemble.riesz_representation(riesz_map='l2')
+    return fd.assemble(form).riesz_representation(riesz_map='l2')
 
 
 cell = fd.Cell('triangle')
