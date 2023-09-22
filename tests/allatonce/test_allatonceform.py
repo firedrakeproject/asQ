@@ -5,6 +5,9 @@ import pytest
 from functools import reduce
 from operator import mul
 
+def assemble(form):
+    return fd.assemble.riesz_representation(riesz_map='l2')
+
 bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
 alphas = [pytest.param(None, id="alpha_None"),
@@ -113,7 +116,7 @@ def test_heat_form(bc_opt, alpha):
 
     # assemble and compare
     aaoform.assemble()
-    Ffull = fd.assemble(fullform)
+    Ffull = assemble(fullform)
     for bc in bcs_full:
         bc.apply(Ffull, u=ufull)
 
@@ -226,7 +229,7 @@ def test_mixed_heat_form(bc_opt):
 
     # assemble and compare
     aaoform.assemble()
-    Ffull = fd.assemble(fullform)
+    Ffull = assemble(fullform)
     for bc in bcs_full:
         bc.apply(Ffull, u=ufull)
 
