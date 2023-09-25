@@ -81,10 +81,14 @@ def test_solve_heat_equation():
 extruded = [pytest.param(False, id="standard_mesh"),
             pytest.param(True, id="extruded_mesh")]
 
+cpx_types = [pytest.param('vector', id="vector_cpx"),
+             pytest.param('mixed', id="mixed_cpx")]
+
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize("extrude", extruded)
-def test_solve_mixed_wave_equation(extrude):
+@pytest.mark.parametrize("cpx_type", cpx_types)
+def test_solve_mixed_wave_equation(extrude, cpx_type):
     """
     Tests the solver setup using a nonlinear wave equation.
     Solves using GMRES preconditioned with the circulant matrix and
@@ -169,7 +173,7 @@ def test_solve_mixed_wave_equation(extrude):
             'monitor': None,
             'converged_reason': None,
             'atol': atol,
-            'rtol': 1e-100,
+            'rtol': 1e-5,
             'stol': 1e-100,
         },
         'mat_type': 'matfree',
@@ -181,6 +185,7 @@ def test_solve_mixed_wave_equation(extrude):
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
         'diagfft_alpha': 1e-3,
+        'diagfft_complex_proxy': cpx_type
     }
 
     for i in range(aaofunc.ntimesteps):
