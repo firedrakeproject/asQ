@@ -125,17 +125,16 @@ block_parameters = {
 # a) Solve it in one shot using a preconditioned Krylov method:
 #    P^{-1}Au = P^{-1}b
 #    The solver options for this are:
-#    'ksp_type': 'fgmres'
-#    We need fgmres here because gmres is used on the blocks.
-# b) Solve it with Picard iterations:
+#    'ksp_type': 'gmres'
+# b) Solve it with stationary iterations:
 #    Pu_{k+1} = (P - A)u_{k} + b
 #    The solver options for this are:
-#    'ksp_type': 'preonly'
+#    'ksp_type': 'richardson'
 
 atol = 1e-10
 rtol = 1e-8
 paradiag_parameters = {
-    'snes_type': 'ksponly',
+    'snes_type': 'ksponly', # for a linear system
     'snes': {
         'monitor': None,
         'converged_reason': None,
@@ -169,8 +168,6 @@ for i in range(window_length):
 
 
 # Give everything to asQ to create the paradiag object.
-# the circ parameter determines where the alpha-circulant
-# approximation is introduced. None means only in the preconditioner.
 pdg = asQ.Paradiag(ensemble=ensemble,
                    form_function=form_function,
                    form_mass=form_mass,
@@ -203,9 +200,9 @@ if is_last_slice:
 # We can use this to save the last timestep of each window for plotting.
 def window_postproc(pdg, wndw, rhs):
     if is_last_slice:
-        # The aaos is the AllAtOnceSystem which represents the time-dependent problem.
-        # get_field extracts one timestep of the window. -1 is again used to get the last
-        # timestep and place it in qout.
+        # The aaofunc is the AllAtOnceFunction which represents the time-series.
+        # get_field extracts one timestep of the window. -1 is again used to
+        # get the last timestep and place it in qout.
         pdg.aaofunc.get_field(-1, uout=qout)
         timeseries.append(qout.copy(deepcopy=True))
 
@@ -222,11 +219,10 @@ pdg.solve(args.nwindows,
 nw = args.nwindows
 
 # Number of nonlinear iterations, total and per window.
-# (1 for fgmres and # picard iterations for preonly)
+# (Will be 1 per window for this linear problem)
 PETSc.Sys.Print(f'nonlinear iterations: {pdg.nonlinear_iterations}  |  iterations per window: {pdg.nonlinear_iterations/nw}')
 
-# Number of linear iterations, total and per window.
-# (# of gmres iterations for fgmres and # picard iterations for preonly)
+# Number of linear iterations of the all-at-once system, total and per window.
 PETSc.Sys.Print(f'linear iterations: {pdg.linear_iterations}  |  iterations per window: {pdg.linear_iterations/nw}')
 
 # Number of iterations needed for each block in step-(b), total and per block solve
