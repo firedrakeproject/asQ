@@ -12,11 +12,12 @@ comm = fd.COMM_WORLD
 
 # set up the mesh
 
-nt = 5
-dt = 2.5
+output_freq = 10
+nt = 1800
+dt = 5.
 
-nlayers = 35  # horizontal layers
-base_columns = 90  # number of columns
+nlayers = 70  # horizontal layers
+base_columns = 180  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -128,10 +129,11 @@ hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
 
 rho_back = fd.Function(V2).assign(rhon)
 
-zc = H-10000.
-mubar = 0.15/dt
-mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(H-zc))**2)
-mu = fd.Function(V2).interpolate(mu_top/dT)
+zc = fd.Constant(H-10000.)
+mubar = fd.Constant(0.15/dt)
+mu_top = fd.conditional(z <= zc, 0.0,
+                        mubar*fd.sin(fd.Constant(pi/2.)*(z-zc)/(fd.Constant(H)-zc))**2)
+mu = fd.Function(V2).interpolate(mu_top)
 
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
                                   cp=cp, g=g, R_d=R_d,
@@ -238,12 +240,13 @@ def postproc(app, it, time):
     linear_its += miniapp.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += miniapp.nlsolver.snes.getIterationNumber()
 
-    assign_out_functions()
-    write_to_file(time=time)
-    PETSc.Sys.Print('')
+    if (it % output_freq) == 0:
+        assign_out_functions()
+        write_to_file(time=time)
 
     cfl = max_cfl(uout, dt)
     cfl_series.append(cfl)
+    PETSc.Sys.Print('')
     PETSc.Sys.Print(f'Time = {time}')
     PETSc.Sys.Print(f'Maximum CFL = {cfl}')
 
