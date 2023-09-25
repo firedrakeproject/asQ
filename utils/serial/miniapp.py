@@ -77,12 +77,13 @@ class SerialMiniApp(object):
         Integrate forward nt timesteps
         '''
         for step in range(nt):
-            preproc(self, step, self.time.values()[0])
+            preproc(self, step, self.time)
             self.nlsolver.solve()
             postproc(self, step, self.time.values()[0])
 
             self.w0.assign(self.w1)
             self.time.assign(self.time + self.dt)
+            postproc(self, step, self.time)
 
 
 class ComparisonMiniapp(object):
@@ -92,12 +93,10 @@ class ComparisonMiniapp(object):
                  form_function,
                  w_initial,
                  dt, theta,
-                 alpha,
                  serial_sparameters,
                  parallel_sparameters,
                  boundary_conditions=[],
-                 circ=None,
-                 block_ctx={}):
+                 appctx={}):
         '''
         A miniapp to run the same problem in serial and with paradiag and compare the results
 
@@ -108,7 +107,6 @@ class ComparisonMiniapp(object):
         :arg w_initial: initial conditions
         :arg dt: the timestep
         :arg theta: parameter for the implicit theta method
-        :arg alpha: float, circulant matrix parameter
         :arg serial_sparameters: options dictionary for nonlinear serial solver
         :arg parallel_sparameters: options dictionary for nonlinear parallel solver
         :arg circ: a string describing the option on where to use the
@@ -122,12 +120,10 @@ class ComparisonMiniapp(object):
         self.w_initial = w_initial
         self.dt = dt
         self.theta = theta
-        self.alpha = alpha
         self.serial_sparameters = serial_sparameters
         self.parallel_sparameters = parallel_sparameters
         self.boundary_conditions = boundary_conditions
-        self.circ = circ
-        self.block_ctx = block_ctx
+        self.appctx = appctx
 
         self.function_space = self.w_initial.function_space()
 
@@ -140,19 +136,20 @@ class ComparisonMiniapp(object):
                                         serial_sparameters)
 
         # set up paradiag
-        self.paradiag = asQ.paradiag(ensemble,
-                                     form_function, form_mass,
-                                     w_initial, dt, theta,
-                                     alpha, time_partition,
+        self.paradiag = asQ.Paradiag(ensemble=ensemble,
+                                     form_mass=form_mass,
+                                     form_function=form_function,
+                                     ics=w_initial, dt=dt, theta=theta,
+                                     time_partition=time_partition,
                                      bcs=boundary_conditions,
                                      solver_parameters=parallel_sparameters,
-                                     circ=circ, block_ctx=block_ctx)
+                                     appctx=appctx)
 
     def solve(self, nwindows,
               preproc=lambda srl, pdg, wndw: None,
               postproc=lambda srl, pdg, wndw: None,
-              parallel_preproc=lambda pdg, wndw: None,
-              parallel_postproc=lambda pdg, wndw: None,
+              parallel_preproc=lambda pdg, wndw, rhs: None,
+              parallel_postproc=lambda pdg, wndw, rhs: None,
               serial_preproc=lambda app, it, t: None,
               serial_postproc=lambda app, it, t: None):
         '''
@@ -161,7 +158,9 @@ class ComparisonMiniapp(object):
         :arg nwindows: the number of time-windows to solve
         '''
 
-        window_length = self.paradiag.ntimesteps
+        pdg = self.paradiag
+
+        window_length = pdg.ntimesteps
         errors = np.zeros(nwindows*window_length)
 
         # set up function to calculate errornorm after each timestep
@@ -169,9 +168,9 @@ class ComparisonMiniapp(object):
         def serial_error_postproc(app, it, t, wndw):
 
             # only calculate error if timestep it is on this parallel time-slice
-            if self.paradiag.layout.is_local(it):
+            if pdg.layout.is_local(it):
                 # get serial and parallel solutions
-                self.paradiag.aaos.get_field(it, wout=self.wparallel, index_range='window')
+                pdg.aaofunc.get_field(it, uout=self.wparallel, index_range='window')
 
                 self.wserial.assign(self.serial_app.w1)
 
@@ -188,20 +187,21 @@ class ComparisonMiniapp(object):
         # timestepping loop
         for wndw in range(nwindows):
 
-            preproc(self.serial_app, self.paradiag, wndw)
+            preproc(self.serial_app, pdg, wndw)
 
             if wndw > 0:
-                self.paradiag.aaos.next_window()
+                pdg.aaofunc.bcast_field(-1, self.aaofunc.initial_condition)
+                pdg.aaofunc.assign(self.aaofunc.initial_condition)
 
-            self.paradiag.solve(nwindows=1,
-                                preproc=parallel_preproc,
-                                postproc=parallel_postproc)
+            pdg.solve(nwindows=1,
+                      preproc=parallel_preproc,
+                      postproc=parallel_postproc)
 
             self.serial_app.solve(nt=window_length,
                                   preproc=serial_preproc,
                                   postproc=partial(serial_error_postproc, wndw=wndw))
 
-            postproc(self.serial_app, self.paradiag, wndw)
+            postproc(self.serial_app, pdg, wndw)
 
         # collect full error series on all ranks
         global_errors = np.zeros_like(errors)

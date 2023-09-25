@@ -1,5 +1,6 @@
 import firedrake as fd
 import asQ
+from asQ.allatonce.mixin import TimePartitionMixin
 
 from utils import units
 from utils import diagnostics
@@ -7,25 +8,27 @@ import utils.shallow_water as swe
 from utils import mg
 
 
-class ShallowWaterMiniApp(object):
+class ShallowWaterMiniApp(TimePartitionMixin):
     def __init__(self,
                  gravity,
                  topography_expression,
                  velocity_expression,
                  depth_expression,
-                 dt, theta, alpha,
+                 dt, theta,
                  time_partition,
                  paradiag_sparameters,
                  create_mesh=swe.create_mg_globe_mesh,
                  coriolis_expression=swe.earth_coriolis_expression,
-                 block_ctx={},
+                 appctx={},
                  reference_depth=0,
                  reference_state=False,
                  linear=False,
                  velocity_function_space=swe.default_velocity_function_space,
                  depth_function_space=swe.default_depth_function_space,
                  record_diagnostics={'cfl': True, 'file': True},
-                 save_step=-1, file_name='swe'):
+                 save_step=-1, file_name='swe',
+                 pre_function_callback=None, post_function_callback=None,
+                 pre_jacobian_callback=None, post_jacobian_callback=None):
         '''
         A miniapp to integrate the rotating shallow water equations on the sphere using the paradiag method.
 
@@ -37,10 +40,9 @@ class ShallowWaterMiniApp(object):
         :arg depth_expression: firedrake expression for initialising the depth field.
         :arg dt: timestep size.
         :arg theta: parameter for the implicit theta-method integrator
-        :arg alpha: value used for the alpha-circulant approximation in the paradiag method.
         :arg time_partition: a list with how many timesteps are on each of the ensemble time-ranks.
             arg :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
-        :arg block_ctx: a dictionary of extra values required for the block system solvers.
+        :arg appctx: a dictionary of extra values required for the preconditioner.
         :arg reference_depth: constant used to calculate elevation
         :arg reference_state: Whether to create a reference state for the AllAtOnceSystem
         :arg linear: if False, solve nonlinear shallow water equations, if True solve linear equations
@@ -50,8 +52,8 @@ class ShallowWaterMiniApp(object):
         :arg save_step: if record_diagnostics['file'] is True, save timestep with this window index to file
         :arg file_name: if record_diagnostics['file'] is True, save timesteps to file with this name
         '''
-
         self.ensemble = asQ.create_ensemble(time_partition)
+        self.time_partition_setup(self.ensemble, time_partition)
 
         self.mesh = create_mesh(comm=self.ensemble.comm)
         x = fd.SpatialCoordinate(self.mesh)
@@ -117,27 +119,33 @@ class ShallowWaterMiniApp(object):
         # probably shouldn't be here, but has to be at the moment because we can't get at the mesh to make W before initialising.
         # should look at removing this once the manifold transfer manager has found a proper home
         transfer_managers = []
-        for _ in range(time_partition[self.ensemble.ensemble_comm.rank]):
+        for _ in range(self.nlocal_timesteps):
             tm = mg.manifold_transfer_manager(self.function_space())
             transfer_managers.append(tm)
 
-        block_ctx['diagfft_transfer_managers'] = transfer_managers
+        appctx['diagfft_transfer_managers'] = transfer_managers
 
-        self.paradiag = asQ.paradiag(
+        self.paradiag = asQ.Paradiag(
             ensemble=self.ensemble,
             form_function=form_function,
             form_mass=form_mass,
-            w0=w0, dt=dt, theta=theta,
-            alpha=alpha, time_partition=time_partition,
+            ics=w0, dt=dt, theta=theta,
+            time_partition=time_partition,
+            appctx=appctx,
             reference_state=reference_state,
             solver_parameters=paradiag_sparameters,
-            circ=None, ctx={}, block_ctx=block_ctx)
+            pre_function_callback=pre_function_callback,
+            post_function_callback=post_function_callback,
+            pre_jacobian_callback=pre_jacobian_callback,
+            post_jacobian_callback=post_jacobian_callback)
 
-        self.aaos = self.paradiag.aaos
+        self.aaofunc = self.paradiag.aaofunc
+        self.aaoform = self.paradiag.aaofunc
+        self.solver = self.paradiag.solver
 
         # set up swe diagnostics
         self.record_diagnostics = record_diagnostics
-        self.save_step = self.aaos.transform_index(save_step, from_range='window', to_range='window')
+        self.save_step = self.aaofunc.transform_index(save_step, from_range='window', to_range='window')
 
         # cfl
         self.cfl = diagnostics.convective_cfl_calculator(self.mesh)
@@ -147,7 +155,7 @@ class ShallowWaterMiniApp(object):
             self.velocity_function_space(), name='vorticity')
 
         if record_diagnostics['file']:
-            if self.aaos.layout.is_local(self.save_step):
+            if self.layout.is_local(self.save_step):
                 self.uout = fd.Function(self.velocity_function_space(), name='velocity')
                 self.hout = fd.Function(self.depth_function_space(), name='elevation')
                 self.ofile = fd.File(file_name+'.pvd',
@@ -161,12 +169,7 @@ class ShallowWaterMiniApp(object):
 
         if record_diagnostics['cfl']:
             # which rank is the owner?
-            for rank in range(self.ensemble.ensemble_comm.size):
-                end = sum(self.aaos.layout.partition[:rank+1])
-                if self.save_step < end:
-                    owner = rank
-                    break
-
+            owner = self.layout.rank_of(self.save_step)
             self.cfl_series = asQ.OwnedArray(size=1,
                                              owner=owner,
                                              comm=self.ensemble.ensemble_comm)
@@ -202,7 +205,7 @@ class ShallowWaterMiniApp(object):
             raise ValueError("v or step must be not None")
 
         if dt is None:
-            dt = self.aaos.dt
+            dt = self.paradiag.aaoform.dt
 
         with self.cfl(u, dt).dat.vec_ro as cfl_vec:
             return cfl_vec.max()[1]
@@ -213,7 +216,7 @@ class ShallowWaterMiniApp(object):
 
         :arg w: index of window in current solve loop
         '''
-        if self.aaos.layout.is_local(self.save_step):
+        if self.layout.is_local(self.save_step):
 
             window = self.paradiag.total_windows
 
@@ -225,7 +228,7 @@ class ShallowWaterMiniApp(object):
                 window_length = self.paradiag.ntimesteps
 
                 nt = (window - 1)*window_length + (self.save_step + 1)
-                dt = self.aaos.dt
+                dt = self.paradiag.aaoform.dt
                 t = nt*dt
 
                 # save to file
@@ -262,10 +265,10 @@ class ShallowWaterMiniApp(object):
 
         # wrap the pre/post processing functions
 
-        def preprocess(pdg, w):
+        def preprocess(pdg, w, rhs=None):
             preproc(self, pdg, w)
 
-        def postprocess(pdg, w):
+        def postprocess(pdg, w, rhs=None):
             self._record_diagnostics()
             postproc(self, pdg, w)
 
@@ -289,8 +292,8 @@ class ShallowWaterMiniApp(object):
         :arg name: if uout is None, the returned velocity function will have this name
         :arg deepcopy: if True, new function is returned. If false, handle to the velocity component of the all-at-once function is returned. Ignored if wout is not None
         '''
-        return self.aaos.get_component(step, self.velocity_index, index_range=index_range,
-                                       wout=uout, name=name, deepcopy=deepcopy)
+        return self.aaofunc.get_component(step, self.velocity_index, index_range=index_range,
+                                          uout=uout, name=name, deepcopy=deepcopy)
 
     def get_depth(self, step, index_range='slice', hout=None, name='depth', deepcopy=False):
         '''
@@ -302,8 +305,8 @@ class ShallowWaterMiniApp(object):
         :arg name: if hout is None, the returned depth function will have this name
         :arg deepcopy: if True, new function is returned. If false, handle to the depth component of the all-at-once function is returned. Ignored if wout is not None
         '''
-        return self.aaos.get_component(step, self.depth_index, index_range=index_range,
-                                       wout=hout, name=name, deepcopy=deepcopy)
+        return self.aaofunc.get_component(step, self.depth_index, index_range=index_range,
+                                          uout=hout, name=name, deepcopy=deepcopy)
 
     def get_elevation(self, step, index_range='slice', hout=None, name='depth'):
         '''

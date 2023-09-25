@@ -3,6 +3,14 @@ import firedrake as fd
 
 from pyop2.mpi import MPI
 
+__all__ = ["write_timesteps",
+           "write_timeseries",
+           "write_solver_parameters",
+           "write_paradiag_setup",
+           "write_aaos_solve_metrics",
+           "write_block_solve_metrics",
+           "write_paradiag_metrics"]
+
 
 def write_timesteps(pdg,
                     file_name='paradiag_output',
@@ -200,14 +208,13 @@ def write_paradiag_setup(pdg, directory=""):
 
         with open(file_name, "w") as f:
             info = \
-                f"dt = {pdg.aaos.dt}\n" + \
-                f"theta = {pdg.aaos.theta}\n" + \
+                f"dt = {pdg.aaoform.dt}\n" + \
+                f"theta = {pdg.aaoform.theta}\n" + \
                 f"time_partition = {pdg.time_partition}\n" + \
                 f"comm.size = {pdg.ensemble.comm.size}\n" + \
                 f"ensemble_comm.size = {pdg.ensemble.ensemble_comm.size}\n" + \
                 f"global_comm.size = {pdg.ensemble.global_comm.size}\n" + \
-                f"alpha = {pdg.alpha}\n" + \
-                f"circ = {pdg.circ}"
+                f"alpha = {pdg.solver.jacobian.pc.alpha}"
             f.write(info)
     return
 
@@ -275,8 +282,8 @@ def write_block_solve_metrics(pdg, directory=""):
         with open(file_name, "w") as f:
             lits = pdg.linear_iterations
             blits = pdg.block_iterations._data/lits
-            l1 = pdg.diagfftpc.D1
-            l2 = pdg.diagfftpc.D2
+            l1 = pdg.solver.jacobian.pc.D1
+            l2 = pdg.solver.jacobian.pc.D2
             l12 = l1/l2
 
             # header
@@ -324,7 +331,7 @@ def write_paradiag_metrics(pdg, directory=""):
 
     if is_root:
         # write solver parameters
-        write_solver_parameters(pdg.solver_parameters, directory)
+        write_solver_parameters(pdg.solver.solver_parameters, directory)
 
     # write paradiag setup
     write_paradiag_setup(pdg, directory)

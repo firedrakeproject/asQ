@@ -197,7 +197,7 @@ def curl0(u):
     elif d == 3:
         return fd.curl(u)
     else:
-        raise NotImplementedError
+        raise NotImplementedError("curl only implemented for 2 or 3 dimensions")
 
 
 def curl1(u):
@@ -219,7 +219,7 @@ def curl1(u):
     elif d == 3:
         return fd.curl(u)
     else:
-        raise NotImplementedError
+        raise NotImplementedError("curl only implemented for 2 or 3 dimensions")
 
 
 def cross1(u, w):
@@ -240,7 +240,7 @@ def cross1(u, w):
     elif d == 3:
         return fd.cross(u, w)
     else:
-        raise NotImplementedError
+        raise NotImplementedError("cross only implemented for 2 or 3 dimensions")
 
 
 def cross0(u, w):
@@ -261,7 +261,7 @@ def cross0(u, w):
     elif d == 3:
         return fd.cross(u, w)
     else:
-        raise NotImplementedError
+        raise NotImplementedError("cross only implemented for 2 or 3 dimensions")
 
 
 def both(u):

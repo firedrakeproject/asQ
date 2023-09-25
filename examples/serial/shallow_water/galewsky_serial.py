@@ -71,12 +71,12 @@ w1 = fd.Function(W).assign(w_initial)
 
 
 # shallow water equation forms
-def form_function(u, h, v, q):
+def form_function(u, h, v, q, t):
     return swe.nonlinear.form_function(mesh,
                                        gravity,
                                        topography,
                                        coriolis,
-                                       u, h, v, q)
+                                       u, h, v, q, t)
 
 
 def form_mass(u, h, v, q):
