@@ -1,4 +1,4 @@
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 
 from utils import units
 from utils.planets import earth
@@ -59,13 +59,8 @@ patch_parameters = {
     },
     'sub': {
         'ksp_type': 'preonly',
-        'pc_type': 'fieldsplit',
-        'pc_fieldsplit_type': 'schur',
-        'pc_fieldsplit_detect_saddle_point': None,
-        'pc_fieldsplit_schur_fact_type': 'full',
-        'pc_fieldsplit_schur_precondition': 'full',
-        'fieldsplit_ksp_type': 'preonly',
-        'fieldsplit_pc_type': 'lu',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
     }
 }
 
@@ -99,32 +94,34 @@ sparameters = {
     'mg': mg_parameters
 }
 
+rtol = 1e-10
+atol = 1e0
 sparameters_diag = {
     'snes_type': 'ksponly',
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-10,
-        'atol': 1e-0,
+        'rtol': rtol,
+        'atol': atol,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    'ksp_rtol': 1e-10,
-    'ksp_atol': 1-0,
     'ksp': {
         'monitor': None,
         'converged_reason': None,
+        'rtol': rtol,
+        'atol': atol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfft_alpha': args.alpha,
     'diagfft_state': 'linear',
     'aaos_jacobian_state': 'linear',
 }
 
-sparameters_diag['diagfft_block'] = sparameters
-# for i in range(window_length):
-#     sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
+for i in range(window_length):
+    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
@@ -141,9 +138,11 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   create_mesh=create_mesh,
                                   linear=True,
                                   dt=dt, theta=0.5,
-                                  alpha=args.alpha, time_partition=time_partition,
+                                  time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename)
+
+paradiag = miniapp.paradiag
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -153,9 +152,9 @@ def window_preproc(swe_app, pdg, wndw):
 
 
 def window_postproc(swe_app, pdg, wndw):
-    if miniapp.aaos.layout.is_local(miniapp.save_step):
+    if pdg.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
-        time = nt*miniapp.aaos.dt
+        time = nt*pdg.aaoform.dt
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)
         PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
@@ -170,19 +169,19 @@ miniapp.solve(nwindows=args.nwindows,
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
 from asQ import write_paradiag_metrics
-write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
+write_paradiag_metrics(paradiag, directory=args.metrics_dir)
 
 PETSc.Sys.Print('')
 
-nw = miniapp.paradiag.total_windows
-nt = miniapp.paradiag.total_timesteps
+nw = paradiag.total_windows
+nt = paradiag.total_timesteps
 PETSc.Sys.Print(f'windows: {nw}')
 PETSc.Sys.Print(f'timesteps: {nt}')
 PETSc.Sys.Print('')
 
-lits = miniapp.paradiag.linear_iterations
-nlits = miniapp.paradiag.nonlinear_iterations
-blits = miniapp.paradiag.block_iterations._data
+lits = paradiag.linear_iterations
+nlits = paradiag.nonlinear_iterations
+blits = paradiag.block_iterations.data(deepcopy=False)
 
 PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
 PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')

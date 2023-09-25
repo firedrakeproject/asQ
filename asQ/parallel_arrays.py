@@ -2,6 +2,8 @@ from pyop2.mpi import MPI
 from numpy import zeros as zero_array
 from numpy import asarray
 
+__all__ = ['DistributedDataLayout1D', 'SharedArray', 'OwnedArray']
+
 
 def in_range(i, length, allow_negative=True, throws=False):
     '''
@@ -37,6 +39,7 @@ class DistributedDataLayout1D(object):
         self.partition = partition
         self.comm = comm
         self.rank = comm.rank
+        self.nranks = comm.size
         self.local_size = partition[self.rank]
         self.global_size = sum(partition)
         self.offset = sum(partition[:self.rank])
@@ -96,6 +99,20 @@ class DistributedDataLayout1D(object):
                 raise
             else:
                 return False
+
+    def rank_of(self, i):
+        '''
+        Return which rank element i lives on.
+
+        :arg i: globally addressed index.
+        '''
+        i = self.transform_index(i, itype='g', rtype='g')
+        for rank in range(self.nranks):
+            begin = sum(self.partition[:rank])
+            end = sum(self.partition[:rank+1])
+            if begin <= i < end:
+                return rank
+        return -1
 
 
 class SharedArray(object):

@@ -135,6 +135,20 @@ def test_distributed_data_layout(partition):
     with pytest.raises(IndexError):
         layout.is_local(iglobal, throws=True)
 
+    # test rank_of
+    ranks = []
+    for i in range(layout.global_size):
+        for rank in range(layout.nranks):
+            begin = sum(layout.partition[:rank])
+            end = sum(layout.partition[:rank+1])
+            if begin <= i < end:
+                ranks += [rank]
+                break
+    assert len(ranks) == layout.global_size
+
+    for i in range(layout.global_size):
+        assert ranks[i] == layout.rank_of(i)
+
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize("partition", partitions)

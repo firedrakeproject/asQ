@@ -28,7 +28,7 @@ class Problem(object):
 
 
 if __name__ == "__main__":
-    N = 1000
+    N = 200
     problem = Problem(N, 1)
     mesh = problem.mesh()
     Z = problem.function_space(mesh)
@@ -53,15 +53,15 @@ if __name__ == "__main__":
     dt = fd.Constant(1000)
     A = fd.Constant(50)
     t = fd.Constant(0)
-# D_c is a constant diffusion parameter.
+    # D_c is a constant diffusion parameter.
     D_c = fd.Constant(2e-3)
-# G_0 is a growth constant for the carbonate.
+    # G_0 is a growth constant for the carbonate.
     G_0 = fd.Constant(4e-3)
-# b is the seabed.
+    # b is the seabed.
     b = 100*fd.tanh((x-50)/20)
-# l is the sea level.
+    # l is the sea level.
     l = A*fd.sin(2*pi*t/500000)
-# d is the water depth.
+    # d is the water depth.
     d = l-b-s
     D = 2*D_c/fd.sqrt(2*pi)*fd.exp(-1/2*((d-5)/10)**2)
     G = fd.conditional(d > 0, G_0*fd.exp(-d/10), G_0*fd.exp((d/.1)**3))

@@ -1,7 +1,6 @@
 from math import pi
 import firedrake as fd
 from firedrake.petsc import PETSc
-import numpy as np
 import asQ
 
 import argparse
@@ -61,7 +60,7 @@ def time_coef(t):
 
 def Rhs(t):
     # As our exact solution is independent of t, the Rhs is just $-(2 + \sin(2*pi*t)) \Delta u$
-    return -(2 + fd.sin(2*pi*t))*fd.div(fd.grad(u_exact))
+    return -time_coef(t)*fd.div(fd.grad(u_exact))
 
 
 # Initial conditions.
@@ -110,25 +109,26 @@ block_parameters = {
 #    'ksp_type': 'preonly'
 
 paradiag_parameters = {
+    'snes_type': 'ksponly',
     'snes': {
-        'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-10,
-        'atol': 1e-12,
+        'atol': 1e-8,
         'stol': 1e-12,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'preonly',
+    'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-10,
-        'atol': 1e-12,
+        'atol': 1e-8,
         'stol': 1e-12,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfft_alpha': args.alpha,
 }
 
 # We need to add a block solver parameters dictionary for each block.
@@ -143,18 +143,17 @@ for i in range(window_length):
 # Give everything to asQ to create the paradiag object.
 # the circ parameter determines where the alpha-circulant
 # approximation is introduced. None means only in the preconditioner.
-PD = asQ.paradiag(ensemble=ensemble,
+PD = asQ.Paradiag(ensemble=ensemble,
                   form_function=form_function,
                   form_mass=form_mass,
-                  w0=w0, dt=dt, theta=args.theta,
-                  alpha=args.alpha, time_partition=time_partition, bcs=bcs,
-                  solver_parameters=paradiag_parameters,
-                  circ=None)
+                  ics=w0, dt=dt, theta=args.theta,
+                  time_partition=time_partition, bcs=bcs,
+                  solver_parameters=paradiag_parameters)
 
 
 # This is a callback which will be called before pdg solves each time-window
 # We can use this to make the output a bit easier to read
-def window_preproc(pdg, wndw):
+def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
@@ -163,35 +162,26 @@ def window_preproc(pdg, wndw):
 qcheck = w0.copy(deepcopy=True)
 
 
-def Exact(u_exact):
-    q_err = fd.errornorm(u_exact, qcheck)
+def Exact(w):
+    q_err = fd.errornorm(w, qcheck)
     return q_err
 
 
-def window_postproc(pdg, wndw):
-    errors = np.zeros((window_length, 1))
-    local_errors = np.zeros_like(errors)
+w = fd.Function(V)
 
-    # collect errors for this slice
-    def for_each_callback(window_index, slice_index, w):
-        nonlocal local_errors
-        local_errors[window_index] = Exact(w)
-    pdg.aaos.for_each_timestep(for_each_callback)
 
-    def for_each_callback(window_index, slice_index, w):
-        nonlocal local_errors
-        local_errors[window_index, :] = Exact(w)
+def window_postproc(PD, wndw, rhs):
+    uerrors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+    for i in range(PD.aaofunc.nlocal_timesteps):
+        PD.aaofunc.get_field(i, uout=w, index_range='slice')
+        uerr = Exact(w)
+        uerrors.dlocal[i] = uerr
+    uerrors.synchronise()
 
-    pdg.aaos.for_each_timestep(for_each_callback)
-
-    # collect and print errors for full window
-    ensemble.ensemble_comm.Reduce(local_errors, errors, root=0)
-    if pdg.time_rank == 0:
-        for window_index in range(window_length):
-            timestep = wndw*window_length + window_index
-            q_err = errors[window_index, 0]
-            PETSc.Sys.Print(f"timestep={timestep}, q_err={q_err}",
-                            comm=ensemble.comm)
+    for i in range(PD.ntimesteps):
+        timestep = wndw*window_length + i
+        uerr = uerrors.dglobal[i]
+        PETSc.Sys.Print(f"timestep={timestep}, uerr={uerr}")
 
 
 # Solve nwindows of the all-at-once system

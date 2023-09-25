@@ -1,6 +1,6 @@
 import numpy as np
 import firedrake as fd
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 
 from utils.shallow_water.williamson1992 import case5
 from utils.shallow_water.verifications.williamson5 import serial_solve, parallel_solve
