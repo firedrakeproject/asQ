@@ -78,11 +78,11 @@ mg_parameters = {
         'pc_type': 'python',
         'pc_python_type': 'firedrake.AssembledPC',
         'assembled_pc_type': 'lu',
-        'assembled_pc_factor_mat_solver_type': 'mumps'
-    }
+        'assembled_pc_factor_mat_solver_type': 'mumps',
+    },
 }
 
-sparameters = {
+block_params = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
@@ -96,12 +96,13 @@ sparameters = {
     'mg': mg_parameters
 }
 
+atol = 1e0
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-0,
+        'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
         'ksp_ew': None,
@@ -114,7 +115,7 @@ sparameters_diag = {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-5,
-        'atol': 1e-0,
+        'atol': atol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
@@ -123,8 +124,9 @@ sparameters_diag = {
     'aaos_jacobian_state': 'current'
 }
 
+# sparameters_diag['diagfft_block_'] = block_params
 for i in range(window_length):
-    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
+    sparameters_diag['diagfft_block_'+str(i)+'_'] = block_params
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,

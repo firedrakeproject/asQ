@@ -15,7 +15,7 @@ api_names = ["FiniteElement", "FunctionSpace", "DirichletBC",
 
 def _flatten_tree(root, is_leaf, get_children, container=tuple):
     """
-    Return the recursively flattened tree below root in the order that the leafs appear in the traversal.
+    Return the recursively flattened tree below root in the order that the leafs appear in the depth first traversal.
 
     :arg root: the current root node.
     :arg is_leaf: predicate on root returning True if root has no children.
