@@ -1,9 +1,10 @@
 import firedrake as fd
-from firedrake.petsc import PETSc
-from utils.diagnostics import convective_cfl_calculator
-from utils.serial import SerialMiniApp
-from utils.vertical_slice import hydrostatic_rho, pi_formula,\
+from math import sqrt
+from utils.serial import ComparisonMiniapp
+from utils.vertical_slice import hydrostatic_rho, pi_formula, \
     get_form_mass, get_form_function
+from firedrake.petsc import PETSc
+import asQ
 
 import argparse
 parser = argparse.ArgumentParser(description='Straka testcase.')
@@ -24,23 +25,39 @@ if args.show_args:
 
 PETSc.Sys.Print("Setting up problem")
 
-comm = fd.COMM_WORLD
+time_partition = tuple((2 for _ in range(2)))
 
-nlayers = args.nlayers
-base_columns = args.ncolumns
+ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+
+comm = ensemble.comm
+
+# set up the mesh
+
+nt = args.nt
 dt = args.dt
-L = 51200.
-distribution_parameters = {"partition": True, "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)}
-m = fd.PeriodicIntervalMesh(base_columns, L,
-                            distribution_parameters=distribution_parameters,
-                            comm=comm)
-# translate the mesh to the left by 51200/25600
-m.coordinates.dat.data[:] -= 25600
 
-# build volume mesh
-H = 6400.  # Height position of the model top
-mesh = fd.ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+nlayers = args.nlayers  # horizontal layers
+base_columns = args.ncolumns  # number of columns
+L = 512e3
+H = 6.4e3  # Height position of the model top
+
+distribution_parameters = {
+    "partition": True,
+    "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)
+}
+
+# surface mesh of ground
+base_mesh = fd.PeriodicIntervalMesh(base_columns, L,
+                                    distribution_parameters=distribution_parameters,
+                                    comm=comm)
+base_mesh.coordinates.dat.data[:] -= 25600
+
+# volume mesh of the slice
+mesh = fd.ExtrudedMesh(base_mesh,
+                       layers=nlayers,
+                       layer_height=H/nlayers)
 n = fd.FacetNormal(mesh)
+x, z = fd.SpatialCoordinate(mesh)
 
 g = fd.Constant(9.810616)
 N = fd.Constant(0.01)  # Brunt-Vaisala frequency (1/s)
@@ -76,14 +93,13 @@ Vv = fd.FunctionSpace(mesh, V2v_elt, name="Vv")
 W = V1 * V2 * Vt  # velocity, density, temperature
 
 PETSc.Sys.Print(f"DoFs: {W.dim()}")
-PETSc.Sys.Print(f"DoFs/core: {W.dim()/mesh.comm.size}")
+PETSc.Sys.Print(f"DoFs/core: {W.dim()/comm.size}")
 
 Un = fd.Function(W)
 
-x, z = fd.SpatialCoordinate(mesh)
-
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
 Tsurf = fd.Constant(300.)
+
 thetab = Tsurf
 
 cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
@@ -133,27 +149,13 @@ bcs = [fd.DirichletBC(W.sub(0), zv, "bottom"),
 for bc in bcs:
     bc.apply(Un)
 
-atol = 1e-0
+# Parameters for the newton iterations
+atol = 1e4
 stol = 1e-100
-sparameters = {
-    "snes": {
-        "monitor": None,
-        "converged_reason": None,
-        "stol": stol,
-        "atol": atol,
-        "rtol": 1e-8,
-        "ksp_ew": None,
-        "ksp_ew_version": 1,
-        "ksp_ew_threshold": 1e-10,
-        "ksp_ew_rtol0": 1e-1,
-    },
+
+lines_parameters = {
     "ksp_type": "fgmres",
-    "ksp": {
-        "monitor": None,
-        "converged_reason": None,
-        "stol": stol,
-        "atol": atol,
-    },
+    "ksp_rtol": 1e-4,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled": {
@@ -162,94 +164,108 @@ sparameters = {
         "pc_vanka": {
             "construct_dim": 0,
             "sub_sub_pc_type": "lu",
-            # "sub_sub_pc_factor_mat_solver_type": 'mumps',
+            "sub_sub_pc_factor_mat_solver_type": 'mumps',
         },
     },
 }
 
+serial_parameters = {
+    "snes": {
+        "atol": atol,
+        "stol": stol,
+        "rtol": 1e-8,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-10,
+        "ksp_ew_rtol0": 1e-1,
+    },
+    "ksp": {
+        "atol": atol,
+        "stol": stol,
+    },
+}
+serial_parameters.update(lines_parameters)
+
+if ensemble.ensemble_comm.rank == 0:
+    serial_parameters['snes']['monitor'] = None
+    serial_parameters['snes']['converged_reason'] = None
+    serial_parameters['ksp']['monitor'] = None
+    serial_parameters['ksp']['converged_reason'] = None
+
+patol = sqrt(sum(time_partition))*atol
+parallel_parameters = {
+    "snes": {
+        "monitor": None,
+        "converged_reason": None,
+        "atol": patol,
+        "stol": stol,
+        "rtol": 1e-8,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-10,
+        "ksp_ew_rtol0": 1e-1,
+    },
+    "ksp_type": "fgmres",
+    "mat_type": "matfree",
+    "ksp": {
+        "monitor": None,
+        "converged_reason": None,
+        "atol": atol,
+    },
+    "pc_type": "python",
+    "pc_python_type": "asQ.DiagFFTPC"
+}
+
+for i in range(sum(time_partition)):
+    parallel_parameters["diagfft_block_"+str(i)+"_"] = lines_parameters
+
 theta = 0.5
 
-miniapp = SerialMiniApp(dt=dt, theta=theta, w_initial=Un,
-                        form_mass=form_mass,
-                        form_function=form_function,
-                        solver_parameters=sparameters,
-                        bcs=bcs)
+miniapp = ComparisonMiniapp(ensemble, time_partition,
+                            form_mass=form_mass,
+                            form_function=form_function,
+                            w_initial=Un, dt=dt, theta=theta,
+                            boundary_conditions=bcs,
+                            serial_sparameters=serial_parameters,
+                            parallel_sparameters=parallel_parameters)
+pdg = miniapp.paradiag
+aaofunc = pdg.aaofunc
+is_last_slice = pdg.layout.is_local(-1)
 
 PETSc.Sys.Print("Solving problem")
 
-uout = fd.Function(V1, name='velocity')
-thetaout = fd.Function(Vt, name='temperature')
-rhoout = fd.Function(V2, name='density')
-
-ofile = fd.File(f'output/straka/{args.filename}.pvd',
-                comm=comm)
+rank = ensemble.ensemble_comm.rank
+norm0 = fd.norm(Un)
 
 
-def assign_out_functions():
-    uout.assign(miniapp.w0.subfunctions[0])
-    rhoout.assign(miniapp.w0.subfunctions[1])
-    thetaout.assign(miniapp.w0.subfunctions[2])
-
-    rhoout.assign(rhoout - rho_back)
-    thetaout.assign(thetaout - theta_back)
-
-
-def write_to_file(time):
-    ofile.write(uout, rhoout, thetaout, t=time)
+def preproc(serial_app, paradiag, wndw):
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'### === --- Time window {wndw} --- === ###')
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('=== --- Parallel solve --- ===')
+    PETSc.Sys.Print('')
 
 
-assign_out_functions()
-write_to_file(time=0)
+def serial_postproc(app, it, t):
+    return
+
+
+def parallel_postproc(pdg, wndw, rhs):
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('=== --- Serial solve --- ===')
+    PETSc.Sys.Print('')
+    return
+
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
-linear_its = 0
-nonlinear_its = 0
 
-cfl_calc = convective_cfl_calculator(mesh)
-cfl_series = []
-
-
-def max_cfl(u, dt):
-    with cfl_calc(u, dt).dat.vec_ro as v:
-        return v.max()[1]
-
-
-def preproc(app, it, time):
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print(f'### === --- Calculating time-step {it} --- === ###')
-    PETSc.Sys.Print('')
-
-
-def postproc(app, it, time):
-    global linear_its
-    global nonlinear_its
-
-    linear_its += miniapp.nlsolver.snes.getLinearSolveIterations()
-    nonlinear_its += miniapp.nlsolver.snes.getIterationNumber()
-
-    if (it % args.output_freq) == 0:
-        assign_out_functions()
-        write_to_file(time=time)
-
-    cfl = max_cfl(uout, dt)
-    cfl_series.append(cfl)
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print(f'Time = {time}')
-    PETSc.Sys.Print(f'Maximum CFL = {cfl}')
-
-
-# solve for each window
-miniapp.solve(nt=args.nt,
-              preproc=preproc,
-              postproc=postproc)
+errors = miniapp.solve(nwindows=5,
+                       preproc=preproc,
+                       serial_postproc=serial_postproc,
+                       parallel_postproc=parallel_postproc)
 
 PETSc.Sys.Print('')
-PETSc.Sys.Print('### === --- Iteration counts --- === ###')
-PETSc.Sys.Print('')
+PETSc.Sys.Print('### === --- Errors --- === ###')
 
-PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}')
-PETSc.Sys.Print('')
-
-PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {linear_its/args.nt}')
-PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/args.nt}')
-PETSc.Sys.Print('')
+for it, err in enumerate(errors):
+    PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
