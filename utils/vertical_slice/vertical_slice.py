@@ -305,12 +305,18 @@ def get_form_mass():
 
 
 def get_form_function(n, Up, c_pen,
-                      cp, g, R_d, p_0, kappa, mu, f=None, F=None):
+                      cp, g, R_d, p_0, kappa, mu,
+                      f=None, F=None,
+                      viscosity=None, diffusivity=None):
     def form_function(u, rho, theta, du, drho, dtheta, t):
         eqn = theta_tendency(dtheta, u, theta, n, Up, c_pen)
         eqn += rho_tendency(drho, rho, u, n)
         eqn += u_tendency(du, n, u, theta, rho,
                           cp, g, R_d, p_0, kappa, Up, mu, f, F)
+        if viscosity:
+            eqn += form_viscosity(u, du, viscosity)
+        if diffusivity:
+            eqn += form_viscosity(theta, dtheta, diffusivity)
         return eqn
     return form_function
 
@@ -331,28 +337,3 @@ def form_viscosity(u, v, kappa, mu=fd.Constant(10.0)):
     a += kappa*get_flux_form(fd.dS_v)
     a += kappa*get_flux_form(fd.dS_h)
     return a
-
-
-def slice_imr_form(un, unp1, rhon, rhonp1, thetan, thetanp1,
-                   du, drho, dtheta,
-                   dT, n, Up, c_pen,
-                   cp, g, R_d, p_0, kappa, mu=None, f=None, F=None,
-                   viscosity=None, diffusivity=None):
-    form_mass = get_form_mass()
-    form_function = get_form_function(n, Up, c_pen,
-                                      cp, g, R_d, p_0, kappa, mu, f, F)
-
-    eqn = form_mass(unp1, rhonp1, thetanp1, du, drho, dtheta)
-    eqn -= form_mass(un, rhon, thetan, du, drho, dtheta)
-    unph = fd.Constant(0.5)*(un + unp1)
-    rhonph = fd.Constant(0.5)*(rhon + rhonp1)
-    thetanph = fd.Constant(0.5)*(thetan + thetanp1)
-    eqn += dT*form_function(unph, rhonph, thetanph,
-                            du, drho, dtheta)
-
-    if viscosity:
-        eqn += dT*form_viscosity(unph, du, viscosity)
-    if diffusivity:
-        eqn += dT*form_viscosity(thetanph, dtheta, diffusivity)
-
-    return eqn
