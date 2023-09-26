@@ -6,6 +6,10 @@ from functools import reduce
 from operator import mul
 
 
+def assemble(form):
+    return fd.assemble(form).riesz_representation(riesz_map='l2')
+
+
 @pytest.mark.parallel(nprocs=4)
 def test_heat_jacobian():
     """
@@ -103,7 +107,7 @@ def test_heat_jacobian():
         aaojac.mult(None, xvec, yvec)
 
     # assemble the full jacobian
-    yfull = fd.assemble(fd.action(full_jacobian, xfull))
+    yfull = assemble(fd.action(full_jacobian, xfull))
 
     # check they match
 
@@ -217,7 +221,7 @@ def test_mixed_heat_jacobian():
         aaojac.mult(None, xvec, yvec)
 
     # assemble the full jacobian
-    yfull = fd.assemble(fd.action(full_jacobian, xfull))
+    yfull = assemble(fd.action(full_jacobian, xfull))
 
     for step in range(aaofunc.nlocal_timesteps):
         for cpt in range(2):
