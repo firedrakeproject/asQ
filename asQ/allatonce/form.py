@@ -145,7 +145,7 @@ class AllAtOnceForm(TimePartitionMixin):
         self.aaofunc.update_time_halos()
 
         # assembly stage
-        fd.assemble(self.form, tensor=self.F.function).riesz_representation(riesz_map='l2')
+        fd.assemble(self.form, tensor=self.F.function)
 
         # apply boundary conditions
         for bc in self.bcs:
