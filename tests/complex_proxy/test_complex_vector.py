@@ -5,6 +5,10 @@ import asQ.complex_proxy.vector as cpx
 import pytest
 
 
+def assemble(form):
+    return fd.assemble(form).riesz_representation(riesz_map='l2')
+
+
 cell = fd.Cell('triangle')
 
 scalar_elements = [
@@ -269,13 +273,13 @@ def test_linear_form(mesh, elem, z):
         return fd.inner(f, v)*fd.dx
 
     v = fd.TestFunction(V)
-    rhs = fd.assemble(L(v))
+    rhs = assemble(L(v))
 
     ur = fd.Function(V)
     ui = fd.Function(V)
     w = fd.Function(W)
 
-    w = fd.assemble(cpx.LinearForm(W, z, L))
+    w = assemble(cpx.LinearForm(W, z, L))
 
     cpx.get_real(w, ur)
     cpx.get_imag(w, ui)
@@ -318,7 +322,7 @@ def test_bilinear_form(mesh, elem):
     a = form_function(u, v)
 
     # the real value
-    b = fd.assemble(fd.action(a, f))
+    b = assemble(fd.action(a, f))
 
     # set up the complex problem
     W = cpx.FunctionSpace(V)
@@ -335,10 +339,9 @@ def test_bilinear_form(mesh, elem):
 
     # non-zero only on diagonal blocks: real and imag parts independent
     zr = 3+0j
-    wr = fd.Function(W)
 
     K = cpx.BilinearForm(W, zr, form_function)
-    fd.assemble(fd.action(K, g), tensor=wr)
+    wr = assemble(fd.action(K, g))
 
     cpx.get_real(wr, br)
     cpx.get_imag(wr, bi)
@@ -349,10 +352,8 @@ def test_bilinear_form(mesh, elem):
     # non-zero only on off-diagonal blocks: real and imag parts independent
     zi = 0+4j
 
-    wi = fd.Function(W)
-
     K = cpx.BilinearForm(W, zi, form_function)
-    fd.assemble(fd.action(K, g), tensor=wi)
+    wi = assemble(fd.action(K, g))
 
     cpx.get_real(wi, br)
     cpx.get_imag(wi, bi)
@@ -363,10 +364,8 @@ def test_bilinear_form(mesh, elem):
     # non-zero in all blocks:
     z = zr + zi
 
-    wz = fd.Function(W)
-
     K = cpx.BilinearForm(W, z, form_function)
-    fd.assemble(fd.action(K, g), tensor=wz)
+    wz = assemble(fd.action(K, g))
 
     cpx.get_real(wz, br)
     cpx.get_imag(wz, bi)
