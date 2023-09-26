@@ -155,9 +155,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.x.assign(X, update_halos=True, blocking=True)
 
         # assembly stage
-        fd.assemble(self.action, tensor=self.F.function).riesz_representation(riesz_map='l2')
+        self.F.function.assign(fd.assemble(self.action).riesz_representation(riesz_map='l2'))
         if self._useprev:
-            fd.assemble(self.action_prev, tensor=self.Fprev).riesz_representation(riesz_map='l2')
+            self.Fprev.assign(fd.assemble(self.action_prev).riesz_representation(riesz_map='l2'))
             self.F.function += self.Fprev
 
         # Apply boundary conditions

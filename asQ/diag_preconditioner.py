@@ -228,7 +228,7 @@ class DiagFFTPC(TimePartitionMixin):
 
         a = fd.assemble(fd.inner(u, v)*fd.dx,
                         mat_type=riesz_mat_type,
-                        sub_mat_type=riesz_sub_mat_type).riesz_representation(riesz_map='l2')
+                        sub_mat_type=riesz_sub_mat_type)
 
         self.Proj = fd.LinearSolver(a, solver_parameters=default_riesz_parameters,
                                     options_prefix=f"{prefix}mass_")

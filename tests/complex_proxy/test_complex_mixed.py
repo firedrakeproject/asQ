@@ -5,11 +5,8 @@ import asQ.complex_proxy.mixed as cpx
 import pytest
 
 
-def assemble(form, tensor=None):
-    if tensor:
-        return fd.assemble(form, tensor=tensor).riesz_representation(riesz_map='l2')
-    else:
-        return fd.assemble(form).riesz_representation(riesz_map='l2')
+def assemble(form):
+    return fd.assemble(form).riesz_representation(riesz_map='l2')
 
 
 cell = fd.Cell('triangle')
@@ -342,10 +339,8 @@ def test_bilinear_form(mesh, elem):
 
     # non-zero only on diagonal blocks: real and imag parts independent
     zr = 3+0j
-    wr = fd.Function(W)
-
     K = cpx.BilinearForm(W, zr, form_function)
-    assemble(fd.action(K, g), tensor=wr)
+    wr = assemble(fd.action(K, g))
 
     cpx.get_real(wr, br)
     cpx.get_imag(wr, bi)
@@ -356,10 +351,8 @@ def test_bilinear_form(mesh, elem):
     # non-zero only on off-diagonal blocks: real and imag parts independent
     zi = 0+4j
 
-    wi = fd.Function(W)
-
     K = cpx.BilinearForm(W, zi, form_function)
-    assemble(fd.action(K, g), tensor=wi)
+    wi = assemble(fd.action(K, g))
 
     cpx.get_real(wi, br)
     cpx.get_imag(wi, bi)
@@ -370,10 +363,8 @@ def test_bilinear_form(mesh, elem):
     # non-zero in all blocks:
     z = zr + zi
 
-    wz = fd.Function(W)
-
     K = cpx.BilinearForm(W, z, form_function)
-    assemble(fd.action(K, g), tensor=wz)
+    wz = assemble(fd.action(K, g))
 
     cpx.get_real(wz, br)
     cpx.get_imag(wz, bi)
