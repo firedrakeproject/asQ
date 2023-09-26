@@ -241,7 +241,7 @@ class AllAtOnceFunction(TimePartitionMixin):
     @profiler()
     def bcast_field(self, step, u):
         """
-        Broadcast solution at given timestep to all time-ranks.
+        Broadcast solution at given timestep `step` to Function `u` on all time-ranks.
 
         :arg step: window index of field to broadcast.
         :arg u: fd.Function to place field into.
