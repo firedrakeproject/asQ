@@ -1,5 +1,5 @@
 import firedrake as fd
-from math import pi
+from math import pi, sqrt
 from utils.serial import ComparisonMiniapp
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
@@ -9,7 +9,7 @@ import asQ
 PETSc.Sys.Print("Setting up problem")
 
 # set up the ensemble communicator for space-time parallelism
-time_partition = tuple((2 for _ in range(1)))
+time_partition = tuple((2 for _ in range(2)))
 
 ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
@@ -18,12 +18,13 @@ comm = ensemble.comm
 # set up the mesh
 dt = 5.
 
-nx = 8  # number streamwise of columns
-ny = 8  # number spanwise of columns
-nz = 12  # horizontal layers
-Lx = 16e3
-Ly = 12e3
-Lz = 12e3  # Height position of the model top
+nx = 24  # number streamwise of columns
+ny = 24  # number spanwise of columns
+nz = 24  # horizontal layers
+
+Lx = 36e3
+Ly = 36e3
+Lz = 36e3  # Height position of the model top
 
 distribution_parameters = {
     "partition": True,
@@ -135,10 +136,10 @@ hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
 
 rho_back = fd.Function(V2).assign(rhon)
 
-zc = Lz-10000.
-mubar = 0.15/dt
+zc = fd.Constant(Lz-10000.)
+mubar = fd.Constant(0.15/dt)
 mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(Lz-zc))**2)
-mu = fd.Function(V2).interpolate(mu_top/dT)
+mu = fd.Function(V2).interpolate(mu_top)
 
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
                                   cp=cp, g=g, R_d=R_d,
@@ -154,11 +155,12 @@ for bc in bcs:
     bc.apply(Un)
 
 # Parameters for the newton iterations
-atol = 1e-6
+atol = 1e-4
+rtol = 1e-8
 
 lines_parameters = {
     "ksp_type": "gmres",
-    "ksp_rtol": 1e-5,
+    "ksp_rtol": 1e-4,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled": {
@@ -167,7 +169,7 @@ lines_parameters = {
         "pc_vanka": {
             "construct_dim": 0,
             "sub_sub_pc_type": "lu",
-            "sub_sub_pc_factor_mat_solver_type": 'mumps',
+            #"sub_sub_pc_factor_mat_solver_type": 'mumps',
         },
     },
 }
@@ -175,7 +177,7 @@ lines_parameters = {
 serial_parameters = {
     "snes": {
         "atol": atol,
-        "rtol": 1e-8,
+        "rtol": rtol,
         "stol": 1e-12,
         "ksp_ew": None,
         "ksp_ew_version": 1,
@@ -195,12 +197,13 @@ if ensemble.ensemble_comm.rank == 0:
     serial_parameters['ksp']['monitor'] = None
     serial_parameters['ksp']['converged_reason'] = None
 
+patol = sqrt(sum(time_partition))*atol
 parallel_parameters = {
     "snes": {
         "monitor": None,
         "converged_reason": None,
-        "atol": atol,
-        "rtol": 1e-8,
+        "atol": patol,
+        "rtol": rtol,
         "stol": 1e-12,
         "ksp_ew": None,
         "ksp_ew_version": 1,
@@ -212,10 +215,11 @@ parallel_parameters = {
     "ksp": {
         "monitor": None,
         "converged_reason": None,
-        "atol": atol,
+        "atol": patol,
     },
     "pc_type": "python",
     "pc_python_type": "asQ.DiagFFTPC",
+    "diagfft_alpha": 1e-4,
 }
 
 for i in range(sum(time_partition)):
@@ -261,7 +265,7 @@ def parallel_postproc(pdg, wndw, rhs):
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-errors = miniapp.solve(nwindows=1,
+errors = miniapp.solve(nwindows=2,
                        preproc=preproc,
                        serial_postproc=serial_postproc,
                        parallel_postproc=parallel_postproc)

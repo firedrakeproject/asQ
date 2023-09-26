@@ -17,12 +17,13 @@ comm = ensemble.comm
 
 # set up the mesh
 
-nx = 8  # number streamwise of columns
-ny = 8  # number spanwise of columns
-nz = 12  # horizontal layers
-Lx = 16e3
+nx = 36  # number streamwise of columns
+ny = 12  # number spanwise of columns
+nz = 18  # horizontal layers
+
+Lx = 36e3
 Ly = 12e3
-Lz = 12e3  # Height position of the model top
+Lz = 18e3  # Height position of the model top
 
 distribution_parameters = {
     "partition": True,
@@ -137,10 +138,10 @@ hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
 
 rho_back = fd.Function(V2).assign(rhon)
 
-zc = Lz-10000.
-mubar = 0.3
+zc = fd.Constant(Lz-10000.)
+mubar = fd.Constant(0.15/dt)
 mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(Lz-zc))**2)
-mu = fd.Function(V2).interpolate(mu_top/dT)
+mu = fd.Function(V2).interpolate(mu_top)
 
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
                                   cp=cp, g=g, R_d=R_d,
@@ -156,26 +157,20 @@ for bc in bcs:
     bc.apply(Un)
 
 # Parameters for the diag
-lu_params = {
-    "ksp_type": "preonly",
-    "pc_type": "lu",
-    "pc_factor_mat_solver_type": "mumps",
-}
-
-lines_parameters = {
-    "construct_dim": 0,
-    "sub_sub": lu_params
-}
 
 block_parameters = {
     "ksp_type": "gmres",
-    "ksp_rtol": 1e-5,
+    "ksp_rtol": 1e-4,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled": {
         "pc_type": "python",
         "pc_python_type": "firedrake.ASMVankaPC",
-        "pc_vanka": lines_parameters
+        "pc_vanka": {
+            "construct_dim": 0,
+            "sub_sub_pc_type": "lu",
+            #"sub_sub_pc_factor_mat_solver_type": 'mumps',
+        },
     },
 }
 
@@ -184,19 +179,22 @@ solver_parameters_diag = {
         "monitor": None,
         "converged_reason": None,
         "rtol": 1e-8,
+        "atol": 1e-6,
         "ksp_ew": None,
         "ksp_ew_version": 1,
-        "ksp_ew_threshold": 1e-2
+        "ksp_ew_threshold": 1e-5,
+        "ksp_ew_rtol0": 1e-3
     },
     "ksp_type": "fgmres",
     "mat_type": "matfree",
     "ksp": {
         "monitor": None,
         "converged_reason": None,
-        "atol": 1e-8,
+        "atol": 1e-6,
     },
     "pc_type": "python",
     "pc_python_type": "asQ.DiagFFTPC"
+    "diagfft_alpha": 1e-4,
 }
 
 for i in range(sum(time_partition)):

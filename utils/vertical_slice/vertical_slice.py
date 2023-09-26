@@ -284,8 +284,8 @@ def u_tendency(w, n, u, theta, rho,
         - fd.inner(both(Upwind*u),
                    both(cross0(n, cross1(u, w))))*(fd.dS_h + fd.dS_v)
         - fd.div(w)*K*fd.dx
-        - cp*fd.div(theta*w)*Pi*fd.dx
-        + cp*fd.jump(w*theta, n)*fd.avg(Pi)*fd.dS_v
+        - cp*fd.div(theta*w)*Pi*fd.dx(degree=6)
+        + cp*fd.jump(w*theta, n)*fd.avg(Pi)*fd.dS_v(degree=6)
         + fd.inner(w, Up)*g*fd.dx
     )
 
