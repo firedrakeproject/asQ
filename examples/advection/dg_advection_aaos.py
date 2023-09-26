@@ -138,7 +138,7 @@ block_parameters = {
 atol = 1e-10
 rtol = 1e-8
 solver_parameters = {
-    'snes_type': 'ksponly', # for a linear system
+    'snes_type': 'ksponly',  # for a linear system
     'snes': {
         'monitor': None,
         'converged_reason': None,
