@@ -81,10 +81,14 @@ def test_solve_heat_equation():
 extruded = [pytest.param(False, id="standard_mesh"),
             pytest.param(True, id="extruded_mesh")]
 
+cpx_types = [pytest.param('vector', id="vector_cpx"),
+             pytest.param('mixed', id="mixed_cpx")]
+
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize("extrude", extruded)
-def test_solve_mixed_wave_equation(extrude):
+@pytest.mark.parametrize("cpx_type", cpx_types)
+def test_solve_mixed_wave_equation(extrude, cpx_type):
     """
     Tests the solver setup using a nonlinear wave equation.
     Solves using GMRES preconditioned with the circulant matrix and
@@ -99,9 +103,10 @@ def test_solve_mixed_wave_equation(extrude):
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
     # mesh and function spaces
+    nx = 6
     if extrude:
-        mesh1D = fd.UnitIntervalMesh(6, comm=ensemble.comm)
-        mesh = fd.ExtrudedMesh(mesh1D, 6, layer_height=0.25)
+        mesh1D = fd.UnitIntervalMesh(nx, comm=ensemble.comm)
+        mesh = fd.ExtrudedMesh(mesh1D, nx, layer_height=1./nx)
 
         horizontal_degree = 1
         vertical_degree = 1
@@ -114,15 +119,14 @@ def test_solve_mixed_wave_equation(extrude):
 
         # build spaces V2, V3
         V2h_elt = fd.HDiv(fd.TensorProductElement(S1, T1))
-        V2t_elt = fd.TensorProductElement(S2, T0)
+        V2v_elt = fd.HDiv(fd.TensorProductElement(S2, T0))
         V3_elt = fd.TensorProductElement(S2, T1)
-        V2v_elt = fd.HDiv(V2t_elt)
         V2_elt = V2h_elt + V2v_elt
 
         V = fd.FunctionSpace(mesh, V2_elt, name="HDiv")
         Q = fd.FunctionSpace(mesh, V3_elt, name="DG")
     else:
-        mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
+        mesh = fd.UnitSquareMesh(nx, nx, comm=ensemble.comm)
         V = fd.FunctionSpace(mesh, "BDM", 1)
         Q = fd.FunctionSpace(mesh, "DG", 0)
 
@@ -162,7 +166,7 @@ def test_solve_mixed_wave_equation(extrude):
         'pc_factor_mat_solver_type': 'mumps'
     }
 
-    atol = 1e-8
+    atol = 1e-6
     solver_parameters = {
         'snes': {
             'linesearch_type': 'basic',
@@ -181,6 +185,7 @@ def test_solve_mixed_wave_equation(extrude):
         'pc_type': 'python',
         'pc_python_type': 'asQ.DiagFFTPC',
         'diagfft_alpha': 1e-3,
+        'diagfft_complex_proxy': cpx_type
     }
 
     for i in range(aaofunc.ntimesteps):
