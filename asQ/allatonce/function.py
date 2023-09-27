@@ -10,6 +10,7 @@ from asQ.allatonce.mixin import TimePartitionMixin
 __all__ = ['time_average', 'AllAtOnceFunction']
 
 
+@profiler()
 def time_average(aaofunc, uout, uwrk, average='window'):
     """
     Compute the time average of an all-at-once function
