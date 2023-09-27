@@ -124,6 +124,7 @@ aaoform = asQ.AllAtOnceForm(aaofunc, dt, args.theta,
 block_parameters = {
     'ksp_type': 'preonly',
     'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps'
 }
 
 # The PETSc solver parameters for solving the all-at-once system.
@@ -134,19 +135,26 @@ block_parameters = {
 # the blocks then the outer Krylov method must be either flexible
 # or Richardson).
 
+atol = 1e-10
+rtol = 1e-8
 solver_parameters = {
-    'snes_type': 'ksponly',
+    'snes_type': 'ksponly',  # for a linear system
     'snes': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-8,
+        'converged_reason': None,
+        'rtol': rtol,
+        'atol': atol,
+        'stol': 1e-12,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'gmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-8,
+        'rtol': rtol,
+        'atol': atol,
+        'stol': 1e-12,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
@@ -211,6 +219,7 @@ for i in range(args.nwindows):
 # Print out some iteration counts
 
 # Number of nonlinear iterations, total and per window.
+# (Will be 1 per window for this linear problem)
 PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_iterations}  |  iterations per window: {nonlinear_iterations/total_windows}')
 
 # Number of linear iterations, total and per window.
