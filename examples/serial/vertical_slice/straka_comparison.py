@@ -10,7 +10,7 @@ import argparse
 parser = argparse.ArgumentParser(description='Straka testcase.')
 parser.add_argument('--nlayers', type=int, default=16, help='Number of layers, default 10.')
 parser.add_argument('--ncolumns', type=int, default=128, help='Number of columns, default 10.')
-parser.add_argument('--nt', type=int, default=1, help='Number of timesteps.')
+parser.add_argument('--nwindows', type=int, default=1, help='Number of ParaDiag windows.')
 parser.add_argument('--output_freq', type=int, default=1, help='Output frequency in timesteps.')
 parser.add_argument('--dt', type=float, default=2, help='Timestep in seconds. Default 1.')
 parser.add_argument('--filename', type=str, default='straka')
@@ -33,7 +33,6 @@ comm = ensemble.comm
 
 # set up the mesh
 
-nt = args.nt
 dt = args.dt
 
 nlayers = args.nlayers  # horizontal layers
@@ -259,7 +258,7 @@ def parallel_postproc(pdg, wndw, rhs):
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-errors = miniapp.solve(nwindows=5,
+errors = miniapp.solve(nwindows=args.nwindows,
                        preproc=preproc,
                        serial_postproc=serial_postproc,
                        parallel_postproc=parallel_postproc)

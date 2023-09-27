@@ -2,7 +2,7 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 from utils.diagnostics import convective_cfl_calculator
 from utils.serial import SerialMiniApp
-from utils.vertical_slice import hydrostatic_rho, pi_formula,\
+from utils.vertical_slice import hydrostatic_rho, pi_formula, \
     get_form_mass, get_form_function
 
 import argparse
