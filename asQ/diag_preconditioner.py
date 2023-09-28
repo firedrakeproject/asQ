@@ -12,8 +12,6 @@ from asQ.parallel_arrays import SharedArray
 
 from functools import partial
 
-import asQ.complex_proxy.vector as cpx
-
 __all__ = ['DiagFFTPC']
 
 
@@ -61,6 +59,15 @@ class DiagFFTPC(TimePartitionMixin):
     'diagfft_alpha': <float>
         The circulant parameter to use in the preconditioning matrix.
         Defaults to 1e-3.
+
+    'diagfft_complex_proxy': <'vector', 'mixed'>
+        Which implementation of the complex-proxy module to use.
+        Default is 'vector'.
+
+        'vector': the real-imag components of the complex function space are implemented
+            as a 2-component VectorFunctionSpace
+        'mixed': the real-imag components of the complex function space are implemented
+            as a 2-component MixedFunctionSpace
     """
     prefix = "diagfft_"
     default_alpha = 1e-3
@@ -152,7 +159,21 @@ class DiagFFTPC(TimePartitionMixin):
         self.D2 = np.sqrt(nt)*fft(self.Gam*C2col)
 
         # Block system setup
-        # First need to build the vector function space version of blockV
+        # First need to build the complex function space version of blockV
+        valid_cpx_type = ['vector', 'mixed']
+        cpx_option = f"{prefix}complex_proxy"
+
+        cpx_type = get_option_from_list(cpx_option,
+                                        valid_cpx_type,
+                                        default_index=0)
+
+        if cpx_type == 'vector':
+            import asQ.complex_proxy.vector as cpx
+            self.cpx = cpx
+        elif cpx_type == 'mixed':
+            import asQ.complex_proxy.mixed as cpx
+            self.cpx = cpx
+
         self.CblockV = cpx.FunctionSpace(self.blockV)
 
         # set the boundary conditions to zero for the residual
@@ -351,6 +372,8 @@ class DiagFFTPC(TimePartitionMixin):
         we get an operator that is block diagonal in the 2x2 system
         coupling real and imaginary parts.
         '''
+        cpx = self.cpx
+
         jac_state = self.jac_state()
         if jac_state == 'linear':
             return
@@ -373,6 +396,7 @@ class DiagFFTPC(TimePartitionMixin):
 
     @profiler()
     def apply(self, pc, x, y):
+        cpx = self.cpx
 
         # copy petsc vec into Function
         # hopefully this works
