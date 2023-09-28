@@ -169,7 +169,7 @@ block_parameters = {
         "pc_vanka": {
             "construct_dim": 0,
             "sub_sub_pc_type": "lu",
-            #"sub_sub_pc_factor_mat_solver_type": 'mumps',
+            # "sub_sub_pc_factor_mat_solver_type": 'mumps',
         },
     },
 }
@@ -193,7 +193,7 @@ solver_parameters_diag = {
         "atol": 1e-6,
     },
     "pc_type": "python",
-    "pc_python_type": "asQ.DiagFFTPC"
+    "pc_python_type": "asQ.DiagFFTPC",
     "diagfft_alpha": 1e-4,
 }
 
