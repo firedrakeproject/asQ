@@ -10,10 +10,10 @@ import argparse
 parser = argparse.ArgumentParser(description='Straka testcase.')
 parser.add_argument('--nlayers', type=int, default=16, help='Number of layers, default 10.')
 parser.add_argument('--ncolumns', type=int, default=128, help='Number of columns, default 10.')
-parser.add_argument('--nwindows', type=int, default=1, help='Number of ParaDiag windows.')
-parser.add_argument('--output_freq', type=int, default=1, help='Output frequency in timesteps.')
+parser.add_argument('--nwindows', type=int, default=1, help='Number of windows to solve.')
+parser.add_argument('--nslices', type=int, default=2, help='Number of slices in the all-at-once system.')
+parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps in each slice of the all-at-once system.')
 parser.add_argument('--dt', type=float, default=2, help='Timestep in seconds. Default 1.')
-parser.add_argument('--filename', type=str, default='straka')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space). Default 1.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
@@ -25,7 +25,7 @@ if args.show_args:
 
 PETSc.Sys.Print("Setting up problem")
 
-time_partition = tuple((2 for _ in range(2)))
+time_partition = tuple((args.slice_length for _ in range(args.nslices)))
 
 ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
@@ -150,10 +150,11 @@ for bc in bcs:
 
 # Parameters for the newton iterations
 atol = 1e4
+rtol = 1e-10
 stol = 1e-100
 
 lines_parameters = {
-    "ksp_type": "fgmres",
+    "ksp_type": "gmres",
     "ksp_rtol": 1e-4,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
@@ -172,10 +173,10 @@ serial_parameters = {
     "snes": {
         "atol": atol,
         "stol": stol,
-        "rtol": 1e-8,
+        "rtol": rtol,
         "ksp_ew": None,
         "ksp_ew_version": 1,
-        "ksp_ew_threshold": 1e-10,
+        "ksp_ew_threshold": 1e-2,
         "ksp_ew_rtol0": 1e-1,
     },
     "ksp": {
@@ -188,8 +189,8 @@ serial_parameters.update(lines_parameters)
 if ensemble.ensemble_comm.rank == 0:
     serial_parameters['snes']['monitor'] = None
     serial_parameters['snes']['converged_reason'] = None
-    serial_parameters['ksp']['monitor'] = None
-    serial_parameters['ksp']['converged_reason'] = None
+    #serial_parameters['ksp']['monitor'] = None
+    #serial_parameters['ksp']['converged_reason'] = None
 
 patol = sqrt(sum(time_partition))*atol
 parallel_parameters = {
@@ -198,18 +199,19 @@ parallel_parameters = {
         "converged_reason": None,
         "atol": patol,
         "stol": stol,
-        "rtol": 1e-8,
+        "rtol": rtol,
         "ksp_ew": None,
         "ksp_ew_version": 1,
         "ksp_ew_threshold": 1e-10,
-        "ksp_ew_rtol0": 1e-1,
+        "ksp_ew_rtol0": 1e-3,
     },
     "ksp_type": "fgmres",
     "mat_type": "matfree",
     "ksp": {
         "monitor": None,
         "converged_reason": None,
-        "atol": atol,
+        "atol": patol,
+        "rtol": 1e-5,
     },
     "pc_type": "python",
     "pc_python_type": "asQ.DiagFFTPC"
