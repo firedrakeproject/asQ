@@ -17,6 +17,7 @@ parser.add_argument('--dt', type=float, default=2, help='Timestep in seconds. De
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space). Default 1.')
 parser.add_argument('--filename', type=str, default='straka', help='Name of vtk file.')
 parser.add_argument('--write_file', action='store_true', help='Write vtk file at end of each window.')
+parser.add_argument('--metrics_dir', type=str, default='output', help='Directory to save paradiag metrics and vtk to.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -154,7 +155,7 @@ for bc in bcs:
 
 lines_parameters = {
     "ksp_type": "gmres",
-    "ksp_rtol": 1e-4,
+    "ksp_rtol": 1e-5,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled": {
@@ -202,7 +203,6 @@ solver_parameters_diag = {
 for i in range(sum(time_partition)):
     solver_parameters_diag["diagfft_block_"+str(i)+"_"] = lines_parameters
 
-alpha = 1.0e-4
 theta = 0.5
 
 pdg = asQ.Paradiag(ensemble=ensemble,
@@ -225,7 +225,7 @@ if is_last_slice:
         thetaout = fd.Function(Vt, name='temperature')
         rhoout = fd.Function(V2, name='density')
 
-        ofile = fd.File('output/straka/{args.filename}.pvd',
+        ofile = fd.File(f'{args.metrics_dir}/vtk/{args.filename}.pvd',
                         comm=ensemble.comm)
 
         def write_to_file():
@@ -270,7 +270,7 @@ def window_postproc(pdg, wndw, rhs):
 
 
 # solve for each window
-pdg.solve(nwindows=2,
+pdg.solve(nwindows=args.nwindows,
           preproc=window_preproc,
           postproc=window_postproc)
 
@@ -279,7 +279,7 @@ PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
 from asQ import write_paradiag_metrics
-write_paradiag_metrics(pdg, directory='metrics')
+write_paradiag_metrics(pdg, directory=args.metrics_dir)
 
 nw = pdg.total_windows
 nt = pdg.total_timesteps

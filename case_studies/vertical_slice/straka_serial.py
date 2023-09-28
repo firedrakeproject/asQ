@@ -185,13 +185,15 @@ ofile = fd.File(f'output/straka/{args.filename}.pvd',
                 comm=comm)
 
 
-def assign_out_functions():
+def assign_out_functions(it):
     uout.assign(miniapp.w0.subfunctions[0])
-    rhoout.assign(miniapp.w0.subfunctions[1])
-    thetaout.assign(miniapp.w0.subfunctions[2])
 
-    rhoout.assign(rhoout - rho_back)
-    thetaout.assign(thetaout - theta_back)
+    if (it % args.output_freq) == 0:
+      rhoout.assign(miniapp.w0.subfunctions[1])
+      thetaout.assign(miniapp.w0.subfunctions[2])
+
+      rhoout.assign(rhoout - rho_back)
+      thetaout.assign(thetaout - theta_back)
 
 
 def write_to_file(time):
@@ -227,8 +229,9 @@ def postproc(app, it, time):
     linear_its += miniapp.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += miniapp.nlsolver.snes.getIterationNumber()
 
+    assign_out_functions(it)
+
     if (it % args.output_freq) == 0:
-        assign_out_functions()
         write_to_file(time=time)
 
     cfl = max_cfl(uout, dt)
