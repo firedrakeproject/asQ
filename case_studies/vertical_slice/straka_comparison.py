@@ -1,29 +1,44 @@
 import firedrake as fd
-from math import pi
+from math import sqrt
 from utils.serial import ComparisonMiniapp
-from utils.vertical_slice import hydrostatic_rho, \
-    get_form_mass, get_form_function, maximum
+from utils.vertical_slice import hydrostatic_rho, pi_formula, \
+    get_form_mass, get_form_function
 from firedrake.petsc import PETSc
 import asQ
 
+import argparse
+parser = argparse.ArgumentParser(description='Straka testcase.')
+parser.add_argument('--nlayers', type=int, default=16, help='Number of layers, default 10.')
+parser.add_argument('--ncolumns', type=int, default=128, help='Number of columns, default 10.')
+parser.add_argument('--nwindows', type=int, default=1, help='Number of windows to solve.')
+parser.add_argument('--nslices', type=int, default=2, help='Number of slices in the all-at-once system.')
+parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps in each slice of the all-at-once system.')
+parser.add_argument('--dt', type=float, default=2, help='Timestep in seconds. Default 1.')
+parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space). Default 1.')
+parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
+
+args = parser.parse_known_args()
+args = args[0]
+
+if args.show_args:
+    PETSc.Sys.Print(args)
+
 PETSc.Sys.Print("Setting up problem")
 
-# set up the ensemble communicator for space-time parallelism
-time_partition = tuple((2 for _ in range(1)))
+time_partition = tuple((args.slice_length for _ in range(args.nslices)))
 
 ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
 comm = ensemble.comm
 
 # set up the mesh
-dt = 5.
 
-nx = 8  # number streamwise of columns
-ny = 8  # number spanwise of columns
-nz = 12  # horizontal layers
-Lx = 16e3
-Ly = 12e3
-Lz = 12e3  # Height position of the model top
+dt = args.dt
+
+nlayers = args.nlayers  # horizontal layers
+base_columns = args.ncolumns  # number of columns
+L = 512e3
+H = 6.4e3  # Height position of the model top
 
 distribution_parameters = {
     "partition": True,
@@ -31,15 +46,17 @@ distribution_parameters = {
 }
 
 # surface mesh of ground
-base_mesh = fd.PeriodicRectangleMesh(nx, ny, Lx, Ly,
-                                     direction='both', quadrilateral=True,
-                                     distribution_parameters=distribution_parameters,
-                                     comm=comm)
+base_mesh = fd.PeriodicIntervalMesh(base_columns, L,
+                                    distribution_parameters=distribution_parameters,
+                                    comm=comm)
+base_mesh.coordinates.dat.data[:] -= 25600
 
 # volume mesh of the slice
-mesh = fd.ExtrudedMesh(base_mesh, layers=nz, layer_height=Lz/nz)
+mesh = fd.ExtrudedMesh(base_mesh,
+                       layers=nlayers,
+                       layer_height=H/nlayers)
 n = fd.FacetNormal(mesh)
-x, y, z = fd.SpatialCoordinate(mesh)
+x, z = fd.SpatialCoordinate(mesh)
 
 g = fd.Constant(9.810616)
 N = fd.Constant(0.01)  # Brunt-Vaisala frequency (1/s)
@@ -50,32 +67,11 @@ p_0 = fd.Constant(1000.0*100.0)  # reference pressure (Pa, not hPa)
 cv = fd.Constant(717.)  # SHC of dry air at const. volume (J/kg/K)
 T_0 = fd.Constant(273.15)  # ref. temperature
 
-dT = fd.Constant(dt)
+horizontal_degree = args.degree
+vertical_degree = args.degree
 
-# making a mountain out of a molehill
-a = 1000.
-xc = Lx/2.
-yc = Ly/2.
-x, y, z = fd.SpatialCoordinate(mesh)
-hm = 1.
-r2 = ((x - xc)/a)**2 + ((y - yc)/(2*a))**2
-zs = hm*fd.exp(-r2)
-
-smooth_z = True
-name = "mountain_nh"
-if smooth_z:
-    name += '_smootherz'
-    zh = 5000.
-    xexpr = fd.as_vector([x, y, fd.conditional(z < zh, z + fd.cos(0.5*pi*z/zh)**6*zs, z)])
-else:
-    xexpr = fd.as_vector([x, y, z + ((Lz-z)/Lz)*zs])
-mesh.coordinates.interpolate(xexpr)
-
-horizontal_degree = 1
-vertical_degree = 1
-
-S1 = fd.FiniteElement("RTCF", fd.quadrilateral, horizontal_degree+1)
-S2 = fd.FiniteElement("DQ", fd.quadrilateral, horizontal_degree)
+S1 = fd.FiniteElement("CG", fd.interval, horizontal_degree+1)
+S2 = fd.FiniteElement("DG", fd.interval, horizontal_degree)
 
 # vertical base spaces
 T0 = fd.FiniteElement("CG", fd.interval, vertical_degree+1)
@@ -102,52 +98,50 @@ Un = fd.Function(W)
 
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
 Tsurf = fd.Constant(300.)
-thetab = Tsurf*fd.exp(N**2*z/g)
 
-Up = fd.as_vector([fd.Constant(0.0), fd.Constant(0.0), fd.Constant(1.0)])  # up direction
+thetab = Tsurf
+
+cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
+Up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
 un, rhon, thetan = Un.subfunctions
-un.project(fd.as_vector([10.0, 0.0, 0.0]))
 thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
 rhon.assign(1.0e-5)
 
-PETSc.Sys.Print("Calculating hydrostatic state")
-
-Pi = fd.Function(V2)
-
-hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.02),
+hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(1.0),
                 cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
-                top=True, Pi=Pi)
-p0 = maximum(Pi)
+                top=False)
 
-hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.05),
-                cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
-                top=True, Pi=Pi)
-p1 = maximum(Pi)
-alpha = 2.*(p1-p0)
-beta = p1-alpha
-pi_top = (1.-beta)/alpha
+x = fd.SpatialCoordinate(mesh)
+xc = 0.
+xr = 4000.
+zc = 3000.
+zr = 2000.
+r = fd.sqrt(((x[0]-xc)/xr)**2 + ((x[1]-zc)/zr)**2)
+T_pert = fd.conditional(r > 1., 0., -7.5*(1.+fd.cos(fd.pi*r)))
+# T = theta*Pi so Delta theta = Delta T/Pi assuming Pi fixed
 
-hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
-                cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
-                top=True)
-
+Pi_back = pi_formula(rhon, thetan, R_d, p_0, kappa)
+# this keeps perturbation at zero away from bubble
+thetan.project(theta_back + T_pert/Pi_back)
+# save the background stratification for rho
 rho_back = fd.Function(V2).assign(rhon)
+# Compute the new rho
+# using rho*theta = Pi which should be held fixed
+rhon.project(rhon*thetan/theta_back)
 
-zc = fd.Constant(Lz-10000.)
-mubar = fd.Constant(0.15/dt)
-mu_top = fd.conditional(z <= zc, 0.0,
-                        mubar*fd.sin(fd.Constant(pi/2.)*(z-zc)/(Lz-zc))**2)
-mu = fd.Function(V2).interpolate(mu_top)
+# The timestepping forms
 
-form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
-                                  cp=cp, g=g, R_d=R_d,
-                                  p_0=p_0, kappa=kappa, mu=mu)
+viscosity = fd.Constant(75.)
 
 form_mass = get_form_mass()
 
-zv = fd.as_vector([fd.Constant(0.), fd.Constant(0.), fd.Constant(0.)])
+form_function = get_form_function(n=n, Up=Up, c_pen=fd.Constant(2.0**(-7./2)),
+                                  cp=cp, g=g, R_d=R_d, p_0=p_0, kappa=kappa, mu=None,
+                                  viscosity=viscosity, diffusivity=viscosity)
+
+zv = fd.as_vector([fd.Constant(0.), fd.Constant(0.)])
 bcs = [fd.DirichletBC(W.sub(0), zv, "bottom"),
        fd.DirichletBC(W.sub(0), zv, "top")]
 
@@ -155,11 +149,13 @@ for bc in bcs:
     bc.apply(Un)
 
 # Parameters for the newton iterations
-atol = 1e-6
+atol = 1e4
+rtol = 1e-10
+stol = 1e-100
 
 lines_parameters = {
     "ksp_type": "gmres",
-    "ksp_rtol": 1e-5,
+    "ksp_rtol": 1e-4,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled": {
@@ -176,36 +172,37 @@ lines_parameters = {
 serial_parameters = {
     "snes": {
         "atol": atol,
-        "rtol": 1e-8,
-        "stol": 1e-12,
+        "stol": stol,
+        "rtol": rtol,
         "ksp_ew": None,
         "ksp_ew_version": 1,
-        "ksp_ew_threshold": 1e-5,
-        "ksp_ew_rtol0": 1e-3,
+        "ksp_ew_threshold": 1e-2,
+        "ksp_ew_rtol0": 1e-1,
     },
     "ksp": {
         "atol": atol,
+        "stol": stol,
     },
 }
 serial_parameters.update(lines_parameters)
-serial_parameters["ksp_type"] = "fgmres"
 
 if ensemble.ensemble_comm.rank == 0:
     serial_parameters['snes']['monitor'] = None
     serial_parameters['snes']['converged_reason'] = None
-    serial_parameters['ksp']['monitor'] = None
-    serial_parameters['ksp']['converged_reason'] = None
+    # serial_parameters['ksp']['monitor'] = None
+    # serial_parameters['ksp']['converged_reason'] = None
 
+patol = sqrt(sum(time_partition))*atol
 parallel_parameters = {
     "snes": {
         "monitor": None,
         "converged_reason": None,
-        "atol": atol,
-        "rtol": 1e-8,
-        "stol": 1e-12,
+        "atol": patol,
+        "stol": stol,
+        "rtol": rtol,
         "ksp_ew": None,
         "ksp_ew_version": 1,
-        "ksp_ew_threshold": 1e-5,
+        "ksp_ew_threshold": 1e-10,
         "ksp_ew_rtol0": 1e-3,
     },
     "ksp_type": "fgmres",
@@ -213,10 +210,11 @@ parallel_parameters = {
     "ksp": {
         "monitor": None,
         "converged_reason": None,
-        "atol": atol,
+        "atol": patol,
+        "rtol": 1e-5,
     },
     "pc_type": "python",
-    "pc_python_type": "asQ.DiagFFTPC",
+    "pc_python_type": "asQ.DiagFFTPC"
 }
 
 for i in range(sum(time_partition)):
@@ -262,7 +260,7 @@ def parallel_postproc(pdg, wndw, rhs):
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-errors = miniapp.solve(nwindows=1,
+errors = miniapp.solve(nwindows=args.nwindows,
                        preproc=preproc,
                        serial_postproc=serial_postproc,
                        parallel_postproc=parallel_postproc)

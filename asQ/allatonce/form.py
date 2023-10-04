@@ -109,6 +109,7 @@ class AllAtOnceForm(TimePartitionMixin):
 
         return bcs_all
 
+    @profiler()
     def copy(self, aaofunc=None):
         """
         Return a copy of the AllAtOnceForm.
@@ -124,7 +125,6 @@ class AllAtOnceForm(TimePartitionMixin):
                              self.form_mass, self.form_function,
                              bcs=self.field_bcs, alpha=self.alpha)
 
-    @PETSc.Log.EventDecorator()
     @profiler()
     def assemble(self, func=None, tensor=None):
         """

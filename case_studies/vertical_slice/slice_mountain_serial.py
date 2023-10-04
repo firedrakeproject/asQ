@@ -1,10 +1,10 @@
 import firedrake as fd
+from firedrake.petsc import PETSc
 from math import pi
 from utils.diagnostics import convective_cfl_calculator
 from utils.serial import SerialMiniApp
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
-from firedrake.petsc import PETSc
 
 PETSc.Sys.Print("Setting up problem")
 
