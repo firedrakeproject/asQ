@@ -1,5 +1,5 @@
 import firedrake as fd
-from math import pi
+from math import pi, sqrt
 from utils.serial import ComparisonMiniapp
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
@@ -165,7 +165,10 @@ lines_parameters = {
         "pc_vanka": {
             "construct_dim": 0,
             "sub_sub_pc_type": "lu",
-            "sub_sub_pc_factor_mat_solver_type": 'mumps',
+            "sub_sub_pc_factor_mat_ordering_type": 'rcm',
+            "sub_sub_pc_factor_reuse_ordering": None,
+            "sub_sub_pc_factor_reuse_fill": None,
+            # "sub_sub_pc_factor_mat_solver_type": 'mumps',
         },
     },
 }
@@ -196,7 +199,7 @@ parallel_parameters = {
     "snes": {
         "monitor": None,
         "converged_reason": None,
-        "atol": atol,
+        "atol": sqrt(sum(time_partition))*atol,
         "rtol": 1e-8,
         "stol": 1e-12,
         "ksp_ew": None,
@@ -212,7 +215,8 @@ parallel_parameters = {
         "atol": atol,
     },
     "pc_type": "python",
-    "pc_python_type": "asQ.DiagFFTPC"
+    "pc_python_type": "asQ.DiagFFTPC",
+    "diagfft_alpha": 1e-4
 }
 
 for i in range(sum(time_partition)):
