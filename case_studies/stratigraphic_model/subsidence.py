@@ -178,7 +178,7 @@ def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
     aaofunc = pdg.aaofunc
     Dt = (1 + aaofunc.transform_index(0, from_range='slice', to_range='window'))*dt
-    miniapp = SerialMiniApp(dt, args.theta,
+    miniapp = SerialMiniApp(Dt, args.theta,
                             ic,
                             form_mass,
                             form_function,

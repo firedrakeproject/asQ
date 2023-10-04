@@ -172,7 +172,7 @@ def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
     aaofunc = pdg.aaofunc
     Dt = (1 + aaofunc.transform_index(0, from_range='slice', to_range='window'))*dt
-    miniapp = SerialMiniApp(dt, args.theta,
+    miniapp = SerialMiniApp(Dt, args.theta,
                             ic,
                             form_mass,
                             form_function,
@@ -204,7 +204,7 @@ def window_postproc(pdg, wndw, rhs):
         # timestep and place it in qout.
         pdg.aaofunc.get_field(-1, index_range='window', uout=qout)
         timeseries.append(qout.copy(deepcopy=True))
-#    pdg.aaofunc.bcast_field(-1, ic)
+    pdg.aaofunc.bcast_field(-1, ic)
 
 
 # Solve nwindows of the all-at-once system
