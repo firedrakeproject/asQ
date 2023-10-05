@@ -3,13 +3,14 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 import asQ
 from utils.serial import SerialMiniApp
+from mpi4py import MPI
 
 import argparse
 
 parser = argparse.ArgumentParser(
     description='Paradiag for Stratigraphic model that simulate formation of sedimentary rock over geological time.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--nx', type=int, default=1000, help='Number of cells along each square side.')
+parser.add_argument('--nx', type=int, default=250, help='Number of cells along each square side.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
@@ -119,6 +120,7 @@ block_parameters = {
 
 paradiag_parameters = {
     'snes': {
+        'ksp_ew': None,
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
@@ -164,8 +166,6 @@ pdg = asQ.Paradiag(ensemble=ensemble,
 
 ic = fd.Function(V)
 ic.assign(s0)
-
-
 def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
@@ -178,8 +178,13 @@ def window_preproc(pdg, wndw, rhs):
                             form_function,
                             sp)
     miniapp.time.assign(fd.Constant(Dt + wndw*(window_length)*dt))
-    miniapp.solve(1)
-    aaofunc.set_field(0, miniapp.w1, index_range='slice')
+    start = MPI.Wtime()
+#    miniapp.solve(1)
+    end = MPI.Wtime()
+    Time = (end - start)/60
+    PETSc.Sys.Print(f"serial time = {Time}")
+#    pdg.Total_time += Time
+#    aaofunc.set_field(0, miniapp.w1, index_range='slice')
 
 # The last time-slice will be saving snapshots to create an animation.
 # The layout member describes the time_partition.
@@ -204,8 +209,7 @@ def window_postproc(pdg, wndw, rhs):
         # timestep and place it in qout.
         pdg.aaofunc.get_field(-1, index_range='window', uout=qout)
         timeseries.append(qout.copy(deepcopy=True))
-    pdg.aaofunc.bcast_field(-1, ic)
-
+#    pdg.aaofunc.bcast_field(-1, ic)
 
 # Solve nwindows of the all-at-once system
 pdg.solve(args.nwindows,

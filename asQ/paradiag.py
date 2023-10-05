@@ -1,6 +1,7 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 from asQ.profiling import profiler
+from mpi4py import MPI
 
 from asQ.allatonce import AllAtOnceFunction, AllAtOnceForm, AllAtOnceSolver
 from asQ.allatonce.mixin import TimePartitionMixin
@@ -186,11 +187,18 @@ class Paradiag(TimePartitionMixin):
         :arg preproc: callback called before each window solve
         :arg postproc: callback called after each window solve
         """
-
+        self.Total_time = 0
         for wndw in range(nwindows):
 
             preproc(self, wndw, rhs)
+            start_time = MPI.Wtime()
             self.solver.solve(rhs=rhs)
+            end_time = MPI.Wtime()
+            Window_time = (end_time - start_time)/60
+            self.Total_time += Window_time
+
+            PETSc.Sys.Print(f"Window_time = {Window_time}")
+            PETSc.Sys.Print(f"Time of the previous windows = {self.Total_time}")
             self._record_diagnostics()
             postproc(self, wndw, rhs)
 
