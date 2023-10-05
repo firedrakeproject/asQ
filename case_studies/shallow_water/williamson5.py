@@ -22,7 +22,7 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
-parser.add_argument('--filename', type=str, default='w5diag', help='Name of output vtk files')
+parser.add_argument('--filename', type=str, default='williamson5', help='Name of output vtk files')
 parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
@@ -167,8 +167,8 @@ def window_postproc(swe_app, pdg, wndw):
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)
         PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
-        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
+        PETSc.Sys.Print(f'Hours = {float(time/units.hour)}', comm=comm)
+        PETSc.Sys.Print(f'Days = {float(time/earth.day)}', comm=comm)
         PETSc.Sys.Print('', comm=comm)
 
 
@@ -183,8 +183,6 @@ PETSc.Sys.Print('')
 
 from asQ import write_paradiag_metrics
 write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
-
-PETSc.Sys.Print('')
 
 nw = miniapp.paradiag.total_windows
 nt = miniapp.paradiag.total_timesteps
