@@ -153,6 +153,8 @@ for i in range(window_length):
 # Give everything to asQ to create the paradiag object.
 # the circ parameter determines where the alpha-circulant
 # approximation is introduced. None means only in the preconditioner.
+
+
 pdg = asQ.Paradiag(ensemble=ensemble,
                    form_function=form_function,
                    form_mass=form_mass,
@@ -166,6 +168,8 @@ pdg = asQ.Paradiag(ensemble=ensemble,
 
 ic = fd.Function(V)
 ic.assign(s0)
+
+
 def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
@@ -179,12 +183,12 @@ def window_preproc(pdg, wndw, rhs):
                             sp)
     miniapp.time.assign(fd.Constant(Dt + wndw*(window_length)*dt))
     start = MPI.Wtime()
-#    miniapp.solve(1)
+    miniapp.solve(1)
     end = MPI.Wtime()
     Time = (end - start)/60
     PETSc.Sys.Print(f"serial time = {Time}")
-#    pdg.Total_time += Time
-#    aaofunc.set_field(0, miniapp.w1, index_range='slice')
+    pdg.Total_time += Time
+    aaofunc.set_field(0, miniapp.w1, index_range='slice')
 
 # The last time-slice will be saving snapshots to create an animation.
 # The layout member describes the time_partition.
@@ -209,9 +213,11 @@ def window_postproc(pdg, wndw, rhs):
         # timestep and place it in qout.
         pdg.aaofunc.get_field(-1, index_range='window', uout=qout)
         timeseries.append(qout.copy(deepcopy=True))
-#    pdg.aaofunc.bcast_field(-1, ic)
+    pdg.aaofunc.bcast_field(-1, ic)
+    PETSc.Sys.Print(f"Window_time = {pdg.Window_time}")
+    PETSc.Sys.Print(f"Time of the previous windows = {pdg.Total_time}")
 
-# Solve nwindows of the all-at-once system
+
 pdg.solve(args.nwindows,
           preproc=window_preproc,
           postproc=window_postproc)
@@ -236,6 +242,4 @@ PETSc.Sys.Print(f'block linear iterations: {pdg.block_iterations._data}  |  iter
 
 # We can write these diagnostics to file, along with some other useful information.
 # Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt
-
-
 asQ.write_paradiag_metrics(pdg)

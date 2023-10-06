@@ -194,11 +194,8 @@ class Paradiag(TimePartitionMixin):
             start_time = MPI.Wtime()
             self.solver.solve(rhs=rhs)
             end_time = MPI.Wtime()
-            Window_time = (end_time - start_time)/60
-            self.Total_time += Window_time
-
-            PETSc.Sys.Print(f"Window_time = {Window_time}")
-            PETSc.Sys.Print(f"Time of the previous windows = {self.Total_time}")
+            self.Window_time = (end_time - start_time)/60
+            self.Total_time += self.Window_time
             self._record_diagnostics()
             postproc(self, wndw, rhs)
 

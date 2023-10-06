@@ -1,5 +1,4 @@
 import firedrake as fd
-from firedrake.petsc import PETSc
 from math import pi
 from utils.serial import SerialMiniApp
 
@@ -32,31 +31,34 @@ def Subsidence(t):
 def sea_level(A, t):
     return A*fd.sin(2*pi*t/500000)
 
+
 # # # === --- finite element forms --- === # # #
 def form_mass(s, q):
     return (s*q*fd.dx)
+
 
 D_c = fd.Constant(.002)
 G_0 = fd.Constant(.004)
 A = fd.Constant(50)
 b = 100*fd.tanh(1/100000*(x-50000))
 
+
 def form_function(s, q, t):
     return (D(D_c, sea_level(A, t)-b-Subsidence(t)-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, sea_level(A, t)-b-Subsidence(t)-s)*q*fd.dx)
 
 
 sp = {
-        "snes_max_it": 2000,
-        "snes_atol": 1.0e-2,
-        "snes_rtol": 1.0e-8,
-        "snes_monitor": None,
-        "snes_linesearch_type": "l2",
-        "snes_converged_reason": None,
-        "mat_type": "aij",
-        "ksp_type": "preonly",
-        "pc_type": "lu",
-        "pc_factor_mat_solver_type": "mumps"
-    }
+    "snes_max_it": 2000,
+    "snes_atol": 1.0e-2,
+    "snes_rtol": 1.0e-8,
+    "snes_monitor": None,
+    "snes_linesearch_type": "l2",
+    "snes_converged_reason": None,
+    "mat_type": "aij",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "pc_factor_mat_solver_type": "mumps"
+}
 
 
 dt = 1000
@@ -70,4 +72,3 @@ miniapp = SerialMiniApp(dt, theta,
 # Solve of the required number of timesteps j
 j = 128
 miniapp.solve(j)
-

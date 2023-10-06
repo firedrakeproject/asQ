@@ -3,6 +3,7 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 import asQ
 from utils.serial import SerialMiniApp
+from mpi4py import MPI
 
 import argparse
 
@@ -31,7 +32,7 @@ time_partition = tuple(args.slice_length for _ in range(args.nslices))
 window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
-dt = 200
+dt = 1000
 
 # The Ensemble with the spatial and time communicators
 ensemble = asQ.create_ensemble(time_partition)
@@ -183,9 +184,13 @@ def window_preproc(pdg, wndw, rhs):
                             form_mass,
                             form_function,
                             sp)
-
     miniapp.time.assign(fd.Constant(Dt + wndw*(window_length)*dt))
+    start = MPI.Wtime()
     miniapp.solve(1)
+    end = MPI.Wtime()
+    Time = (end - start)/60
+    PETSc.Sys.Print(f"serial time = {Time}")
+    pdg.Total_time += Time
     aaofunc.set_field(0, miniapp.w1, index_range='slice')
 
 # The last time-slice will be saving snapshots to create an animation.
@@ -196,16 +201,14 @@ def window_preproc(pdg, wndw, rhs):
 
 is_last_slice = pdg.layout.is_local(-1)
 
-
 # Make an output Function on the last time-slice and start a snapshot list
 if is_last_slice:
     qout = fd.Function(V)
     timeseries = [s0.copy(deepcopy=True)]
 
+
 # This is a callback which will be called after pdg solves each time-window
 # We can use this to save the last timestep of each window for plotting.
-
-
 def window_postproc(pdg, wndw, rhs):
     if is_last_slice:
         # The aaos is the AllAtOnceSystem which represents the time-dependent problem.
@@ -214,6 +217,8 @@ def window_postproc(pdg, wndw, rhs):
         pdg.aaofunc.get_field(-1, index_range='window', uout=qout)
         timeseries.append(qout.copy(deepcopy=True))
     pdg.aaofunc.bcast_field(-1, ic)
+    PETSc.Sys.Print(f"Window_time = {pdg.Window_time}")
+    PETSc.Sys.Print(f"Time of the previous windows = {pdg.Total_time}")
 
 
 # Solve nwindows of the all-at-once system
@@ -241,5 +246,6 @@ PETSc.Sys.Print(f'block linear iterations: {pdg.block_iterations._data}  |  iter
 
 # We can write these diagnostics to file, along with some other useful information.
 # Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt
+
 
 asQ.write_paradiag_metrics(pdg)
