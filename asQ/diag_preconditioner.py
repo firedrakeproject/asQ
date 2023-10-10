@@ -191,6 +191,8 @@ class DiagFFTPC(TimePartitionMixin):
         self.Jprob_in = fd.Function(self.CblockV)
         self.Jprob_out = fd.Function(self.CblockV)
 
+        self.cofunc = fd.Cofunction(self.CblockV.dual())
+
         # A place to store the real/imag components of the all-at-once residual after fft
         self.xfi = aaofunc.copy()
         self.xfr = aaofunc.copy()
@@ -305,7 +307,8 @@ class DiagFFTPC(TimePartitionMixin):
 
             # The rhs
             v = fd.TestFunction(self.CblockV)
-            L = fd.inner(v, self.Jprob_in)*fd.dx
+            # L = fd.inner(v, self.Jprob_in)*fd.dx
+            L = self.cofunc
 
             # pass sigma into PC:
             sigma = self.D1[ii]**2/self.D2[ii]
@@ -448,7 +451,10 @@ class DiagFFTPC(TimePartitionMixin):
 
                 # Do a project for Riesz map, to be superceded
                 # when we get Cofunction
-                self.Proj.solve(self.Jprob_in, self.xtemp)
+                # self.Proj.solve(self.Jprob_in, self.xtemp)
+
+                with self.cofunc.dat.vec_wo as cfvec, self.xtemp.dat.vec_ro as xvec:
+                    xvec.copy(cfvec)
 
                 # solve the block system
                 self.Jprob_out.assign(0.)
