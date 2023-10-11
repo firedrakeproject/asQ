@@ -170,7 +170,7 @@ class ComparisonMiniapp(object):
             # only calculate error if timestep it is on this parallel time-slice
             if pdg.layout.is_local(it):
                 # get serial and parallel solutions
-                pdg.aaofunc.get_field(it, uout=self.wparallel, index_range='window')
+                self.wparallel.assign(pdg.aaofunc[it, 'window'])
 
                 self.wserial.assign(self.serial_app.w1)
 
