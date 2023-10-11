@@ -69,7 +69,7 @@ def test_Nitsche_BCs():
             local_step = PD.aaofunc.transform_index(step, from_range='window')
             t = PD.aaoform.time[local_step]
             q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
-            PD.aaofunc.get_field(local_step, uout=qp)
+            qp.assign(PD.aaofunc[local_step])
 
             errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
             times.dlocal[local_step] = t
@@ -487,8 +487,8 @@ def test_steady_swe():
 
     for step in range(pdg.nlocal_timesteps):
 
-        up = pdg.aaofunc.get_component(step, 0, index_range='slice')
-        hp = pdg.aaofunc.get_component(step, 1, index_range='slice')
+        up = pdg.aaofunc[step].subfunctions[0]
+        hp = pdg.aaofunc[step].subfunctions[1]
         hp.assign(hp-H+b)
 
         herr = fd.errornorm(hn, hp)/hmag
@@ -609,9 +609,11 @@ def test_solve_para_form(bc_opt, extruded):
         vfull_list[i].assign(unp1)
         un.assign(unp1)
 
+    u = fd.Function(V)
     for i in range(pdg.nlocal_timesteps):
         fidx = pdg.aaofunc.transform_index(i, from_range='slice', to_range='window')
-        assert (fd.errornorm(vfull.sub(fidx), pdg.aaofunc.get_field(i, index_range='slice')) < 1.0e-9)
+        u.assign(pdg.aaofunc[i])
+        assert (fd.errornorm(vfull.sub(fidx), u) < 1.0e-9)
 
 
 @pytest.mark.parallel(nprocs=6)

@@ -88,7 +88,7 @@ def test_heat_jacobian():
     # copy the data from the full list into the local time slice
     for step in range(aaofunc.nlocal_timesteps):
         windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
-        aaofunc.set_field(step, ufull.subfunctions[windx])
+        aaofunc[step].assign(ufull.subfunctions[windx])
 
     # apply the form to some random data
     xfull = fd.Function(full_function_space)
@@ -100,7 +100,7 @@ def test_heat_jacobian():
     y = aaofunc.copy()
     for step in range(aaofunc.nlocal_timesteps):
         windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
-        x.set_field(step, xfull.subfunctions[windx])
+        x[step].assign(xfull.subfunctions[windx])
 
     # assemble the aao jacobian
     with x.global_vec_ro() as xvec, y.global_vec_wo() as yvec:
@@ -114,7 +114,7 @@ def test_heat_jacobian():
     for step in range(aaofunc.nlocal_timesteps):
         windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
         yserial = yfull.subfunctions[windx]
-        yparallel = y.get_component(step, 0)
+        yparallel = y[step].subfunctions[0]
         err = fd.errornorm(yserial, yparallel)
         assert (err < 1e-12)
 
@@ -201,7 +201,7 @@ def test_mixed_heat_jacobian():
     for step in range(aaofunc.nlocal_timesteps):
         for cpt in range(2):
             windx = aaofunc.transform_index(step, cpt, from_range='slice', to_range='window')
-            aaofunc.set_component(step, cpt, ufull.subfunctions[windx])
+            aaofunc[step].subfunctions[cpt].assign(ufull.subfunctions[windx])
 
     # apply the form to some random data
     xfull = fd.Function(full_function_space)
@@ -214,7 +214,7 @@ def test_mixed_heat_jacobian():
     for step in range(aaofunc.nlocal_timesteps):
         for cpt in range(2):
             windx = aaofunc.transform_index(step, cpt, from_range='slice', to_range='window')
-            x.set_component(step, cpt, xfull.subfunctions[windx])
+            x[step].subfunctions[cpt].assign(xfull.subfunctions[windx])
 
     # assemble the aao jacobian
     with x.global_vec_ro() as xvec, y.global_vec_wo() as yvec:
@@ -227,6 +227,6 @@ def test_mixed_heat_jacobian():
         for cpt in range(2):
             windx = aaofunc.transform_index(step, cpt, from_range='slice', to_range='window')
             yserial = yfull.subfunctions[windx]
-            yparallel = y.get_component(step, cpt)
+            yparallel = y[step].subfunctions[cpt]
             err = fd.errornorm(yserial, yparallel)
             assert (err < 1e-12)

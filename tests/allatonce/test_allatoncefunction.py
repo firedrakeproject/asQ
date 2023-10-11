@@ -290,6 +290,7 @@ def test_set_get_field(aaof):
     random_aaof(aaof)
 
     # get each step using slice index
+    v = fd.Function(aaof.field_function_space)
     for step in range(aaof.nlocal_timesteps):
         windx = aaof.transform_index(step, from_range='slice', to_range='window')
 
@@ -304,7 +305,7 @@ def test_set_get_field(aaof):
         assert (err < 1e-12)
 
         aaof.set_field(step, v1, index_range='slice')
-        v = aaof.get_field(step, index_range='slice')
+        aaof.get_field(step, v, index_range='slice')
         err = fd.errornorm(v1, v)
         assert (err < 1e-12)
 
@@ -314,7 +315,7 @@ def test_set_get_field(aaof):
         assert (err < 1e-12)
 
         aaof.set_field(windx, v1, index_range='window')
-        v = aaof.get_field(windx, index_range='window')
+        aaof.get_field(windx, v, index_range='window')
         err = fd.errornorm(v1, v)
         assert (err < 1e-12)
 
@@ -331,7 +332,7 @@ def test_bcast_field(aaof):
     for slice_index in range(aaof.nlocal_timesteps):
         window_index = aaof.transform_index(slice_index, from_range='slice', to_range='window')
         v.assign(window_index)
-        aaof.set_field(slice_index, v)
+        aaof[slice_index].assign(v)
 
     for i in range(aaof.ntimesteps):
         v.assign(-1)
@@ -345,14 +346,8 @@ def test_copy(aaof):
     """
     test setting all timesteps/ics to given function.
     """
-    v0 = fd.Function(aaof.field_function_space, name="v0")
-    v1 = fd.Function(aaof.field_function_space, name="v1")
-
     # two random solutions
     np.random.seed(572046)
-
-    for dat in v0.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
 
     # set next window from new solution
     random_aaof(aaof)
@@ -362,13 +357,12 @@ def test_copy(aaof):
     assert aaof.nlocal_timesteps == aaof1.nlocal_timesteps
     assert aaof.ntimesteps == aaof1.ntimesteps
 
-    # check all timesteps == v0
+    # check all timesteps are equal
 
     assert aaof.function_space == aaof1.function_space
 
     for step in range(aaof.nlocal_timesteps):
-        err = fd.errornorm(aaof.get_field(step, uout=v0),
-                           aaof1.get_field(step, uout=v1))
+        err = fd.errornorm(aaof[step], aaof1[step])
         assert (err < 1e-12)
 
     err = fd.errornorm(aaof.initial_condition, aaof1.initial_condition)
@@ -384,7 +378,6 @@ def test_assign(aaof):
     test setting all timesteps/ics to given function.
     """
     v0 = fd.Function(aaof.field_function_space, name="v0")
-    v1 = fd.Function(aaof.field_function_space, name="v1")
 
     # two random solutions
     np.random.seed(572046)
@@ -396,8 +389,7 @@ def test_assign(aaof):
     aaof1.assign(aaof)
 
     for step in range(aaof.nlocal_timesteps):
-        err = fd.errornorm(aaof.get_field(step, v0),
-                           aaof1.get_field(step, v1))
+        err = fd.errornorm(aaof[step], aaof1[step])
         assert (err < 1e-12)
 
     err = fd.errornorm(aaof.initial_condition,
@@ -413,8 +405,7 @@ def test_assign(aaof):
         aaof1.assign(gvec0)
 
     for step in range(aaof.nlocal_timesteps):
-        err = fd.errornorm(aaof.get_field(step, v0),
-                           aaof1.get_field(step, v1))
+        err = fd.errornorm(aaof[step], aaof1[step])
         assert (err < 1e-12)
 
     err = fd.errornorm(aaof.uprev, aaof1.uprev)
@@ -428,8 +419,7 @@ def test_assign(aaof):
     aaof.assign(v0)
 
     for step in range(aaof.nlocal_timesteps):
-        v1.assign(0)
-        err = fd.errornorm(v0, aaof.get_field(step, v1))
+        err = fd.errornorm(v0, aaof[step])
         assert (err < 1e-12)
 
     # set from allatonce.function
@@ -437,8 +427,7 @@ def test_assign(aaof):
     aaof.assign(aaof1.function)
 
     for step in range(aaof.nlocal_timesteps):
-        err = fd.errornorm(aaof.get_field(step, v0),
-                           aaof1.get_field(step, v1))
+        err = fd.errornorm(aaof[step], aaof1[step])
         assert (err < 1e-12)
 
 
@@ -447,9 +436,6 @@ def test_zero(aaof):
     """
     test setting all timesteps/ics to given function.
     """
-    v0 = fd.Function(aaof.field_function_space, name="v0")
-    v1 = fd.Function(aaof.field_function_space, name="v1")
-
     # two random solutions
     np.random.seed(572046)
 
@@ -457,20 +443,18 @@ def test_zero(aaof):
     random_aaof(aaof)
     aaof.zero()
 
-    v1.assign(0)
+    norm = fd.norm(aaof.initial_condition)
+    assert (norm < 1e-12)
 
-    err = fd.errornorm(v1, aaof.initial_condition)
-    assert (err < 1e-12)
+    norm = fd.norm(aaof.uprev)
+    assert (norm < 1e-12)
 
-    err = fd.errornorm(v1, aaof.uprev)
-    assert (err < 1e-12)
-
-    err = fd.errornorm(v1, aaof.unext)
-    assert (err < 1e-12)
+    norm = fd.norm(aaof.unext)
+    assert (norm < 1e-12)
 
     for step in range(aaof.nlocal_timesteps):
-        err = fd.errornorm(v1, aaof.get_field(step, v0))
-        assert (err < 1e-12)
+        norm = fd.norm(aaof[step])
+        assert (norm < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=nprocs)
@@ -479,12 +463,11 @@ def test_global_vec(aaof):
     test synchronising the global Vec with the local Functions
     """
     v = fd.Function(aaof.field_function_space, name="v")
-    w = fd.Function(aaof.field_function_space, name="w")
 
     def all_equal(func, val):
         v.assign(val)
         for step in range(func.nlocal_timesteps):
-            err = fd.errornorm(v, func.get_field(step, w))
+            err = fd.errornorm(v, func[step])
             assert (err < 1e-12)
 
     # read only
@@ -537,7 +520,7 @@ def test_update_time_halos(aaof):
     v1.assign((rank - 1) % size)
 
     # set last field from each slice
-    aaof.set_field(-1, v0, index_range='slice')
+    aaof[-1].assign(v0)
 
     aaof.update_time_halos()
 

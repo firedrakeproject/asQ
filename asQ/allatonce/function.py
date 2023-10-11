@@ -142,14 +142,16 @@ class AllAtOnceFunction(TimePartitionMixin):
             return i*self.ncomponents + cpt
 
     @profiler()
-    def __getitem__(self, i, idx='slice'):
+    def __getitem__(self, i):
         '''
         Get a Function that is a view over a timestep.
 
         :arg i: index of timestep to view.
         :arg idx: is index in window or slice?
         '''
-        j = self.transform_index(i, from_range=idx, to_range='slice')
+        index = i[0] if type(i) is tuple else i
+        itype = i[1] if type(i) is tuple else 'slice'
+        j = self.transform_index(index, from_range=itype, to_range='slice')
         return self._fields[j]
 
     @profiler()
@@ -164,12 +166,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg funcs: an indexable of the all-at-once function to set component in.
             If None, self.function.subfunctions is used.
         '''
-        # index of component in all at once function
-        aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
-
-        if funcs is None:
-            funcs = self.function.subfunctions
-        funcs[aao_index].assign(usrc)
+        self[step, index_range].subfunctions[cpt].assign(usrc)
 
     @profiler()
     def get_component(self, step, cpt, uout=None, index_range='slice', funcs=None, name=None, deepcopy=False):
@@ -187,25 +184,11 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg deepcopy: if True, new function is returned. If False, handle to component
             of funcs is returned. Ignored if uout is not None.
         '''
-        # index of component in all at once function
-        aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
-
-        if funcs is None:
-            funcs = self.function.subfunctions
-
-        # required component
-        uget = funcs[aao_index]
-
-        if uout is not None:
-            uout.assign(uget)
+        if uout is None:
+            return self[step, index_range].subfunctions[cpt]
+        else:
+            uout.assign(self[step, index_range].subfunctions[cpt])
             return uout
-
-        if deepcopy is False:
-            return uget
-        else:  # deepcopy is True
-            ureturn = fd.Function(self.field_function_space.sub(cpt), name=name)
-            ureturn.assign(uget)
-            return ureturn
 
     def get_field_components(self, step, index_range='slice', funcs=None):
         '''
@@ -220,8 +203,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg funcs: an indexable of the all-at-once function to get components from.
             If None, self.function.subfunctions is used.
         '''
-        return tuple(self.get_component(step, cpt, index_range=index_range, funcs=funcs)
-                     for cpt in range(self.ncomponents))
+        return self[step, index_range].subfunctions
 
     @profiler()
     def set_field(self, step, usrc, index_range='slice', funcs=None):
@@ -234,9 +216,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg funcs: an indexable of the all-at-once function to set timestep in.
             If None, self.function.subfunctions is used.
         '''
-        for cpt in range(self.ncomponents):
-            self.set_component(step, cpt, usrc.subfunctions[cpt],
-                               index_range=index_range, funcs=funcs)
+        self[step, index_range].assign(usrc)
 
     @profiler()
     def get_field(self, step, uout=None, index_range='slice', name=None, funcs=None):
@@ -251,16 +231,10 @@ class AllAtOnceFunction(TimePartitionMixin):
             If None, self.function.subfunctions is used.
         '''
         if uout is None:
-            uget = fd.Function(self.field_function_space, name=name)
+            return self[step, index_range]
         else:
-            uget = uout
-
-        ucpts = self.get_field_components(step, index_range=index_range, funcs=funcs)
-
-        for ug, uc in zip(uget.subfunctions, ucpts):
-            ug.assign(uc)
-
-        return uget
+            uout.assign(self[step, index_range])
+            return uout
 
     @profiler()
     def bcast_field(self, step, u):
@@ -275,7 +249,7 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         # get u if step on this rank
         if self.time_rank == root:
-            self.get_field(step, uout=u, index_range='window')
+            u.assign(self[step, 'window'])
 
         # bcast u
         self.ensemble.bcast(u, root=root)
@@ -291,7 +265,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             If False then a list of MPI requests is returned.
         '''
         # sending last timestep on current slice to next slice
-        self.get_field(-1, uout=self.unext, index_range='slice')
+        self.unext.assign(self[-1])
 
         size = self.ensemble.ensemble_comm.size
         rank = self.ensemble.ensemble_comm.rank
@@ -353,7 +327,7 @@ class AllAtOnceFunction(TimePartitionMixin):
         elif isinstance(src, fd.Function):
             if src.function_space() == self.field_function_space:
                 for i in range(self.nlocal_timesteps):
-                    self.set_field(i, src, index_range='slice')
+                    self[i].assign(src)
                 self.initial_condition.assign(src)
                 if not update_halos:
                     self.uprev.assign(src)
