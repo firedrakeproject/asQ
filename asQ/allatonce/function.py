@@ -29,7 +29,7 @@ def time_average(aaofunc, uout, uwrk, average='window'):
     uout.assign(0)
     uouts = uout.subfunctions
     for i in range(aaofunc.nlocal_timesteps):
-        for uo, uc in zip(uouts, aaofunc.get_field_components(i)):
+        for uo, uc in zip(uouts, aaofunc[i].subfunctions):
             uo.assign(uo + uc)
 
     if average == 'slice':

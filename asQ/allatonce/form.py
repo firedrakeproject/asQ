@@ -192,11 +192,9 @@ class AllAtOnceForm(TimePartitionMixin):
             return tuple(funcs[i] for i in idxs)
 
         def get_step(i):
-            # return aaofunc.get_field_components(i, funcs=funcs)
             return get_components(i, funcs)
 
         def get_test(i):
-            # return aaofunc.get_field_components(i, funcs=test_funcs)
             return get_components(i, test_funcs)
 
         for n in range(self.nlocal_timesteps):
