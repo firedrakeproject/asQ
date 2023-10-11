@@ -189,6 +189,48 @@ def test_transform_index(aaof):
 
 
 @pytest.mark.parallel(nprocs=nprocs)
+def test_subfunctions(aaof):
+    '''
+    test setting the allatonce function values from views over each timestep
+    '''
+    np.random.seed(572046)
+    aaof.zero()
+
+    def randu(u):
+        for dat in u.dat:
+            dat.data[:] = np.random.rand(*(dat.data.shape))
+
+    u = fd.Function(aaof.field_function_space)
+
+    cpt_idx = 0
+    for i in range(aaof.nlocal_timesteps):
+
+        randu(u)
+        aaof[i].assign(u)
+
+        for c in range(aaof.ncomponents):
+            err = fd.errornorm(u.subfunctions[c],
+                               aaof.function.subfunctions[cpt_idx])
+            assert (err < 1e-12)
+            cpt_idx += 1
+
+    aaof.zero()
+
+    cpt_idx = 0
+    for i in range(aaof.nlocal_timesteps):
+        norm = fd.norm(aaof[i])
+        assert (norm < 1e-12)
+
+        for c in range(aaof.ncomponents):
+            aaof.function.subfunctions[cpt_idx].assign(cpt_idx)
+
+            err = fd.errornorm(aaof[i].subfunctions[c],
+                               aaof.function.subfunctions[cpt_idx])
+            assert (err < 1e-12)
+            cpt_idx += 1
+
+
+@pytest.mark.parallel(nprocs=nprocs)
 def test_set_get_component(aaof):
     '''
     test setting a specific component of a timestep

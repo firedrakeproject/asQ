@@ -1,5 +1,6 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
+from pyop2 import MixedDat
 from functools import reduce
 from operator import mul
 import contextlib
@@ -72,6 +73,17 @@ class AllAtOnceFunction(TimePartitionMixin):
         self.function = fd.Function(self.function_space)
         self.initial_condition = fd.Function(self.field_function_space)
 
+        # Functions to view each timestep
+        def field_function(i):
+            idxs = (self.transform_index(i, cpt=c)
+                    for c in range(self.ncomponents))
+            mdat = MixedDat((self.function.subfunctions[i].dat
+                             for i in idxs))
+            return fd.Function(self.field_function_space, val=mdat)
+
+        self._fields = tuple(field_function(i)
+                             for i in range(self.nlocal_timesteps))
+
         # functions containing the last step of the previous
         # and current slice for parallel communication
         self.uprev = fd.Function(self.field_function_space)
@@ -128,6 +140,17 @@ class AllAtOnceFunction(TimePartitionMixin):
             in_range(cpt, self.ncomponents, throws=True)
             cpt = cpt % self.ncomponents
             return i*self.ncomponents + cpt
+
+    @profiler()
+    def __getitem__(self, i, idx='slice'):
+        '''
+        Get a Function that is a view over a timestep.
+
+        :arg i: index of timestep to view.
+        :arg idx: is index in window or slice?
+        '''
+        j = self.transform_index(i, from_range=idx, to_range='slice')
+        return self._fields[j]
 
     @profiler()
     def set_component(self, step, cpt, usrc, index_range='slice', funcs=None):
