@@ -25,7 +25,7 @@ parser.add_argument('--slice_length', type=int, default=2, help='Number of times
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--nsample', type=int, default=32, help='Number of sample points for plotting.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
-parser.add_argument('--mp4', action='store_true', help='Create mp4 of timeseries')
+parser.add_argument('--mpeg', action='store_true', help='Create mp4 of timeseries')
 
 args = parser.parse_known_args()
 args = args[0]
@@ -200,7 +200,7 @@ def record_diagnostics():
     total_timesteps += sum(aaosolver.time_partition)
     total_windows += 1
     if is_last_slice:
-        aaofunc.get_field(-1, uout=w, index_range='window')
+        w.assign(aaofunc[-1])
         timeseries.append(w.copy(deepcopy=True))
 
 
@@ -232,7 +232,7 @@ block_iterations.synchronise()
 PETSc.Sys.Print(f'block linear iterations: {block_iterations.data()}  |  iterations per block solve: {block_iterations.data()/linear_iterations}')
 
 # Make an animation from the snapshots we collected and save it to periodic.mp4.
-if is_last_slice and args.mp4:
+if is_last_slice and args.mpeg:
     fn_plotter = fd.FunctionPlotter(mesh, num_sample_points=args.nsample)
 
     fig, axes = plt.subplots()

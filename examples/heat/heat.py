@@ -144,7 +144,6 @@ def window_preproc(pdg, wndw, rhs):
 
 # We find the L2-error at each timestep
 q_exact = fd.Function(V)
-qp = fd.Function(V)
 errors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
 times = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
 
@@ -155,7 +154,7 @@ def window_postproc(pdg, wndw, rhs):
             local_step = pdg.aaofunc.transform_index(step, from_range='window')
             t = pdg.aaoform.time[local_step]
             q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
-            pdg.aaofunc.get_field(local_step, uout=qp)
+            qp = pdg.aaofunc[local_step]
             errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
             times.dlocal[local_step] = t
 
