@@ -199,8 +199,9 @@ def test_mixed_heat_jacobian():
 
     # copy the data from the full list into the local time slice
     for step in range(aaofunc.nlocal_timesteps):
+        windices = aaofunc._component_indices(step, to_range='window')
         for cpt in range(2):
-            windx = aaofunc.transform_index(step, cpt, from_range='slice', to_range='window')
+            windx = windices[cpt]
             aaofunc[step].subfunctions[cpt].assign(ufull.subfunctions[windx])
 
     # apply the form to some random data
@@ -212,8 +213,9 @@ def test_mixed_heat_jacobian():
     x = aaofunc.copy()
     y = aaofunc.copy()
     for step in range(aaofunc.nlocal_timesteps):
+        windices = aaofunc._component_indices(step, to_range='window')
         for cpt in range(2):
-            windx = aaofunc.transform_index(step, cpt, from_range='slice', to_range='window')
+            windx = windices[cpt]
             x[step].subfunctions[cpt].assign(xfull.subfunctions[windx])
 
     # assemble the aao jacobian
@@ -224,8 +226,9 @@ def test_mixed_heat_jacobian():
     yfull = assemble(fd.action(full_jacobian, xfull))
 
     for step in range(aaofunc.nlocal_timesteps):
+        windices = aaofunc._component_indices(step, to_range='window')
         for cpt in range(2):
-            windx = aaofunc.transform_index(step, cpt, from_range='slice', to_range='window')
+            windx = windices[cpt]
             yserial = yfull.subfunctions[windx]
             yparallel = y[step].subfunctions[cpt]
             err = fd.errornorm(yserial, yparallel)

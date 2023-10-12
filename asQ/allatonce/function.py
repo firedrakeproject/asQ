@@ -5,7 +5,6 @@ from functools import reduce
 from operator import mul
 import contextlib
 from asQ.profiling import profiler
-from asQ.parallel_arrays import in_range
 from asQ.allatonce.mixin import TimePartitionMixin
 
 __all__ = ['time_average', 'AllAtOnceFunction']
@@ -75,11 +74,10 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         # Functions to view each timestep
         def field_function(i):
-            idxs = (self.transform_index(i, cpt=c)
-                    for c in range(self.ncomponents))
-            mdat = MixedDat((self.function.subfunctions[j].dat
-                             for j in idxs))
-            return fd.Function(self.field_function_space, val=mdat)
+            dats = (self.function.subfunctions[j].dat
+                    for j in self._component_indices(i))
+            return fd.Function(self.field_function_space,
+                               val=MixedDat(dats))
 
         self._fields = tuple(field_function(i)
                              for i in range(self.nlocal_timesteps))
@@ -99,10 +97,9 @@ class AllAtOnceFunction(TimePartitionMixin):
                                                     comm=ensemble.global_comm)
             self._vec.setFromOptions()
 
-    def transform_index(self, i, cpt=None, from_range='slice', to_range='slice'):
+    def transform_index(self, i, from_range='slice', to_range='slice'):
         '''
-        Shift timestep index or component index from one range to another,
-        and account for pythonic -ve indices.
+        Shift timestep index from one range to another, and account for pythonic -ve indices.
 
         For example, if there are 3 ensemble ranks with time_partition=(2, 3, 2), then:
             window index 0 is slice index 0 on ensemble rank 0
@@ -113,15 +110,9 @@ class AllAtOnceFunction(TimePartitionMixin):
             window index 5 is slice index 0 on ensemble rank 2
             window index 6 is slice index 1 on ensemble rank 2
 
-        If cpt is None, shifts from one timestep range to another. If cpt is not None,
-        returns index in flattened all-at-once function of component cpt in timestep i.
-        This is only different from the value returned if cpt is None if a single timestep
-        is defined on a MixedFunctionSpace.
-
         Raises IndexError if original or shifted index is out of bounds.
 
         :arg i: timestep index to shift.
-        :arg cpt: None or component index in timestep i to shift.
         :arg from_range: range of i. Either slice or window.
         :arg to_range: range to shift i to. Either 'slice' or 'window'.
         '''
@@ -134,12 +125,19 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         i = self.layout.transform_index(i, itype=idxtypes[from_range], rtype=idxtypes[to_range])
 
-        if cpt is None:
-            return i
-        else:  # cpt is not None:
-            in_range(cpt, self.ncomponents, throws=True)
-            cpt = cpt % self.ncomponents
-            return i*self.ncomponents + cpt
+        return i
+
+    def _component_indices(self, step, from_range='slice', to_range='slice'):
+        '''
+        Return indices of the components of a timestep in the all-at-once MixedFunction.
+
+        :arg step: timestep index to get component indices for.
+        :arg from_range: range of step. Either slice or window.
+        :arg to_range: range to shift the indices to. Either 'slice' or 'window'.
+        '''
+        step = self.transform_index(step, from_range=from_range, to_range=to_range)
+        return tuple(self.ncomponents*step + c
+                     for c in range(self.ncomponents))
 
     @profiler()
     def __getitem__(self, i):

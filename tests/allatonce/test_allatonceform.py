@@ -225,8 +225,9 @@ def test_mixed_heat_form(bc_opt):
 
     # copy the data from the full list into the local time slice
     for step in range(aaofunc.nlocal_timesteps):
+        windices = aaofunc._component_indices(step, to_range='window')
         for cpt in range(2):
-            windx = aaofunc.transform_index(step, cpt, from_range='slice', to_range='window')
+            windx = windices[cpt]
             aaofunc[step].subfunctions[cpt].assign(ufull.subfunctions[windx])
 
     # assemble and compare
@@ -236,8 +237,9 @@ def test_mixed_heat_form(bc_opt):
         bc.apply(Ffull, u=ufull)
 
     for step in range(aaofunc.nlocal_timesteps):
+        windices = aaofunc._component_indices(step, to_range='window')
         for cpt in range(2):
-            windx = aaofunc.transform_index(step, cpt, from_range='slice', to_range='window')
+            windx = windices[cpt]
             userial = Ffull.subfunctions[windx]
             uparallel = aaoform.F[step].subfunctions[cpt]
             err = fd.errornorm(userial, uparallel)

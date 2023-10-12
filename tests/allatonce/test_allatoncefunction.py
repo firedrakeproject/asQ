@@ -89,7 +89,6 @@ def test_transform_index(aaof):
     '''
     test transforming between window, slice, and component indexes
     '''
-    ncpts = aaof.ncomponents
     window_length = aaof.ntimesteps
     time_rank = aaof.time_rank
     local_timesteps = aaof.nlocal_timesteps
@@ -163,29 +162,6 @@ def test_transform_index(aaof):
         slice_index = aaof.transform_index(-window_index, from_range='window', to_range='slice')
     except IndexError:
         pass
-
-    # component indices
-
-    # +ve slice and +ve component indices
-    slice_index = 1
-    cpt_index = ncpts-1
-    aao_index = aaof.transform_index(slice_index, cpt_index, from_range='slice')
-    check_index = ncpts*slice_index + cpt_index
-    assert (aao_index == check_index)
-
-    # +ve window and -ve component indices
-    window_index = time_rank*local_timesteps + 1
-    slice_index = aaof.transform_index(window_index, from_range='window', to_range='slice')
-    cpt_index = -1
-    aao_index = aaof.transform_index(window_index, cpt_index, from_range='window')
-    check_index = ncpts*(slice_index+1) + cpt_index
-
-    # reject component index out of range
-    with pytest.raises(IndexError):
-        aaof.transform_index(0, 100, from_range='slice')
-    with pytest.raises(IndexError):
-        window_index = aaof.transform_index(0, from_range='slice', to_range='window')
-        aaof.transform_index(window_index, -100, from_range='window')
 
 
 @pytest.mark.parallel(nprocs=nprocs)
