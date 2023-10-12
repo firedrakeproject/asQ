@@ -77,8 +77,8 @@ class AllAtOnceFunction(TimePartitionMixin):
         def field_function(i):
             idxs = (self.transform_index(i, cpt=c)
                     for c in range(self.ncomponents))
-            mdat = MixedDat((self.function.subfunctions[i].dat
-                             for i in idxs))
+            mdat = MixedDat((self.function.subfunctions[j].dat
+                             for j in idxs))
             return fd.Function(self.field_function_space, val=mdat)
 
         self._fields = tuple(field_function(i)
