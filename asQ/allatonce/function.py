@@ -250,6 +250,10 @@ class AllAtOnceFunction(TimePartitionMixin):
                     self.unext.assign(src)
             elif src.function_space() == self.function_space:
                 self.function.assign(src)
+            else:
+                raise ValueError(f"src must be be in the `function_space` {self.function_space}"
+                                 + " or `field_function_space` {self.field_function_space} of the"
+                                 + " the AllAtOnceFunction, not in {src.function_space}")
 
         else:
             raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec or field Function, not {type(src)}")
