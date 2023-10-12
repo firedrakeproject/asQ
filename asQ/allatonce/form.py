@@ -189,7 +189,7 @@ class AllAtOnceForm(TimePartitionMixin):
         def get_components(i, funcs):
             idxs = (aaofunc.transform_index(i, cpt=c)
                     for c in range(aaofunc.ncomponents))
-            return tuple(funcs[i] for i in idxs)
+            return tuple(funcs[j] for j in idxs)
 
         def get_step(i):
             return get_components(i, funcs)
