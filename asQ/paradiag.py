@@ -18,7 +18,7 @@ def create_ensemble(time_partition, comm=fd.COMM_WORLD):
     :arg time_partition: a list of integers, the number of timesteps on each time-rank
     :arg comm: the global communicator for the ensemble
     '''
-    nslices = len(time_partition)
+    nslices = 1 if type(time_partition) is int else len(time_partition)
     nranks = comm.size
 
     if nranks % nslices != 0:
