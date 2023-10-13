@@ -43,7 +43,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         :arg options_prefix: string prefix for the Jacobian PETSc options.
         :arg appctx: the appcontext for the Jacobian and the preconditioner.
         """
-        self.time_partition_setup(aaoform.ensemble, aaoform.time_partition)
+        self._time_partition_setup(aaoform.ensemble, aaoform.time_partition)
         prefix = self.prefix + options_prefix
 
         aaofunc = aaoform.aaofunc

@@ -58,7 +58,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             ensemble rank.
         :arg function_space: a FunctionSpace for the solution at a single timestep.
         """
-        self.time_partition_setup(ensemble, time_partition)
+        self._time_partition_setup(ensemble, time_partition)
 
         # function space for single timestep
         self.field_function_space = function_space
