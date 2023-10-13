@@ -6,11 +6,14 @@ from functools import reduce
 from operator import mul
 
 
+def random_func(f):
+    for dat in f.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+
+
 def random_aaof(aaof):
-    for dat in aaof.initial_condition.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
-    for dat in aaof.function.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
+    random_func(aaof.initial_condition)
+    random_func(aaof.function)
     aaof.update_time_halos()
 
 
@@ -172,16 +175,12 @@ def test_subfunctions(aaof):
     np.random.seed(572046)
     aaof.zero()
 
-    def randu(u):
-        for dat in u.dat:
-            dat.data[:] = np.random.rand(*(dat.data.shape))
-
     u = fd.Function(aaof.field_function_space)
 
     cpt_idx = 0
     for i in range(aaof.nlocal_timesteps):
 
-        randu(u)
+        random_func(u)
         aaof[i].assign(u)
 
         for c in range(aaof.ncomponents):
@@ -299,8 +298,7 @@ def test_assign(aaof):
 
     # set from field function
 
-    for dat in v0.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
+    random_func(v0)
 
     aaof.assign(v0)
 
@@ -315,6 +313,112 @@ def test_assign(aaof):
     for step in range(aaof.nlocal_timesteps):
         err = fd.errornorm(aaof[step], aaof1[step])
         assert (err < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=nprocs)
+def test_axpy(aaof):
+    """
+    test axpy function.
+    """
+    # two random solutions
+    np.random.seed(572046)
+
+    aaof1 = aaof.copy(copy_values=False)
+
+    def check_close(x, y):
+        err = fd.errornorm(x.function, y.function)
+        assert (err < 1e-12)
+        err = fd.errornorm(x.initial_condition, y.initial_condition)
+        assert (err < 1e-12)
+
+    def faxpy(result, a, x, y):
+        result.assign(a*x + y)
+
+    # initialise
+    random_aaof(aaof)
+    random_aaof(aaof1)
+    orig = aaof.copy()
+    expected = aaof.copy()
+
+    # x is aaofunc
+    a = 2
+    aaof.axpy(a, aaof1)
+    faxpy(expected.function, a, aaof1.function, orig.function)
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is aaofunc and update ics
+    a = 3.5
+    aaof.axpy(a, aaof1, update_ics=True)
+    faxpy(expected.function, a, aaof1.function, orig.function)
+    faxpy(expected.initial_condition, a,
+          aaof1.initial_condition, orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is PETSc.Vec
+    a = 4.2
+    xvec = aaof._vec.duplicate()
+    with aaof1.global_vec_ro() as gvec:
+        gvec.copy(xvec)
+
+    aaof.axpy(a, xvec)
+
+    faxpy(expected.function, a, aaof1.function, orig.function)
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is a single timestep
+    a = 5.6
+    xfunc = fd.Function(aaof.field_function_space)
+    random_func(xfunc)
+
+    aaof.axpy(a, xfunc)
+    for i in range(aaof.nlocal_timesteps):
+        faxpy(expected[i], a, xfunc, orig[i])
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is a single timestep and update ics
+    a = 6.1
+    random_func(xfunc)
+
+    aaof.axpy(a, xfunc, update_ics=True)
+    for i in range(aaof.nlocal_timesteps):
+        faxpy(expected[i], a, xfunc, orig[i])
+    faxpy(expected.initial_condition, a,
+          xfunc, orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is a timeseries function
+    a = 7.9
+    tsfunc = fd.Function(aaof.function_space)
+    random_func(tsfunc)
+
+    aaof.axpy(a, tsfunc)
+    faxpy(expected.function, a, tsfunc, orig.function)
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
 
 
 @pytest.mark.parallel(nprocs=nprocs)

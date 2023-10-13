@@ -298,30 +298,37 @@ class AllAtOnceFunction(TimePartitionMixin):
             whether blocking communication is used. A list of MPI Requests is returned
             if non-blocking communication is used.
         """
-        def axpy(a, x, y):
-            return y.assign(a*x + y)
+        alpha = fd.Constant(a)
+
+        def axpy(x, y):
+            return y.assign(alpha*x + y)
 
         if isinstance(x, AllAtOnceFunction):
-            axpy(a, x.function, self.function)
+            axpy(x.function, self.function)
             if update_ics:
-                axpy(a, x.initial_condition, self.initial_condition)
+                axpy(x.initial_condition, self.initial_condition)
 
         elif isinstance(x, PETSc.Vec):
-            with self.global_vec as gvec:
+            with self.global_vec() as gvec:
                 gvec.axpy(a, x)
 
         elif isinstance(x, fd.Function):
-            if src.function_space() == self.field_function_space:
-                for i in range(self.nlocal_timesteps)
-                    axpy(a, x, self[i])
+            if x.function_space() == self.field_function_space:
+                for i in range(self.nlocal_timesteps):
+                    axpy(x, self[i])
                 if update_ics:
-                    axpy(a, x, self.initial_condition)
+                    axpy(x, self.initial_condition)
 
-            elif src.function_space() == self.function_space:
-                axpy(a, x, self.function)
+            elif x.function_space() == self.function_space:
+                axpy(x, self.function)
+
+            else:
+                raise ValueError(f"x must be be in the `function_space` {self.function_space}"
+                                 + " or `field_function_space` {self.field_function_space} of the"
+                                 + " the AllAtOnceFunction, not in {src.function_space}")
 
         else:
-            raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec or field Function, not {type(src)}")
+            raise TypeError(f"x value must be AllAtOnceFunction or PETSc.Vec or field Function, not {type(x)}")
 
         if update_halos:
             return self.update_time_halos(blocking=blocking)
