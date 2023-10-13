@@ -149,13 +149,13 @@ for bc in bcs:
     bc.apply(Un)
 
 # Parameters for the newton iterations
-atol = 1e4
+atol = 1e2
 rtol = 1e-10
 stol = 1e-100
 
 lines_parameters = {
     "ksp_type": "gmres",
-    "ksp_rtol": 1e-4,
+    "ksp_rtol": 1e-5,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled": {
@@ -164,7 +164,9 @@ lines_parameters = {
         "pc_vanka": {
             "construct_dim": 0,
             "sub_sub_pc_type": "lu",
-            "sub_sub_pc_factor_mat_solver_type": 'mumps',
+            "sub_sub_pc_factor_mat_ordering_type": "rcm",
+            "sub_sub_pc_factor_reuse_ordering": None,
+            "sub_sub_pc_factor_reuse_fill": None,
         },
     },
 }
@@ -172,12 +174,12 @@ lines_parameters = {
 serial_parameters = {
     "snes": {
         "atol": atol,
-        "stol": stol,
         "rtol": rtol,
+        "stol": stol,
         "ksp_ew": None,
         "ksp_ew_version": 1,
-        "ksp_ew_threshold": 1e-2,
-        "ksp_ew_rtol0": 1e-1,
+        "ksp_ew_threshold": 1e-10,
+        "ksp_ew_rtol0": 1e-3,
     },
     "ksp": {
         "atol": atol,
@@ -185,12 +187,13 @@ serial_parameters = {
     },
 }
 serial_parameters.update(lines_parameters)
+serial_parameters['ksp_type'] = 'fgmres'
 
 if ensemble.ensemble_comm.rank == 0:
     serial_parameters['snes']['monitor'] = None
     serial_parameters['snes']['converged_reason'] = None
-    # serial_parameters['ksp']['monitor'] = None
-    # serial_parameters['ksp']['converged_reason'] = None
+    serial_parameters['ksp']['monitor'] = None
+    serial_parameters['ksp']['converged_reason'] = None
 
 patol = sqrt(sum(time_partition))*atol
 parallel_parameters = {
@@ -198,8 +201,8 @@ parallel_parameters = {
         "monitor": None,
         "converged_reason": None,
         "atol": patol,
-        "stol": stol,
         "rtol": rtol,
+        "stol": stol,
         "ksp_ew": None,
         "ksp_ew_version": 1,
         "ksp_ew_threshold": 1e-10,
@@ -212,9 +215,11 @@ parallel_parameters = {
         "converged_reason": None,
         "atol": patol,
         "rtol": 1e-5,
+        "stol": stol,
     },
     "pc_type": "python",
-    "pc_python_type": "asQ.DiagFFTPC"
+    "pc_python_type": "asQ.DiagFFTPC",
+    "diagfft_alpha": 1e-4,
 }
 
 for i in range(sum(time_partition)):
