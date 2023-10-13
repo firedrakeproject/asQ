@@ -23,7 +23,7 @@ Mountain_height = fd.Constant(mountain_height)
 mountain_radius = pi/9.
 Mountain_radius = fd.Constant(mountain_radius)
 
-# different lambda_c because atan_2 used for angle
+# different lambda_c because atan2 used for angle
 mountain_centre_lambda = -pi/2.
 Mountain_centre_lambda = fd.Constant(mountain_centre_lambda)
 
@@ -69,7 +69,7 @@ def topography_expression(x, y, z,
                           theta_c=Mountain_centre_theta,
                           lambda_c=Mountain_centre_lambda):
 
-    lambda_x = fd.atan_2(y/earth.Radius, x/earth.Radius)
+    lambda_x = fd.atan2(y/earth.Radius, x/earth.Radius)
     theta_x = fd.asin(z/earth.Radius)
 
     radius2 = pow(radius, 2)
