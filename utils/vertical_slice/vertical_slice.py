@@ -1,6 +1,7 @@
 import firedrake as fd
 import numpy as np
 from firedrake import op2
+from firedrake.petsc import PETSc
 
 
 def maximum(f):
@@ -136,6 +137,11 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
         v = wh.subfunctions[0]
         Rho0 = wh.subfunctions[1]
         rhon.assign(Rho0)
+        del RhoSolver
+    del PiSolver
+    import gc
+    gc.collect()
+    PETSc.garbage_cleanup(mesh._comm)
 
 
 def theta_tendency(q, u, theta, n, Up, c_pen):
