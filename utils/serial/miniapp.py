@@ -1,7 +1,5 @@
 import firedrake as fd
 
-from functools import partial
-
 import numpy as np
 
 import asQ
