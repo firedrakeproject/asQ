@@ -126,9 +126,6 @@ class ComparisonMiniapp(object):
 
         self.function_space = self.w_initial.function_space()
 
-        self.wserial = fd.Function(self.function_space)
-        self.wparallel = fd.Function(self.function_space)
-
         # set up serial solver
         self.serial_app = SerialMiniApp(dt, theta, w_initial,
                                         form_mass, form_function,
@@ -144,6 +141,10 @@ class ComparisonMiniapp(object):
                                      bcs=boundary_conditions,
                                      solver_parameters=parallel_sparameters,
                                      appctx=appctx)
+
+        self.wserial = tuple(fd.Function(self.function_space)
+                             for _ in range(self.paradiag.nlocal_timesteps))
+        self.wparallel = fd.Function(self.function_space)
 
     def solve(self, nwindows,
               preproc=lambda srl, pdg, wndw: None,
@@ -166,24 +167,24 @@ class ComparisonMiniapp(object):
 
         # set up function to calculate errornorm after each timestep
 
-        def serial_error_postproc(app, it, t, wndw):
-
-            # only calculate error if timestep it is on this parallel time-slice
+        def serial_record_postproc(app, it, t):
+            # only record solution if timestep it is on this parallel time-slice
             if pdg.layout.is_local(it):
-                # get serial and parallel solutions
-                aaofunc.get_field(it, uout=self.wparallel, index_range='window')
-
-                self.wserial.assign(self.serial_app.w1)
-
-                # calculate error and store in full timeseries
-                err = fd.errornorm(self.wserial, self.wparallel)
-
-                global_timestep = wndw*window_length + it
-
-                errors[global_timestep] = err
+                local_idx = aaofunc.transform_index(it, from_range='window', to_range='slice')
+                self.wserial[local_idx].assign(self.serial_app.w1)
 
             # run the users postprocessing
             serial_postproc(app, it, t)
+
+        def calculate_errors(wndw):
+            for i in range(pdg.nlocal_timesteps):
+                aaofunc.get_field(i, uout=self.wparallel, index_range='slice')
+
+                err = fd.errornorm(self.wparallel, self.wserial[i])
+
+                window_idx = aaofunc.transform_index(i, from_range='slice', to_range='window')
+                global_timestep = wndw*window_length + window_idx
+                errors[global_timestep] = err
 
         # timestepping loop
         for wndw in range(nwindows):
@@ -196,7 +197,9 @@ class ComparisonMiniapp(object):
 
             self.serial_app.solve(nt=window_length,
                                   preproc=serial_preproc,
-                                  postproc=partial(serial_error_postproc, wndw=wndw))
+                                  postproc=serial_record_postproc)
+
+            calculate_errors(wndw)
 
             postproc(self.serial_app, pdg, wndw)
 
