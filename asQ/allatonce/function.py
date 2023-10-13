@@ -278,6 +278,30 @@ class AllAtOnceFunction(TimePartitionMixin):
         return self
 
     @profiler()
+    def scale(self, a, update_ics=False,
+              update_halos=False, blocking=True):
+        """
+        Scale the AllAtOnceFunction by a scalar.
+
+        :arg a: scalar to multiply the function by.
+        :arg update_ics: if True then the initial conditions will be scaled
+            as well as the timestep values (if possible).
+        :arg update_halos: if True then the time-halos will be updated.
+        :arg blocking: if update_halos is True, then this argument determines
+            whether blocking communication is used. A list of MPI Requests is returned
+            if non-blocking communication is used.
+        """
+        alpha = fd.Constant(a)
+
+        self.function.assign(alpha*self.function)
+
+        if update_ics:
+            self.initial_condition.assign(alpha*self.initial_condition)
+
+        if update_halos:
+            return self.update_time_halos(blocking=blocking)
+
+    @profiler()
     def axpy(self, a, x, update_ics=False,
              update_halos=False, blocking=True):
         """
