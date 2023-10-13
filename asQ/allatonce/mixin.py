@@ -17,7 +17,7 @@ class TimePartitionMixin(object):
     def __init__(self):
         pass
 
-    def time_partition_setup(self, ensemble, time_partition):
+    def _time_partition_setup(self, ensemble, time_partition):
         """
         Sets the provided member variables. This is not implemented in the
         the __init__ method to accomodate child classes which will be
