@@ -277,7 +277,7 @@ PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
 PETSc.Sys.Print('')
 
 if len(solver_time) > 1:
-    #solver_time = solver_time[1:]
+    # solver_time = solver_time[1:]
     solver_time[0] = solver_time[1]
 
 PETSc.Sys.Print(f'Total solution time: {sum(solver_time)}')

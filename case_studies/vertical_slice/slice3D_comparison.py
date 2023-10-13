@@ -226,22 +226,8 @@ serial_parameters["ksp_type"] = "fgmres"
 if ensemble.ensemble_comm.rank == 0:
     serial_parameters['snes']['monitor'] = None
     serial_parameters['snes']['converged_reason'] = None
-    #serial_parameters['ksp']['monitor'] = None
+    serial_parameters['ksp']['monitor'] = None
     serial_parameters['ksp']['converged_reason'] = None
-
-mass_params = {
-    "ksp_type": "preonly",
-    "mat_type": "nest",
-    "pc_type": "fieldsplit",
-    "pc_field_split_type": "additive",
-    "fieldsplit": {
-        "mat_type": "aij",
-        "ksp_type": "cg",
-        "ksp_rtol": 1e-12,
-        "pc_type": "bjacobi",
-        "pc_sub_type": "icc"
-    }
-}
 
 patol = sqrt(sum(time_partition))*atol
 parallel_parameters = {
@@ -267,7 +253,6 @@ parallel_parameters = {
     "pc_type": "python",
     "pc_python_type": "asQ.DiagFFTPC",
     "diagfft_alpha": args.alpha,
-    #"diagfft_mass": mass_params
 }
 
 for i in range(sum(time_partition)):
@@ -324,7 +309,7 @@ for it, err in enumerate(errors):
     PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
 
 if is_last_slice:
-   ofile = fd.File("output/compressible3D/mountain.pvd",
-                   comm=ensemble.comm)
-   aaofunc.get_field(-1, Un)
-   ofile.write(Un)
+    ofile = fd.File("output/compressible3D/mountain.pvd",
+                    comm=ensemble.comm)
+    aaofunc.get_field(-1, Un)
+    ofile.write(Un)

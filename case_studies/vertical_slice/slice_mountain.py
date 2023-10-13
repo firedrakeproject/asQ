@@ -35,7 +35,7 @@ PETSc.Sys.Print("Setting up problem")
 time_partition = tuple((args.slice_length for _ in range(args.nslices)))
 window_length = sum(time_partition)
 
-global_comm=fd.COMM_WORLD
+global_comm = fd.COMM_WORLD
 ensemble = asQ.create_ensemble(time_partition, comm=global_comm)
 
 # set up the mesh
@@ -239,7 +239,7 @@ if is_last_slice:
         rhoout = fd.Function(V2, name='density')
 
         ofile = fd.File(f'output/{args.filename}.pvd',
-                    comm=ensemble.comm)
+                        comm=ensemble.comm)
 
     def assign_out_functions():
         aaofunc.get_component(-1, 0, uout=uout)
