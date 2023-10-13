@@ -300,27 +300,127 @@ class AllAtOnceFunction(TimePartitionMixin):
         """
         alpha = fd.Constant(a)
 
-        def axpy(x, y):
+        def func_axpy(x, y):
             return y.assign(alpha*x + y)
 
+        def vec_axpy(x, y):
+            y.axpy(a, x)
+
+        return self._vs_op(x, func_axpy, vec_axpy,
+                           update_ics=update_ics,
+                           update_halos=update_halos,
+                           blocking=blocking)
+
+    @profiler()
+    def aypx(self, a, x, update_ics=False,
+             update_halos=False, blocking=True):
+        """
+        Compute y = x + a*y where y is this AllAtOnceFunction.
+
+        :arg a: scalar to multiply y.
+        :arg x: other object for calculation. Can be one of:
+            - AllAtOnceFunction: all timesteps are updated, and optionally the ics.
+            - PETSc Vec: all timesteps are updated.
+            - firedrake.Function in self.function_space:
+                all timesteps are updated.
+            - firedrake.Function in self.field_function_space:
+                all timesteps are updated, and optionally the ics.
+        :arg update_ics: if True then the initial conditions will be updated
+            from x as well as the timestep values (if possible).
+        :arg update_halos: if True then the time-halos will be updated.
+        :arg blocking: if update_halos is True, then this argument determines
+            whether blocking communication is used. A list of MPI Requests is returned
+            if non-blocking communication is used.
+        """
+        alpha = fd.Constant(a)
+
+        def func_aypx(x, y):
+            return y.assign(x + alpha*y)
+
+        def vec_aypx(x, y):
+            y.aypx(a, x)
+
+        return self._vs_op(x, func_aypx, vec_aypx,
+                           update_ics=update_ics,
+                           update_halos=update_halos,
+                           blocking=blocking)
+
+    @profiler()
+    def axpby(self, a, b, x, update_ics=False,
+              update_halos=False, blocking=True):
+        """
+        Compute y = a*x + b*y where y is this AllAtOnceFunction.
+
+        :arg a: scalar to multiply x.
+        :arg b: scalar to multiply y.
+        :arg x: other object for calculation. Can be one of:
+            - AllAtOnceFunction: all timesteps are updated, and optionally the ics.
+            - PETSc Vec: all timesteps are updated.
+            - firedrake.Function in self.function_space:
+                all timesteps are updated.
+            - firedrake.Function in self.field_function_space:
+                all timesteps are updated, and optionally the ics.
+        :arg update_ics: if True then the initial conditions will be updated
+            from x as well as the timestep values (if possible).
+        :arg update_halos: if True then the time-halos will be updated.
+        :arg blocking: if update_halos is True, then this argument determines
+            whether blocking communication is used. A list of MPI Requests is returned
+            if non-blocking communication is used.
+        """
+        alpha = fd.Constant(a)
+        beta = fd.Constant(b)
+
+        def func_axpby(x, y):
+            return y.assign(alpha*x + beta*y)
+
+        def vec_axpby(x, y):
+            y.axpby(a, b, x)
+
+        return self._vs_op(x, func_axpby, vec_axpby,
+                           update_ics=update_ics,
+                           update_halos=update_halos,
+                           blocking=blocking)
+
+    @profiler()
+    def _vs_op(self, x, func_op, vec_op, update_ics=False,
+               update_halos=False, blocking=True):
+        """
+        Vector space operations (axpy, xpby, axpby)
+
+        :arg func_op: apply operation to a firedrake.Function.
+        :arg vec_op: apply operation to a PETSc.Vec.
+        :arg x: other object for calculation. Can be one of:
+            - AllAtOnceFunction: all timesteps are updated, and optionally the ics.
+            - PETSc Vec: all timesteps are updated.
+            - firedrake.Function in self.function_space:
+                all timesteps are updated.
+            - firedrake.Function in self.field_function_space:
+                all timesteps are updated, and optionally the ics.
+        :arg update_ics: if True then the initial conditions will be updated
+            from x as well as the timestep values (if possible).
+        :arg update_halos: if True then the time-halos will be updated.
+        :arg blocking: if update_halos is True, then this argument determines
+            whether blocking communication is used. A list of MPI Requests is returned
+            if non-blocking communication is used.
+        """
         if isinstance(x, AllAtOnceFunction):
-            axpy(x.function, self.function)
+            func_op(x.function, self.function)
             if update_ics:
-                axpy(x.initial_condition, self.initial_condition)
+                func_op(x.initial_condition, self.initial_condition)
 
         elif isinstance(x, PETSc.Vec):
             with self.global_vec() as gvec:
-                gvec.axpy(a, x)
+                vec_op(x, gvec)
 
         elif isinstance(x, fd.Function):
             if x.function_space() == self.field_function_space:
                 for i in range(self.nlocal_timesteps):
-                    axpy(x, self[i])
+                    func_op(x, self[i])
                 if update_ics:
-                    axpy(x, self.initial_condition)
+                    func_op(x, self.initial_condition)
 
             elif x.function_space() == self.function_space:
-                axpy(x, self.function)
+                func_op(x, self.function)
 
             else:
                 raise ValueError(f"x must be be in the `function_space` {self.function_space}"

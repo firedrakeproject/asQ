@@ -422,6 +422,224 @@ def test_axpy(aaof):
 
 
 @pytest.mark.parallel(nprocs=nprocs)
+def test_aypx(aaof):
+    """
+    test aypx function.
+    """
+    # two random solutions
+    np.random.seed(572046)
+
+    aaof1 = aaof.copy(copy_values=False)
+
+    def check_close(x, y):
+        err = fd.errornorm(x.function, y.function)
+        assert (err < 1e-12)
+        err = fd.errornorm(x.initial_condition, y.initial_condition)
+        assert (err < 1e-12)
+
+    def faypx(result, a, x, y):
+        result.assign(x + a*y)
+
+    # initialise
+    random_aaof(aaof)
+    random_aaof(aaof1)
+    orig = aaof.copy()
+    expected = aaof.copy()
+
+    # x is aaofunc
+    a = 2
+    aaof.aypx(a, aaof1)
+    faypx(expected.function, a, aaof1.function, orig.function)
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is aaofunc and update ics
+    a = 3.5
+    aaof.aypx(a, aaof1, update_ics=True)
+    faypx(expected.function, a, aaof1.function, orig.function)
+    faypx(expected.initial_condition, a,
+          aaof1.initial_condition, orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is PETSc.Vec
+    a = 4.2
+    xvec = aaof._vec.duplicate()
+    with aaof1.global_vec_ro() as gvec:
+        gvec.copy(xvec)
+
+    aaof.aypx(a, xvec)
+
+    faypx(expected.function, a, aaof1.function, orig.function)
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is a single timestep
+    a = 5.6
+    xfunc = fd.Function(aaof.field_function_space)
+    random_func(xfunc)
+
+    aaof.aypx(a, xfunc)
+    for i in range(aaof.nlocal_timesteps):
+        faypx(expected[i], a, xfunc, orig[i])
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is a single timestep and update ics
+    a = 6.1
+    random_func(xfunc)
+
+    aaof.aypx(a, xfunc, update_ics=True)
+    for i in range(aaof.nlocal_timesteps):
+        faypx(expected[i], a, xfunc, orig[i])
+    faypx(expected.initial_condition, a,
+          xfunc, orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is a timeseries function
+    a = 7.9
+    tsfunc = fd.Function(aaof.function_space)
+    random_func(tsfunc)
+
+    aaof.aypx(a, tsfunc)
+    faypx(expected.function, a, tsfunc, orig.function)
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+
+@pytest.mark.parallel(nprocs=nprocs)
+def test_axpby(aaof):
+    """
+    test axpby function.
+    """
+    # two random solutions
+    np.random.seed(572046)
+
+    aaof1 = aaof.copy(copy_values=False)
+
+    def check_close(x, y):
+        err = fd.errornorm(x.function, y.function)
+        assert (err < 1e-12)
+        err = fd.errornorm(x.initial_condition, y.initial_condition)
+        assert (err < 1e-12)
+
+    def faxpby(result, a, b, x, y):
+        result.assign(a*x + b*y)
+
+    # initialise
+    random_aaof(aaof)
+    random_aaof(aaof1)
+    orig = aaof.copy()
+    expected = aaof.copy()
+
+    # x is aaofunc
+    a = 2
+    b = 11.4
+    aaof.axpby(a, b, aaof1)
+    faxpby(expected.function, a, b, aaof1.function, orig.function)
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is aaofunc and update ics
+    a = 3.5
+    b = 12.1
+    aaof.axpby(a, b, aaof1, update_ics=True)
+    faxpby(expected.function, a, b, aaof1.function, orig.function)
+    faxpby(expected.initial_condition, a, b,
+           aaof1.initial_condition, orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is PETSc.Vec
+    a = 4.2
+    b = 13.7
+    xvec = aaof._vec.duplicate()
+    with aaof1.global_vec_ro() as gvec:
+        gvec.copy(xvec)
+
+    aaof.axpby(a, b, xvec)
+
+    faxpby(expected.function, a, b, aaof1.function, orig.function)
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is a single timestep
+    a = 5.6
+    b = 14.6
+    xfunc = fd.Function(aaof.field_function_space)
+    random_func(xfunc)
+
+    aaof.axpby(a, b, xfunc)
+    for i in range(aaof.nlocal_timesteps):
+        faxpby(expected[i], a, b, xfunc, orig[i])
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is a single timestep and update ics
+    a = 6.1
+    b = 15.3
+    random_func(xfunc)
+
+    aaof.axpby(a, b, xfunc, update_ics=True)
+    for i in range(aaof.nlocal_timesteps):
+        faxpby(expected[i], a, b, xfunc, orig[i])
+    faxpby(expected.initial_condition, a, b,
+           xfunc, orig.initial_condition)
+
+    check_close(aaof, expected)
+
+    # reset
+    aaof.assign(orig)
+
+    # x is a timeseries function
+    a = 7.9
+    16.2
+    tsfunc = fd.Function(aaof.function_space)
+    random_func(tsfunc)
+
+    aaof.axpby(a, b, tsfunc)
+    faxpby(expected.function, a, b, tsfunc, orig.function)
+    expected.initial_condition.assign(orig.initial_condition)
+
+    check_close(aaof, expected)
+
+
+@pytest.mark.parallel(nprocs=nprocs)
 def test_zero(aaof):
     """
     test setting all timesteps/ics to given function.
