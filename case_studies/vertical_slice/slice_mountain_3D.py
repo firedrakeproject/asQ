@@ -1,29 +1,59 @@
 import firedrake as fd
-from math import pi
+from math import pi, sqrt
+from pyop2.mpi import MPI
 from utils.diagnostics import convective_cfl_calculator
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
 from firedrake.petsc import PETSc
 import asQ
 
+import argparse
+parser = argparse.ArgumentParser(description='3D mountain testcase.')
+parser.add_argument('--nx', type=int, default=16, help='Number of columns in the streamwise direction.')
+parser.add_argument('--ny', type=int, default=16, help='Number of columns in the spanwise direction.')
+parser.add_argument('--nz', type=int, default=16, help='Number of layers.')
+parser.add_argument('--Lx', type=float, default=32e3, help='Streamwise length of domain.')
+parser.add_argument('--Ly', type=float, default=32e3, help='Spanwise length of domain.')
+parser.add_argument('--Lz', type=float, default=32e3, help='Vertical length of domain.')
+parser.add_argument('--nwindows', type=int, default=1, help='Number of windows to solve.')
+parser.add_argument('--nslices', type=int, default=2, help='Number of slices in the all-at-once system.')
+parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps in each slice of the all-at-once system.')
+parser.add_argument('--atol', type=float, default=1e-1, help='Average absolute tolerance for each timestep.')
+parser.add_argument('--dt', type=float, default=5, help='Timestep in seconds. Default 1.')
+parser.add_argument('--alpha', type=float, default=1e-3, help='Circulant parameter')
+parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space). Default 1.')
+parser.add_argument('--filename', type=str, default='slice_mountain3D', help='Name of vtk file.')
+parser.add_argument('--write_file', action='store_true', help='Write vtk file at end of each window.')
+parser.add_argument('--metrics_dir', type=str, default='output', help='Directory to save paradiag metrics and vtk to.')
+parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
+
+args = parser.parse_known_args()
+args = args[0]
+
+if args.show_args:
+    PETSc.Sys.Print(args)
+
 PETSc.Sys.Print("Setting up problem")
 
 # set up the ensemble communicator for space-time parallelism
-time_partition = tuple((1 for _ in range(2)))
+time_partition = tuple((args.slice_length for _ in range(args.nslices)))
+window_length = sum(time_partition)
 
-ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+global_comm = fd.COMM_WORLD
+
+ensemble = asQ.create_ensemble(time_partition, comm=global_comm)
 
 comm = ensemble.comm
 
 # set up the mesh
 
-nx = 36  # number streamwise of columns
-ny = 12  # number spanwise of columns
-nz = 18  # horizontal layers
+nx = args.nx  # number streamwise of columns
+ny = args.ny  # number spanwise of columns
+nz = args.nz  # horizontal layers
 
-Lx = 36e3
-Ly = 12e3
-Lz = 18e3  # Height position of the model top
+Lx = args.Lx
+Ly = args.Ly
+Lz = args.Lz  # Height position of the model top
 
 distribution_parameters = {
     "partition": True,
@@ -49,8 +79,7 @@ p_0 = fd.Constant(1000.0*100.0)  # reference pressure (Pa, not hPa)
 cv = fd.Constant(717.)  # SHC of dry air at const. volume (J/kg/K)
 T_0 = fd.Constant(273.15)  # ref. temperature
 
-dt = 5
-dT = fd.Constant(dt)
+dt = args.dt
 
 # making a mountain out of a molehill
 a = 1000.
@@ -71,8 +100,8 @@ else:
     xexpr = fd.as_vector([x, y, z + ((Lz-z)/Lz)*zs])
 mesh.coordinates.interpolate(xexpr)
 
-horizontal_degree = 1
-vertical_degree = 1
+horizontal_degree = args.degree
+vertical_degree = args.degree
 
 S1 = fd.FiniteElement("RTCF", fd.quadrilateral, horizontal_degree+1)
 S2 = fd.FiniteElement("DQ", fd.quadrilateral, horizontal_degree)
@@ -168,18 +197,24 @@ block_parameters = {
         "pc_python_type": "firedrake.ASMVankaPC",
         "pc_vanka": {
             "construct_dim": 0,
-            "sub_sub_pc_type": "lu",
-            # "sub_sub_pc_factor_mat_solver_type": 'mumps',
+            "sub_sub": {
+                "pc_type": "lu",
+                "pc_factor_mat_ordering_type": "rcm",
+                "pc_factor_reuse_ordering": None,
+                "pc_factor_reuse_fill": None,
+                "pc_factor_mat_solver_type": 'mumps',
+            }
         },
     },
 }
 
+atol = sqrt(window_length)*args.atol
 solver_parameters_diag = {
     "snes": {
         "monitor": None,
         "converged_reason": None,
         "rtol": 1e-8,
-        "atol": 1e-6,
+        "atol": atol,
         "ksp_ew": None,
         "ksp_ew_version": 1,
         "ksp_ew_threshold": 1e-5,
@@ -190,28 +225,26 @@ solver_parameters_diag = {
     "ksp": {
         "monitor": None,
         "converged_reason": None,
-        "atol": 1e-6,
+        "atol": atol,
     },
     "pc_type": "python",
     "pc_python_type": "asQ.DiagFFTPC",
-    "diagfft_alpha": 1e-4,
+    "diagfft_alpha": args.alpha,
 }
 
 for i in range(sum(time_partition)):
     solver_parameters_diag["diagfft_block_"+str(i)+"_"] = block_parameters
 
-alpha = 1.0e-4
 theta = 0.5
 
-pdg = asQ.paradiag(ensemble=ensemble,
+pdg = asQ.Paradiag(ensemble=ensemble,
+                   time_partition=time_partition,
+                   form_mass=form_mass,
                    form_function=form_function,
-                   form_mass=form_mass, w0=Un,
-                   dt=dt, theta=theta,
-                   alpha=alpha, time_partition=time_partition, bcs=bcs,
-                   solver_parameters=solver_parameters_diag,
-                   circ="none")
+                   ics=Un, dt=dt, theta=theta, bcs=bcs,
+                   solver_parameters=solver_parameters_diag)
 
-aaos = pdg.aaos
+aaofunc = pdg.aaofunc
 is_last_slice = pdg.layout.is_local(-1)
 
 PETSc.Sys.Print("Solving problem")
@@ -219,22 +252,25 @@ PETSc.Sys.Print("Solving problem")
 # only last slice does diagnostics/output
 if is_last_slice:
     uout = fd.Function(V1, name='velocity')
-    thetaout = fd.Function(Vt, name='temperature')
-    rhoout = fd.Function(V2, name='density')
+    if args.write_file:
+        thetaout = fd.Function(Vt, name='temperature')
+        rhoout = fd.Function(V2, name='density')
 
-    ofile = fd.File('output/slice_mountain_diag.pvd',
-                    comm=ensemble.comm)
+        ofile = fd.File(f'output/{args.filename}.pvd',
+                        comm=ensemble.comm)
 
     def assign_out_functions():
-        aaos.get_component(-1, 0, wout=uout)
-        aaos.get_component(-1, 1, wout=rhoout)
-        aaos.get_component(-1, 2, wout=thetaout)
+        aaofunc.get_component(-1, 0, uout=uout)
+        if args.write_file:
+            aaofunc.get_component(-1, 1, uout=rhoout)
+            aaofunc.get_component(-1, 2, uout=thetaout)
 
-        rhoout.assign(rhoout - rho_back)
-        thetaout.assign(thetaout - theta_back)
+            rhoout.assign(rhoout - rho_back)
+            thetaout.assign(thetaout - theta_back)
 
     def write_to_file():
-        ofile.write(uout, rhoout, thetaout)
+        if args.write_file:
+            ofile.write(uout, rhoout, thetaout)
 
     cfl_calc = convective_cfl_calculator(mesh)
     cfl_series = []
@@ -243,18 +279,31 @@ if is_last_slice:
         with cfl_calc(u, dt).dat.vec_ro as v:
             return v.max()[1]
 
+solver_time = []
 
-def window_preproc(pdg, wndw):
+
+def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
+    stime = MPI.Wtime()
+    solver_time.append(stime)
 
 
-def window_postproc(pdg, wndw):
+def window_postproc(pdg, wndw, rhs):
     # postprocess this timeslice
+    etime = MPI.Wtime()
+    stime = solver_time[-1]
+    duration = etime - stime
+    solver_time[-1] = duration
+    PETSc.Sys.Print('', comm=global_comm)
+    PETSc.Sys.Print(f'Window solution time: {duration}', comm=global_comm)
+    PETSc.Sys.Print('', comm=global_comm)
+
     if is_last_slice:
         assign_out_functions()
-        write_to_file()
+        if args.write_file:
+            write_to_file()
         PETSc.Sys.Print('', comm=ensemble.comm)
 
         cfl = max_cfl(uout, dt)
@@ -263,7 +312,7 @@ def window_postproc(pdg, wndw):
 
 
 # solve for each window
-pdg.solve(nwindows=6,
+pdg.solve(nwindows=args.nwindows,
           preproc=window_preproc,
           postproc=window_postproc)
 
@@ -272,7 +321,7 @@ PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
 from asQ import write_paradiag_metrics
-write_paradiag_metrics(pdg, directory='metrics')
+write_paradiag_metrics(pdg, directory=args.metrics_dir)
 
 nw = pdg.total_windows
 nt = pdg.total_timesteps
@@ -294,3 +343,18 @@ if is_last_slice:
     PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print('', comm=ensemble.comm)
+ensemble.global_comm.Barrier()
+
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}', comm=global_comm)
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size} ', comm=global_comm)
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}', comm=global_comm)
+PETSc.Sys.Print(f'Block DoFs/rank: {2*W.dim()/mesh.comm.size}', comm=global_comm)
+PETSc.Sys.Print('')
+
+if len(solver_time) > 1:
+    solver_time[0] = solver_time[1]
+
+PETSc.Sys.Print(f'Total solution time: {sum(solver_time)}', comm=global_comm)
+PETSc.Sys.Print(f'Average window solution time: {sum(solver_time)/len(solver_time)}', comm=global_comm)
+PETSc.Sys.Print(f'Average timestep solution time: {sum(solver_time)/(window_length*len(solver_time))}', comm=global_comm)
+PETSc.Sys.Print('', comm=global_comm)
