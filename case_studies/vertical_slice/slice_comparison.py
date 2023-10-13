@@ -1,5 +1,5 @@
 import firedrake as fd
-from math import pi
+from math import pi, sqrt
 from utils.serial import ComparisonMiniapp
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
@@ -17,10 +17,10 @@ comm = ensemble.comm
 # set up the mesh
 
 nt = 5
-dt = 2.5
+dt = 5
 
-nlayers = 35  # horizontal layers
-base_columns = 90  # number of columns
+nlayers = 70  # horizontal layers
+base_columns = 180  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -132,9 +132,10 @@ hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
 
 rho_back = fd.Function(V2).assign(rhon)
 
-zc = H-10000.
-mubar = 0.15/dt
-mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(H-zc))**2)
+zc = fd.Constant(H-10000.)
+mubar = fd.Constant(0.15/dt)
+mu_top = fd.conditional(z <= zc, 0.0,
+                        mubar*fd.sin(fd.Constant(pi/2.)*(z-zc)/(fd.Constant(H)-zc))**2)
 mu = fd.Function(V2).interpolate(mu_top)
 
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
@@ -164,7 +165,10 @@ lines_parameters = {
         "pc_vanka": {
             "construct_dim": 0,
             "sub_sub_pc_type": "lu",
-            "sub_sub_pc_factor_mat_solver_type": 'mumps',
+            "sub_sub_pc_factor_mat_ordering_type": 'rcm',
+            "sub_sub_pc_factor_reuse_ordering": None,
+            "sub_sub_pc_factor_reuse_fill": None,
+            # "sub_sub_pc_factor_mat_solver_type": 'mumps',
         },
     },
 }
@@ -195,7 +199,7 @@ parallel_parameters = {
     "snes": {
         "monitor": None,
         "converged_reason": None,
-        "atol": atol,
+        "atol": sqrt(sum(time_partition))*atol,
         "rtol": 1e-8,
         "stol": 1e-12,
         "ksp_ew": None,
@@ -211,7 +215,8 @@ parallel_parameters = {
         "atol": atol,
     },
     "pc_type": "python",
-    "pc_python_type": "asQ.DiagFFTPC"
+    "pc_python_type": "asQ.DiagFFTPC",
+    "diagfft_alpha": 1e-4
 }
 
 for i in range(sum(time_partition)):
@@ -257,7 +262,7 @@ def parallel_postproc(pdg, wndw, rhs):
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-errors = miniapp.solve(nwindows=1,
+errors = miniapp.solve(nwindows=20,
                        preproc=preproc,
                        serial_postproc=serial_postproc,
                        parallel_postproc=parallel_postproc)

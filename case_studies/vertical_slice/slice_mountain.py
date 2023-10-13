@@ -156,7 +156,8 @@ rho_back = fd.Function(V2).assign(rhon)
 
 zc = fd.Constant(H-10000.)
 mubar = fd.Constant(0.15/dt)
-mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(H-zc))**2)
+mu_top = fd.conditional(z <= zc, 0.0,
+                        mubar*fd.sin(fd.Constant(pi/2.)*(z-zc)/(H-zc))**2)
 mu = fd.Function(V2).interpolate(mu_top)
 
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
