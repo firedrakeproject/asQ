@@ -220,7 +220,10 @@ class AllAtOnceFunction(TimePartitionMixin):
         :arg src: object to set value from. Can be one of:
             - AllAtOnceFunction: assign all values from src.
             - PETSc Vec: assign self.function from src via self.global_vec.
-            - firedrake.Function: assign initial condition and all timesteps from src.
+            - firedrake.Function in self.function_space:
+                assign timesteps from src.
+            - firedrake.Function in self.field_function_space:
+                assign initial condition and all timesteps from src.
         :arg update_halos: if True then the time-halos will be updated.
         :arg blocking: if update_halos is True, then this argument determines
             whether blocking communication is used. A list of MPI Requests is returned
@@ -273,6 +276,55 @@ class AllAtOnceFunction(TimePartitionMixin):
         for f in funcs:
             f.zero(subset=subset)
         return self
+
+    @profiler()
+    def axpy(self, a, x, update_ics=False,
+             update_halos=False, blocking=True):
+        """
+        Compute y = a*x + y where y is this AllAtOnceFunction.
+
+        :arg a: scalar to multiply x.
+        :arg x: other object for calculation. Can be one of:
+            - AllAtOnceFunction: all timesteps are updated, and optionally the ics.
+            - PETSc Vec: all timesteps are updated.
+            - firedrake.Function in self.function_space:
+                all timesteps are updated.
+            - firedrake.Function in self.field_function_space:
+                all timesteps are updated, and optionally the ics.
+        :arg update_ics: if True then the initial conditions will be updated
+            from x as well as the timestep values (if possible).
+        :arg update_halos: if True then the time-halos will be updated.
+        :arg blocking: if update_halos is True, then this argument determines
+            whether blocking communication is used. A list of MPI Requests is returned
+            if non-blocking communication is used.
+        """
+        def axpy(a, x, y):
+            return y.assign(a*x + y)
+
+        if isinstance(x, AllAtOnceFunction):
+            axpy(a, x.function, self.function)
+            if update_ics:
+                axpy(a, x.initial_condition, self.initial_condition)
+
+        elif isinstance(x, PETSc.Vec):
+            with self.global_vec as gvec:
+                gvec.axpy(a, x)
+
+        elif isinstance(x, fd.Function):
+            if src.function_space() == self.field_function_space:
+                for i in range(self.nlocal_timesteps)
+                    axpy(a, x, self[i])
+                if update_ics:
+                    axpy(a, x, self.initial_condition)
+
+            elif src.function_space() == self.function_space:
+                axpy(a, x, self.function)
+
+        else:
+            raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec or field Function, not {type(src)}")
+
+        if update_halos:
+            return self.update_time_halos(blocking=blocking)
 
     @contextlib.contextmanager
     @profiler()
