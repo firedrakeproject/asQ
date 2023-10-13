@@ -90,7 +90,7 @@ class Paradiag(TimePartitionMixin):
         :arg pre_jacobian_callback: As above, but called immediately before Jacobian assembly.
         :arg post_jacobian_callback: As above, but called immediately after Jacobian assembly.
         """
-        self.time_partition_setup(ensemble, time_partition)
+        self._time_partition_setup(ensemble, time_partition)
 
         # all-at-once function and form
 

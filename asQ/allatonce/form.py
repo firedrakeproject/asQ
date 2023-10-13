@@ -32,7 +32,7 @@ class AllAtOnceForm(TimePartitionMixin):
         :arg bcs: a list of DirichletBC boundary conditions on aaofunc.field_function_space.
         :arg alpha: float, circulant matrix parameter. if None then no circulant approximation used.
         """
-        self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
+        self._time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
 
         self.aaofunc = aaofunc
         self.field_function_space = aaofunc.field_function_space
