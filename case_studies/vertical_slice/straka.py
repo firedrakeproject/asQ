@@ -1,5 +1,6 @@
 import firedrake as fd
 import asQ
+from pyop2.mpi import MPI
 from math import sqrt
 from utils.diagnostics import convective_cfl_calculator
 from utils.vertical_slice import hydrostatic_rho, pi_formula, \
@@ -30,8 +31,10 @@ PETSc.Sys.Print("Setting up problem")
 
 # set up the ensemble communicator for space-time parallelism
 time_partition = tuple((args.slice_length for _ in range(args.nslices)))
+window_length = sum(time_partition)
 
-ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+global_comm = fd.COMM_WORLD
+ensemble = asQ.create_ensemble(time_partition, comm=global_comm)
 
 # set up the mesh
 
@@ -155,7 +158,7 @@ for bc in bcs:
 
 lines_parameters = {
     "ksp_type": "gmres",
-    "ksp_rtol": 1e-5,
+    "ksp_rtol": 1e-4,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled": {
@@ -197,7 +200,7 @@ solver_parameters_diag = {
     },
     "pc_type": "python",
     "pc_python_type": "asQ.DiagFFTPC",
-    "diagfft_alpha": 1e-4,
+    "diagfft_alpha": 1e-3,
 }
 
 for i in range(sum(time_partition)):
@@ -247,14 +250,26 @@ if is_last_slice:
         with cfl_calc(u, dt).dat.vec_ro as v:
             return v.max()[1]
 
+solver_time = []
+
 
 def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
+    stime = MPI.Wtime()
+    solver_time.append(stime)
 
 
 def window_postproc(pdg, wndw, rhs):
+    etime = MPI.Wtime()
+    stime = solver_time[-1]
+    duration = etime - stime
+    solver_time[-1] = duration
+    PETSc.Sys.Print('', comm=global_comm)
+    PETSc.Sys.Print(f'Window solution time: {duration}', comm=global_comm)
+    PETSc.Sys.Print('', comm=global_comm)
+
     # postprocess this timeslice
     if is_last_slice:
         assign_out_functions()
@@ -301,3 +316,17 @@ if is_last_slice:
     PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
     PETSc.Sys.Print('', comm=ensemble.comm)
+
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}', comm=global_comm)
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size} ', comm=global_comm)
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}', comm=global_comm)
+PETSc.Sys.Print(f'Block DoFs/rank: {2*W.dim()/mesh.comm.size}', comm=global_comm)
+PETSc.Sys.Print('')
+
+if len(solver_time) > 1:
+    solver_time[0] = solver_time[1]
+
+PETSc.Sys.Print(f'Total solution time: {sum(solver_time)}', comm=global_comm)
+PETSc.Sys.Print(f'Average window solution time: {sum(solver_time)/len(solver_time)}', comm=global_comm)
+PETSc.Sys.Print(f'Average timestep solution time: {sum(solver_time)/(window_length*len(solver_time))}', comm=global_comm)
+PETSc.Sys.Print('', comm=global_comm)
