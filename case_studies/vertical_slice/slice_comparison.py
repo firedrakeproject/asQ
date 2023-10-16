@@ -1,43 +1,26 @@
 import firedrake as fd
-from firedrake.petsc import PETSc
-from pyop2.mpi import MPI
-from math import pi
-from utils.diagnostics import convective_cfl_calculator
-from utils.serial import SerialMiniApp
+from math import pi, sqrt
+from utils.serial import ComparisonMiniapp
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
-
-import argparse
-parser = argparse.ArgumentParser(description='Mountain testcase.')
-parser.add_argument('--nlayers', type=int, default=35, help='Number of layers, default 10.')
-parser.add_argument('--ncolumns', type=int, default=90, help='Number of columns, default 10.')
-parser.add_argument('--nt', type=int, default=1, help='Number of timesteps to solve.')
-parser.add_argument('--dt', type=float, default=5, help='Timestep in seconds. Default 1.')
-parser.add_argument('--atol', type=float, default=1e-3, help='Average absolute tolerance for each timestep')
-parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space). Default 1.')
-parser.add_argument('--filename', type=str, default='slice_mountain', help='Name of vtk file.')
-parser.add_argument('--write_file', action='store_true', help='Write vtk file at end of each window.')
-parser.add_argument('--output_freq', type=int, default=10, help='How often to write to file.')
-parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
-
-args = parser.parse_known_args()
-args = args[0]
-
-if args.show_args:
-    PETSc.Sys.Print(args)
+from firedrake.petsc import PETSc
+import asQ
 
 PETSc.Sys.Print("Setting up problem")
 
-comm = fd.COMM_WORLD
+time_partition = tuple((2 for _ in range(4)))
+
+ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+
+comm = ensemble.comm
 
 # set up the mesh
 
-output_freq = args.output_freq
-nt = args.nt
-dt = args.dt
+nt = 5
+dt = 5
 
-nlayers = args.nlayers  # horizontal layers
-base_columns = args.ncolumns  # number of columns
+nlayers = 70  # horizontal layers
+base_columns = 180  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -85,8 +68,8 @@ else:
     xexpr = fd.as_vector([x, z + ((H-z)/H)*zs])
 mesh.coordinates.interpolate(xexpr)
 
-horizontal_degree = args.degree
-vertical_degree = args.degree
+horizontal_degree = 1
+vertical_degree = 1
 
 S1 = fd.FiniteElement("CG", fd.interval, horizontal_degree+1)
 S2 = fd.FiniteElement("DG", fd.interval, horizontal_degree)
@@ -169,24 +152,11 @@ for bc in bcs:
     bc.apply(Un)
 
 # Parameters for the newton iterations
-solver_parameters = {
-    "snes": {
-        "monitor": None,
-        "converged_reason": None,
-        "stol": 1e-12,
-        "atol": args.atol,
-        "rtol": 1e-8,
-        "ksp_ew": None,
-        "ksp_ew_version": 1,
-        "ksp_ew_threshold": 1e-5,
-        "ksp_ew_rtol0": 1e-3,
-    },
+atol = 1e-6
+
+lines_parameters = {
     "ksp_type": "fgmres",
-    "ksp": {
-        "monitor": None,
-        "converged_reason": None,
-        "atol": args.atol,
-    },
+    "ksp_rtol": 1e-5,
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
     "assembled": {
@@ -195,114 +165,110 @@ solver_parameters = {
         "pc_vanka": {
             "construct_dim": 0,
             "sub_sub_pc_type": "lu",
-            "sub_sub_pc_factor_mat_solver_type": 'mumps',
+            "sub_sub_pc_factor_mat_ordering_type": 'rcm',
+            "sub_sub_pc_factor_reuse_ordering": None,
+            "sub_sub_pc_factor_reuse_fill": None,
+            # "sub_sub_pc_factor_mat_solver_type": 'mumps',
         },
     },
 }
 
+serial_parameters = {
+    "snes": {
+        "atol": atol,
+        "rtol": 1e-8,
+        "stol": 1e-12,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-5,
+        "ksp_ew_rtol0": 1e-3,
+    },
+    "ksp": {
+        "atol": atol,
+    },
+}
+serial_parameters.update(lines_parameters)
+
+if ensemble.ensemble_comm.rank == 0:
+    serial_parameters['snes']['monitor'] = None
+    serial_parameters['snes']['converged_reason'] = None
+    serial_parameters['ksp']['monitor'] = None
+    serial_parameters['ksp']['converged_reason'] = None
+
+parallel_parameters = {
+    "snes": {
+        "monitor": None,
+        "converged_reason": None,
+        "atol": sqrt(sum(time_partition))*atol,
+        "rtol": 1e-8,
+        "stol": 1e-12,
+        "ksp_ew": None,
+        "ksp_ew_version": 1,
+        "ksp_ew_threshold": 1e-5,
+        "ksp_ew_rtol0": 1e-3,
+    },
+    "ksp_type": "fgmres",
+    "mat_type": "matfree",
+    "ksp": {
+        "monitor": None,
+        "converged_reason": None,
+        "atol": atol,
+    },
+    "pc_type": "python",
+    "pc_python_type": "asQ.DiagFFTPC",
+    "diagfft_alpha": 1e-4
+}
+
+for i in range(sum(time_partition)):
+    parallel_parameters["diagfft_block_"+str(i)+"_"] = lines_parameters
+
 theta = 0.5
 
-miniapp = SerialMiniApp(dt=dt, theta=theta, w_initial=Un,
-                        form_mass=form_mass,
-                        form_function=form_function,
-                        solver_parameters=solver_parameters,
-                        bcs=bcs)
+miniapp = ComparisonMiniapp(ensemble, time_partition,
+                            form_mass=form_mass,
+                            form_function=form_function,
+                            w_initial=Un, dt=dt, theta=theta,
+                            boundary_conditions=bcs,
+                            serial_sparameters=serial_parameters,
+                            parallel_sparameters=parallel_parameters)
+pdg = miniapp.paradiag
+aaofunc = pdg.aaofunc
+is_last_slice = pdg.layout.is_local(-1)
 
 PETSc.Sys.Print("Solving problem")
 
-uout = fd.Function(V1, name='velocity')
-thetaout = fd.Function(Vt, name='temperature')
-rhoout = fd.Function(V2, name='density')
-
-ofile = fd.File('output/slice_mountain.pvd',
-                comm=comm)
+rank = ensemble.ensemble_comm.rank
+norm0 = fd.norm(Un)
 
 
-def assign_out_functions():
-    uout.assign(miniapp.w0.subfunctions[0])
-    rhoout.assign(miniapp.w0.subfunctions[1])
-    thetaout.assign(miniapp.w0.subfunctions[2])
-
-    rhoout.assign(rhoout - rho_back)
-    thetaout.assign(thetaout - theta_back)
-
-
-def write_to_file(time):
-    ofile.write(uout, rhoout, thetaout, t=time)
+def preproc(serial_app, paradiag, wndw):
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'### === --- Time window {wndw} --- === ###')
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('=== --- Parallel solve --- ===')
+    PETSc.Sys.Print('')
 
 
-assign_out_functions()
-write_to_file(time=0)
+def serial_postproc(app, it, t):
+    return
+
+
+def parallel_postproc(pdg, wndw, rhs):
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print('=== --- Serial solve --- ===')
+    PETSc.Sys.Print('')
+    return
+
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
-linear_its = 0
-nonlinear_its = 0
-solver_time = []
 
-cfl_calc = convective_cfl_calculator(mesh)
-cfl_series = []
-
-
-def max_cfl(u, dt):
-    with cfl_calc(u, dt).dat.vec_ro as v:
-        return v.max()[1]
-
-
-def preproc(app, it, time):
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print(f'### === --- Calculating time-step {it} --- === ###')
-    PETSc.Sys.Print('')
-    stime = MPI.Wtime()
-    solver_time.append(stime)
-
-
-def postproc(app, it, time):
-    global linear_its
-    global nonlinear_its
-
-    etime = MPI.Wtime()
-    stime = solver_time[-1]
-    duration = etime - stime
-    solver_time[-1] = duration
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print(f'Timestep solution time: {duration}\n')
-    PETSc.Sys.Print('')
-
-    linear_its += miniapp.nlsolver.snes.getLinearSolveIterations()
-    nonlinear_its += miniapp.nlsolver.snes.getIterationNumber()
-
-    if (it % output_freq) == 0:
-        assign_out_functions()
-        write_to_file(time=time)
-
-    cfl = max_cfl(uout, dt)
-    cfl_series.append(cfl)
-    PETSc.Sys.Print(f'Time = {time}')
-    PETSc.Sys.Print(f'Maximum CFL = {cfl}')
-
-
-# solve for each window
-miniapp.solve(nt=nt,
-              preproc=preproc,
-              postproc=postproc)
+errors = miniapp.solve(nwindows=20,
+                       preproc=preproc,
+                       serial_postproc=serial_postproc,
+                       parallel_postproc=parallel_postproc)
 
 PETSc.Sys.Print('')
-PETSc.Sys.Print('### === --- Iteration counts --- === ###')
-PETSc.Sys.Print('')
+PETSc.Sys.Print('### === --- Errors --- === ###')
 
-PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {linear_its/nt}')
-PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/nt}')
-PETSc.Sys.Print('')
-
-PETSc.Sys.Print(f'Total DoFs: {W.dim()}')
-PETSc.Sys.Print(f'Number of MPI ranks: {mesh.comm.size} ')
-PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
-PETSc.Sys.Print('')
-
-if len(solver_time) > 1:
-    # solver_time = solver_time[1:]
-    solver_time[0] = solver_time[1]
-
-PETSc.Sys.Print(f'Total solution time: {sum(solver_time)}')
-PETSc.Sys.Print(f'Average timestep solution time: {sum(solver_time)/len(solver_time)}')
-PETSc.Sys.Print('')
+for it, err in enumerate(errors):
+    PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
