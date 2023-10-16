@@ -449,7 +449,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             else:
                 raise ValueError(f"x must be be in the `function_space` {self.function_space}"
                                  + f" or `field_function_space` {self.field_function_space} of the"
-                                 + f" the AllAtOnceFunction, not in {src.function_space}")
+                                 + f" the AllAtOnceFunction, not in {x.function_space}")
 
         else:
             raise TypeError(f"x value must be AllAtOnceFunction or PETSc.Vec or field Function, not {type(x)}")
