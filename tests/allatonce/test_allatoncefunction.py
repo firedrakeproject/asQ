@@ -180,6 +180,7 @@ def test_subfunctions(aaof):
 
     cpt_idx = 0
     for i in range(aaof.nlocal_timesteps):
+        assert aaof[i].function_space() == aaof.field_function_space
 
         randu(u)
         aaof[i].assign(u)
@@ -194,6 +195,7 @@ def test_subfunctions(aaof):
 
     cpt_idx = 0
     for i in range(aaof.nlocal_timesteps):
+
         norm = fd.norm(aaof[i])
         assert (norm < 1e-12)
 
@@ -204,6 +206,10 @@ def test_subfunctions(aaof):
                                aaof.function.subfunctions[cpt_idx])
             assert (err < 1e-12)
             cpt_idx += 1
+
+        if aaof.ncomponents == 1:
+            err = fd.errornorm(aaof[i], aaof.function.subfunctions[i])
+            assert (err < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=nprocs)
