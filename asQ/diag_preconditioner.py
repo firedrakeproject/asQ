@@ -443,8 +443,8 @@ class DiagFFTPC(TimePartitionMixin):
                 # copy the data into solver input
                 self.xtemp.assign(0.)
 
-                cpx.set_real(self.xtemp, self.xfr.get_field_components(i))
-                cpx.set_imag(self.xtemp, self.xfi.get_field_components(i))
+                cpx.set_real(self.xtemp, self.xfr[i])
+                cpx.set_imag(self.xtemp, self.xfi[i])
 
                 # Do a project for Riesz map, to be superceded
                 # when we get Cofunction
@@ -455,8 +455,8 @@ class DiagFFTPC(TimePartitionMixin):
                 self.Jsolvers[i].solve()
 
                 # copy the data from solver output
-                cpx.get_real(self.Jprob_out, self.xfr.get_field_components(i))
-                cpx.get_imag(self.Jprob_out, self.xfi.get_field_components(i))
+                cpx.get_real(self.Jprob_out, self.xfr[i])
+                cpx.get_imag(self.Jprob_out, self.xfi[i])
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy

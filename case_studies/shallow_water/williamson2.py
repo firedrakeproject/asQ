@@ -235,15 +235,13 @@ def steady_state_test(w):
 
 
 # check each timestep against steady state
-w = fd.Function(W)
 
 
 def window_postproc(pdg, wndw, rhs):
     uerrors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
     herrors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
     for i in range(pdg.nlocal_timesteps):
-        pdg.aaofunc.get_field(i, uout=w, index_range='slice')
-        uerr, herr = steady_state_test(w)
+        uerr, herr = steady_state_test(pdg.aaofunc[i])
         uerrors.dlocal[i] = uerr
         herrors.dlocal[i] = herr
     uerrors.synchronise()

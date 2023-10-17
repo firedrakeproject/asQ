@@ -193,7 +193,7 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         :arg v: velocity Function from FunctionSpace V1 or a full MixedFunction from W if None, calculate cfl of timestep step. Ignored if step is not None.
         '''
         if step is not None:
-            u = self.get_velocity(step, index_range=index_range)
+            u = self.velocity(step, index_range=index_range)
         elif v is not None:
             if v.function_space() == self.velocity_function_space():
                 u = v
@@ -221,8 +221,8 @@ class ShallowWaterMiniApp(TimePartitionMixin):
             window = self.paradiag.total_windows
 
             if self.record_diagnostics['file']:
-                self.get_velocity(self.save_step, uout=self.uout, index_range='window')
-                self.get_elevation(self.save_step, hout=self.hout, index_range='window')
+                self.uout.assign(self.velocity(self.save_step, index_range='window'))
+                self.elevation(self.depth(self.save_step, index_range='window'), self.hout)
 
                 # global timestep over all windows
                 window_length = self.paradiag.ntimesteps
@@ -282,48 +282,31 @@ class ShallowWaterMiniApp(TimePartitionMixin):
 
         self.sync_diagnostics()
 
-    def get_velocity(self, step, index_range='slice', uout=None, name='velocity', deepcopy=False):
+    def velocity(self, step, index_range='slice'):
         '''
         Return the velocity function at index step
 
         :arg step: the index, either in window or slice
         :arg index_range: whether step is a slice or window index
-        :arg uout: if None, velocity function is returned, else the velocity function is assigned to uout
-        :arg name: if uout is None, the returned velocity function will have this name
-        :arg deepcopy: if True, new function is returned. If false, handle to the velocity component of the all-at-once function is returned. Ignored if wout is not None
         '''
-        return self.aaofunc.get_component(step, self.velocity_index, index_range=index_range,
-                                          uout=uout, name=name, deepcopy=deepcopy)
+        return self.aaofunc[step, index_range].subfunctions[self.velocity_index]
 
-    def get_depth(self, step, index_range='slice', hout=None, name='depth', deepcopy=False):
+    def depth(self, step, index_range='slice'):
         '''
         Return the depth function at index step
 
         :arg step: the index, either in window or slice
         :arg index_range: whether step is a slice or window index
-        :arg hout: if None, depth function is returned, else the depth function is assigned to hout
-        :arg name: if hout is None, the returned depth function will have this name
-        :arg deepcopy: if True, new function is returned. If false, handle to the depth component of the all-at-once function is returned. Ignored if wout is not None
         '''
-        return self.aaofunc.get_component(step, self.depth_index, index_range=index_range,
-                                          uout=hout, name=name, deepcopy=deepcopy)
+        return self.aaofunc[step, index_range].subfunctions[self.depth_index]
 
-    def get_elevation(self, step, index_range='slice', hout=None, name='depth'):
+    def elevation(self, d, h):
         '''
         Return the elevation around the reference depth at index step
 
-        :arg step: the index, either in window or slice
-        :arg index_range: whether step is a slice or window index
-        :arg hout: if None, depth function is returned, else the depth function is assigned to hout
-        :arg name: if hout is None, the returned depth function will have this name
+        :arg d: depth Function to calculate the elevation from.
+        :arg h: returned elevation Function.
         '''
-        if hout is None:
-            h = self.get_depth(step, index_range=index_range, name=name, deepcopy=True)
-            h.assign(h + self.topography_function - self.reference_depth)
-            return h
-        elif hout.function_space() == self.depth_function_space():
-            h = self.get_depth(step, index_range=index_range)
-            hout.assign(h + self.topography_function - self.reference_depth)
-            return
-        else:
-            raise ValueError("hout must be None or a Function from depth_function_space")
+        h.assign(d)
+        h.assign(h + self.topography_function - self.reference_depth)
+        return h

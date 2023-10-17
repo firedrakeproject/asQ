@@ -231,8 +231,8 @@ def write_to_file(time):
     ofile.write(uout, rhoout, thetaout, t=time)
 
 
-assign_out_functions()
-write_to_file(time=0)
+# assign_out_functions()
+# write_to_file(time=0)
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0

@@ -235,10 +235,10 @@ if is_last_slice:
             ofile.write(uout, rhoout, thetaout)
 
     def assign_out_functions():
-        aaofunc.get_component(-1, 0, uout=uout)
+        uout.assign(aaofunc[-1].subfunctions[0])
         if args.write_file:
-            aaofunc.get_component(-1, 1, uout=rhoout)
-            aaofunc.get_component(-1, 2, uout=thetaout)
+            rhoout.assign(aaofunc[-1].subfunctions[1])
+            thetaout.assign(aaofunc[-1].subfunctions[2])
 
             rhoout.assign(rhoout - rho_back)
             thetaout.assign(thetaout - theta_back)

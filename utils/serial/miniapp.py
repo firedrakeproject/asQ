@@ -142,7 +142,6 @@ class ComparisonMiniapp(object):
 
         self.wserial = tuple(fd.Function(self.function_space)
                              for _ in range(self.paradiag.nlocal_timesteps))
-        self.wparallel = fd.Function(self.function_space)
 
     def solve(self, nwindows,
               preproc=lambda srl, pdg, wndw: None,
@@ -176,9 +175,7 @@ class ComparisonMiniapp(object):
 
         def calculate_errors(wndw):
             for i in range(pdg.nlocal_timesteps):
-                aaofunc.get_field(i, uout=self.wparallel, index_range='slice')
-
-                err = fd.errornorm(self.wparallel, self.wserial[i])
+                err = fd.errornorm(aaofunc[i], self.wserial[i])
 
                 window_idx = aaofunc.transform_index(i, from_range='slice', to_range='window')
                 global_timestep = wndw*window_length + window_idx
