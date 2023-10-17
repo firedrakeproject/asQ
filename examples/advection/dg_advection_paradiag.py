@@ -201,10 +201,10 @@ if is_last_slice:
 def window_postproc(pdg, wndw, rhs):
     if is_last_slice:
         # The aaofunc is the AllAtOnceFunction which represents the time-series.
-        # get_field extracts one timestep of the window. -1 is again used to
-        # get the last timestep and place it in qout.
-        pdg.aaofunc.get_field(-1, uout=qout)
-        timeseries.append(qout.copy(deepcopy=True))
+        # indexing the AllAtOnceFunction accesses one timestep on the local slice.
+        # -1 is again used to get the last timestep and place it in qout.
+        qout.assign(pdg.aaofunc[-1])
+        timeseries.append(qout)
 
 
 # Solve nwindows of the all-at-once system

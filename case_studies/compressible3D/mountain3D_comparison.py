@@ -311,5 +311,5 @@ for it, err in enumerate(errors):
 if is_last_slice:
     ofile = fd.File("output/compressible3D/mountain.pvd",
                     comm=ensemble.comm)
-    aaofunc.get_field(-1, Un)
+    Un.assign(aaofunc[-1])
     ofile.write(Un)

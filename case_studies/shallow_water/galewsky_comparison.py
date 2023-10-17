@@ -89,16 +89,19 @@ def form_mass(u, h, v, q):
 
 
 # solver parameters for the implicit solve
+atol = 1e4
 serial_sparameters = {
     'snes': {
-        'atol': 1e-0,
+        'monitor': None,
+        'converged_reason': None,
+        'atol': atol,
         'rtol': 1e-12,
         'stol': 1e-12,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-8,
+        'atol': atol,
         'rtol': 1e-8,
     },
     'pc_type': 'mg',
@@ -114,7 +117,7 @@ serial_sparameters = {
                 'pc_patch_save_operators': True,
                 'pc_patch_partition_of_unity': True,
                 'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_codim': 0,
+                'pc_patch_construct_dim': 0,
                 'pc_patch_construct_type': 'vanka',
                 'pc_patch_local_type': 'additive',
                 'pc_patch_precompute_element_tensors': True,
@@ -145,7 +148,7 @@ block_sparameters = {
     'ksp_type': 'fgmres',
     'ksp': {
         'atol': 1e-8,
-        'rtol': 1e-8,
+        'rtol': 1e-4,
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'v',
@@ -184,7 +187,7 @@ parallel_sparameters = {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-0,
+        'atol': atol,
         'rtol': 1e-12,
         'stol': 1e-12,
         'ksp_ew': None,
@@ -196,13 +199,11 @@ parallel_sparameters = {
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-0,
+        'atol': atol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft': {
-        'alpha': args.alpha
-    }
+    'diagfft_alpha': args.alpha
 }
 
 parallel_sparameters['diagfft_block_'] = block_sparameters
@@ -249,10 +250,10 @@ def serial_postproc(app, it, t):
 
 def parallel_postproc(pdg, wndw, rhs):
     if args.print_norms:
-        aaos = miniapp.paradiag.aaos
-        for step in range(aaos.nlocal_timesteps):
-            it = aaos.transform_index(step, from_range='slice', to_range='window')
-            w = aaos.get_field(step)
+        aaofunc = miniapp.paradiag.aaofunc
+        for step in range(aaofunc.nlocal_timesteps):
+            it = aaofunc.transform_index(step, from_range='slice', to_range='window')
+            w = aaofunc[step]
             PETSc.Sys.Print(f'Rank {rank}: Parallel timestep {it} norm {fd.norm(w)/norm0}', comm=ensemble.comm)
     PETSc.Sys.Print('')
     PETSc.Sys.Print('=== --- Serial solve --- ===')

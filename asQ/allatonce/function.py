@@ -1,10 +1,10 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
+from pyop2 import MixedDat
 from functools import reduce
 from operator import mul
 import contextlib
 from asQ.profiling import profiler
-from asQ.parallel_arrays import in_range
 from asQ.allatonce.mixin import TimePartitionMixin
 
 __all__ = ['time_average', 'AllAtOnceFunction']
@@ -28,7 +28,7 @@ def time_average(aaofunc, uout, uwrk, average='window'):
     uout.assign(0)
     uouts = uout.subfunctions
     for i in range(aaofunc.nlocal_timesteps):
-        for uo, uc in zip(uouts, aaofunc.get_field_components(i)):
+        for uo, uc in zip(uouts, aaofunc[i].subfunctions):
             uo.assign(uo + uc)
 
     if average == 'slice':
@@ -72,6 +72,16 @@ class AllAtOnceFunction(TimePartitionMixin):
         self.function = fd.Function(self.function_space)
         self.initial_condition = fd.Function(self.field_function_space)
 
+        # Functions to view each timestep
+        def field_function(i):
+            dats = (self.function.subfunctions[j].dat
+                    for j in self._component_indices(i))
+            return fd.Function(self.field_function_space,
+                               val=MixedDat(dats))
+
+        self._fields = tuple(field_function(i)
+                             for i in range(self.nlocal_timesteps))
+
         # functions containing the last step of the previous
         # and current slice for parallel communication
         self.uprev = fd.Function(self.field_function_space)
@@ -87,10 +97,9 @@ class AllAtOnceFunction(TimePartitionMixin):
                                                     comm=ensemble.global_comm)
             self._vec.setFromOptions()
 
-    def transform_index(self, i, cpt=None, from_range='slice', to_range='slice'):
+    def transform_index(self, i, from_range='slice', to_range='slice'):
         '''
-        Shift timestep index or component index from one range to another,
-        and account for pythonic -ve indices.
+        Shift timestep index from one range to another, and account for pythonic -ve indices.
 
         For example, if there are 3 ensemble ranks with time_partition=(2, 3, 2), then:
             window index 0 is slice index 0 on ensemble rank 0
@@ -101,15 +110,9 @@ class AllAtOnceFunction(TimePartitionMixin):
             window index 5 is slice index 0 on ensemble rank 2
             window index 6 is slice index 1 on ensemble rank 2
 
-        If cpt is None, shifts from one timestep range to another. If cpt is not None,
-        returns index in flattened all-at-once function of component cpt in timestep i.
-        This is only different from the value returned if cpt is None if a single timestep
-        is defined on a MixedFunctionSpace.
-
         Raises IndexError if original or shifted index is out of bounds.
 
         :arg i: timestep index to shift.
-        :arg cpt: None or component index in timestep i to shift.
         :arg from_range: range of i. Either slice or window.
         :arg to_range: range to shift i to. Either 'slice' or 'window'.
         '''
@@ -122,122 +125,32 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         i = self.layout.transform_index(i, itype=idxtypes[from_range], rtype=idxtypes[to_range])
 
-        if cpt is None:
-            return i
-        else:  # cpt is not None:
-            in_range(cpt, self.ncomponents, throws=True)
-            cpt = cpt % self.ncomponents
-            return i*self.ncomponents + cpt
+        return i
+
+    def _component_indices(self, step, from_range='slice', to_range='slice'):
+        '''
+        Return indices of the components of a timestep in the all-at-once MixedFunction.
+
+        :arg step: timestep index to get component indices for.
+        :arg from_range: range of step. Either slice or window.
+        :arg to_range: range to shift the indices to. Either 'slice' or 'window'.
+        '''
+        step = self.transform_index(step, from_range=from_range, to_range=to_range)
+        return tuple(self.ncomponents*step + c
+                     for c in range(self.ncomponents))
 
     @profiler()
-    def set_component(self, step, cpt, usrc, index_range='slice', funcs=None):
+    def __getitem__(self, i):
         '''
-        Set component of solution at a timestep to new value.
+        Get a Function that is a view over a timestep.
 
-        :arg step: index of timestep.
-        :arg cpt: index of component.
-        :arg usrc: new solution for component cpt of timestep step.
-        :arg index_range: is index in window or slice?
-        :arg funcs: an indexable of the all-at-once function to set component in.
-            If None, self.function.subfunctions is used.
+        :arg i: index of timestep to view.
+        :arg idx: is index in window or slice?
         '''
-        # index of component in all at once function
-        aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
-
-        if funcs is None:
-            funcs = self.function.subfunctions
-        funcs[aao_index].assign(usrc)
-
-    @profiler()
-    def get_component(self, step, cpt, uout=None, index_range='slice', funcs=None, name=None, deepcopy=False):
-        '''
-        Get component of solution at a timestep.
-
-        :arg step: index of timestep.
-        :arg cpt: index of component.
-        :arg index_range: is timestep index in window or slice?
-        :arg uout: Function to place value of component in (if None then component is returned).
-        :arg name: name of returned function if deepcopy=True.
-            Ignored if uout is not None or deepcopy=False.
-        :arg funcs: an indexable of the all-at-once function to get component from.
-            If None, self.function.subfunctions is used
-        :arg deepcopy: if True, new function is returned. If False, handle to component
-            of funcs is returned. Ignored if uout is not None.
-        '''
-        # index of component in all at once function
-        aao_index = self.transform_index(step, cpt, from_range=index_range, to_range='slice')
-
-        if funcs is None:
-            funcs = self.function.subfunctions
-
-        # required component
-        uget = funcs[aao_index]
-
-        if uout is not None:
-            uout.assign(uget)
-            return uout
-
-        if deepcopy is False:
-            return uget
-        else:  # deepcopy is True
-            ureturn = fd.Function(self.field_function_space.sub(cpt), name=name)
-            ureturn.assign(uget)
-            return ureturn
-
-    def get_field_components(self, step, index_range='slice', funcs=None):
-        '''
-        Get tuple of the components of the all-at-once function for a timestep.
-
-        This is equivalent to u.subfunctions if u was the Function for a single timestep.
-        If the argument funcs is firedrake.split(self.function) then this is equivalent
-        to firedrake.split(u) if u was the Function for a single timestep.
-
-        :arg step: index of timestep.
-        :arg index_range: is index in window or slice?
-        :arg funcs: an indexable of the all-at-once function to get components from.
-            If None, self.function.subfunctions is used.
-        '''
-        return tuple(self.get_component(step, cpt, index_range=index_range, funcs=funcs)
-                     for cpt in range(self.ncomponents))
-
-    @profiler()
-    def set_field(self, step, usrc, index_range='slice', funcs=None):
-        '''
-        Set solution at a timestep to new value.
-
-        :arg step: index of timestep to set.
-        :arg usrc: new solution for timestep.
-        :arg index_range: is index in window or slice?
-        :arg funcs: an indexable of the all-at-once function to set timestep in.
-            If None, self.function.subfunctions is used.
-        '''
-        for cpt in range(self.ncomponents):
-            self.set_component(step, cpt, usrc.subfunctions[cpt],
-                               index_range=index_range, funcs=funcs)
-
-    @profiler()
-    def get_field(self, step, uout=None, index_range='slice', name=None, funcs=None):
-        '''
-        Get solution at a timestep.
-
-        :arg step: index of timestep to get.
-        :arg index_range: is index in window or slice?
-        :arg uout: function to set to value of timestep (timestep returned if None).
-        :arg name: name of returned function. Ignored if uout is not None.
-        :arg funcs: an indexable of the all-at-once function to get timestep from.
-            If None, self.function.subfunctions is used.
-        '''
-        if uout is None:
-            uget = fd.Function(self.field_function_space, name=name)
-        else:
-            uget = uout
-
-        ucpts = self.get_field_components(step, index_range=index_range, funcs=funcs)
-
-        for ug, uc in zip(uget.subfunctions, ucpts):
-            ug.assign(uc)
-
-        return uget
+        index = i[0] if type(i) is tuple else i
+        itype = i[1] if type(i) is tuple else 'slice'
+        j = self.transform_index(index, from_range=itype, to_range='slice')
+        return self._fields[j]
 
     @profiler()
     def bcast_field(self, step, u):
@@ -252,7 +165,7 @@ class AllAtOnceFunction(TimePartitionMixin):
 
         # get u if step on this rank
         if self.time_rank == root:
-            self.get_field(step, uout=u, index_range='window')
+            u.assign(self[step, 'window'])
 
         # bcast u
         self.ensemble.bcast(u, root=root)
@@ -268,7 +181,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             If False then a list of MPI requests is returned.
         '''
         # sending last timestep on current slice to next slice
-        self.get_field(-1, uout=self.unext, index_range='slice')
+        self.unext.assign(self[-1])
 
         size = self.ensemble.ensemble_comm.size
         rank = self.ensemble.ensemble_comm.rank
@@ -330,13 +243,17 @@ class AllAtOnceFunction(TimePartitionMixin):
         elif isinstance(src, fd.Function):
             if src.function_space() == self.field_function_space:
                 for i in range(self.nlocal_timesteps):
-                    self.set_field(i, src, index_range='slice')
+                    self[i].assign(src)
                 self.initial_condition.assign(src)
                 if not update_halos:
                     self.uprev.assign(src)
                     self.unext.assign(src)
             elif src.function_space() == self.function_space:
                 self.function.assign(src)
+            else:
+                raise ValueError(f"src must be be in the `function_space` {self.function_space}"
+                                 + " or `field_function_space` {self.field_function_space} of the"
+                                 + " the AllAtOnceFunction, not in {src.function_space}")
 
         else:
             raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec or field Function, not {type(src)}")
