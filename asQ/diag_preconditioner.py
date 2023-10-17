@@ -374,24 +374,33 @@ class DiagFFTPC(TimePartitionMixin):
         '''
         cpx = self.cpx
 
+        # default to time at centre of window
+        self.t_average.assign(self.aaoform.t0 + self.dt*(self.ntimesteps + 1)/2)
+
         jac_state = self.jac_state()
         if jac_state == 'linear':
             return
 
         elif jac_state == 'initial':
             ustate = self.aaofunc.initial_condition
+            self.t_average.assign(self.aaoform.t0)
 
         elif jac_state == 'reference':
             ustate = self.jacobian.reference_state
 
         elif jac_state in ('window', 'slice'):
-            time_average_function(self.aaofunc, self.ureduce, self.uwrk, average=jac_state)
+            time_average_function(self.aaofunc, self.ureduce,
+                                  self.uwrk, average=jac_state)
             ustate = self.ureduce
+
+            if jac_state == 'slice':
+                i1 = self.aaofunc.transform_index(0, from_range='slice',
+                                                  to_range='window')
+                t1 = self.aaoform.t0 + i1*self.dt
+                self.t_average.assign(t1 + self.dt*(self.nlocal_timesteps + 1)/2)
 
         cpx.set_real(self.u0, ustate)
         cpx.set_imag(self.u0, ustate)
-
-        self.t_average.assign(self.aaoform.t0 + (self.aaofunc.ntimesteps + 1)*self.dt/2)
         return
 
     @profiler()
