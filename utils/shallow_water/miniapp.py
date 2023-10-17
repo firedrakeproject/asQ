@@ -53,7 +53,7 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         :arg file_name: if record_diagnostics['file'] is True, save timesteps to file with this name
         '''
         self.ensemble = asQ.create_ensemble(time_partition)
-        self.time_partition_setup(self.ensemble, time_partition)
+        self._time_partition_setup(self.ensemble, time_partition)
 
         self.mesh = create_mesh(comm=self.ensemble.comm)
         x = fd.SpatialCoordinate(self.mesh)
