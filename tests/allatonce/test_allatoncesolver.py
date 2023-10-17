@@ -78,6 +78,83 @@ def test_solve_heat_equation():
     assert residual < atol
 
 
+def test_solve_heat_equation_serial():
+    """
+    Tests the basic solver setup using the heat equation.
+    Solves using unpreconditioned GMRES and checks that the
+    residual of the all-at-once-form is below tolerance.
+    """
+
+    # set up space-time parallelism
+
+    window_length = 4
+
+    time_partition = window_length
+    ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+
+    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
+    V = fd.FunctionSpace(mesh, "CG", 1)
+
+    # all-at-once function and initial conditions
+
+    x, y = fd.SpatialCoordinate(mesh)
+    ics = fd.Function(V).interpolate(fd.exp(-((x - 0.5)**2 + (y - 0.5)**2) / 0.5**2))
+
+    aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, V)
+    aaofunc.assign(ics)
+
+    # all-at-once form
+
+    dt = 0.01
+    theta = 1.0
+
+    def form_function(u, v, t):
+        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+
+    def form_mass(u, v):
+        return fd.inner(u, v)*fd.dx
+
+    aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
+                                form_mass, form_function)
+
+    # solver and options
+
+    atol = 1.0e-6
+    solver_parameters = {
+        'snes_type': 'ksponly',
+        'snes': {
+            'monitor': None,
+            'converged_reason': None,
+            'atol': atol,
+            'rtol': 1.0e-100,
+            'stol': 1.0e-100,
+        },
+        'ksp_type': 'gmres',
+        'mat_type': 'matfree',
+        'ksp': {
+            'monitor': None,
+            'converged_reason': None,
+            'atol': atol,
+            'rtol': 1.0e-100,
+            'stol': 1.0e-100,
+        },
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.DiagFFTPC',
+    }
+
+    aaosolver = asQ.AllAtOnceSolver(aaoform, aaofunc,
+                                    solver_parameters=solver_parameters)
+
+    aaosolver.solve()
+
+    # check residual
+
+    aaoform.assemble(func=aaofunc)
+    residual = fd.norm(aaoform.F.function)
+
+    assert residual < atol
+
+
 extruded = [pytest.param(False, id="standard_mesh"),
             pytest.param(True, id="extruded_mesh")]
 

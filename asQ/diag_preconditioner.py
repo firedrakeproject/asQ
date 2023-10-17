@@ -97,7 +97,7 @@ class DiagFFTPC(TimePartitionMixin):
         A, _ = pc.getOperators()
         jacobian = A.getPythonContext()
         self.jacobian = jacobian
-        self.time_partition_setup(jacobian.ensemble, jacobian.time_partition)
+        self._time_partition_setup(jacobian.ensemble, jacobian.time_partition)
 
         jacobian.pc = self
         aaofunc = jacobian.current_state

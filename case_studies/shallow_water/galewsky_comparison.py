@@ -103,8 +103,6 @@ serial_sparameters = {
     'ksp': {
         'atol': atol,
         'rtol': 1e-8,
-        'monitor': None,
-        'converged_reason': None
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
@@ -137,6 +135,12 @@ serial_sparameters = {
         },
     }
 }
+
+if ensemble.ensemble_comm.rank == 0:
+    serial_sparameters['snes']['monitor'] = None
+    serial_sparameters['snes']['converged_reason'] = None
+    serial_sparameters['ksp']['monitor'] = None
+    serial_sparameters['ksp']['converged_reason'] = None
 
 # parameters for the implicit diagonal solve in step-(b)
 block_sparameters = {
@@ -186,9 +190,12 @@ parallel_sparameters = {
         'atol': atol,
         'rtol': 1e-12,
         'stol': 1e-12,
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-2,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'preonly',
+    'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
@@ -201,20 +208,21 @@ parallel_sparameters = {
 
 parallel_sparameters['diagfft_block_'] = block_sparameters
 
-block_ctx = {}
+appctx = {}
 transfer_managers = []
 for _ in range(time_partition[ensemble.ensemble_comm.rank]):
     tm = mg.manifold_transfer_manager(W)
     transfer_managers.append(tm)
-block_ctx['diagfft_transfer_managers'] = transfer_managers
+appctx['diagfft_transfer_managers'] = transfer_managers
 
 miniapp = ComparisonMiniapp(ensemble, time_partition,
-                            form_mass, form_function,
-                            w_initial,
-                            dt, args.theta,
-                            serial_sparameters,
-                            parallel_sparameters,
-                            appctx=block_ctx)
+                            form_mass=form_mass,
+                            form_function=form_function,
+                            w_initial=w_initial,
+                            dt=dt, theta=args.theta,
+                            serial_sparameters=serial_sparameters,
+                            parallel_sparameters=parallel_sparameters,
+                            appctx=appctx)
 
 miniapp.serial_app.nlsolver.set_transfer_manager(
     mg.manifold_transfer_manager(W))
