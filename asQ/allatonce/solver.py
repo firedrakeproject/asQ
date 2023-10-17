@@ -43,7 +43,7 @@ class AllAtOnceSolver(TimePartitionMixin):
         :arg pre_jacobian_callback: As above, but called immediately before Jacobian assembly.
         :arg post_jacobian_callback: As above, but called immediately after Jacobian assembly.
         """
-        self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
+        self._time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
         self.aaofunc = aaofunc
         self.aaoform = aaoform
 
@@ -113,7 +113,6 @@ class AllAtOnceSolver(TimePartitionMixin):
         self.jacobian_mat = jacobian_mat
 
         def form_jacobian(snes, X, J, P):
-            # copy the snes state vector into self.X
             self.pre_jacobian_callback(self, X, J)
             self.jacobian.update(X)
             self.post_jacobian_callback(self, X, J)
@@ -125,7 +124,6 @@ class AllAtOnceSolver(TimePartitionMixin):
         # complete the snes setup
         self.options.set_from_options(self.snes)
 
-    @PETSc.Log.EventDecorator()
     @profiler()
     def solve(self, rhs=None):
         """

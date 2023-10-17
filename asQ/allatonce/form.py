@@ -32,7 +32,7 @@ class AllAtOnceForm(TimePartitionMixin):
         :arg bcs: a list of DirichletBC boundary conditions on aaofunc.field_function_space.
         :arg alpha: float, circulant matrix parameter. if None then no circulant approximation used.
         """
-        self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
+        self._time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
 
         self.aaofunc = aaofunc
         self.field_function_space = aaofunc.field_function_space
@@ -109,6 +109,7 @@ class AllAtOnceForm(TimePartitionMixin):
 
         return bcs_all
 
+    @profiler()
     def copy(self, aaofunc=None):
         """
         Return a copy of the AllAtOnceForm.
@@ -124,7 +125,6 @@ class AllAtOnceForm(TimePartitionMixin):
                              self.form_mass, self.form_function,
                              bcs=self.field_bcs, alpha=self.alpha)
 
-    @PETSc.Log.EventDecorator()
     @profiler()
     def assemble(self, func=None, tensor=None):
         """

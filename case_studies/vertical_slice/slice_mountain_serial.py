@@ -1,10 +1,30 @@
 import firedrake as fd
+from firedrake.petsc import PETSc
+from pyop2.mpi import MPI
 from math import pi
 from utils.diagnostics import convective_cfl_calculator
 from utils.serial import SerialMiniApp
 from utils.vertical_slice import hydrostatic_rho, \
     get_form_mass, get_form_function, maximum
-from firedrake.petsc import PETSc
+
+import argparse
+parser = argparse.ArgumentParser(description='Mountain testcase.')
+parser.add_argument('--nlayers', type=int, default=35, help='Number of layers, default 10.')
+parser.add_argument('--ncolumns', type=int, default=90, help='Number of columns, default 10.')
+parser.add_argument('--nt', type=int, default=1, help='Number of timesteps to solve.')
+parser.add_argument('--dt', type=float, default=5, help='Timestep in seconds. Default 1.')
+parser.add_argument('--atol', type=float, default=1e-3, help='Average absolute tolerance for each timestep')
+parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space). Default 1.')
+parser.add_argument('--filename', type=str, default='slice_mountain', help='Name of vtk file.')
+parser.add_argument('--write_file', action='store_true', help='Write vtk file at end of each window.')
+parser.add_argument('--output_freq', type=int, default=10, help='How often to write to file.')
+parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
+
+args = parser.parse_known_args()
+args = args[0]
+
+if args.show_args:
+    PETSc.Sys.Print(args)
 
 PETSc.Sys.Print("Setting up problem")
 
@@ -12,11 +32,12 @@ comm = fd.COMM_WORLD
 
 # set up the mesh
 
-nt = 7200
-dt = 1.25
+output_freq = args.output_freq
+nt = args.nt
+dt = args.dt
 
-nlayers = 280  # horizontal layers
-base_columns = 720  # number of columns
+nlayers = args.nlayers  # horizontal layers
+base_columns = args.ncolumns  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -31,8 +52,11 @@ base_mesh = fd.PeriodicIntervalMesh(base_columns, L,
                                     comm=comm)
 
 # volume mesh of the slice
-mesh = fd.ExtrudedMesh(base_mesh, layers=nlayers, layer_height=H/nlayers)
+mesh = fd.ExtrudedMesh(base_mesh,
+                       layers=nlayers,
+                       layer_height=H/nlayers)
 n = fd.FacetNormal(mesh)
+x, z = fd.SpatialCoordinate(mesh)
 
 g = fd.Constant(9.810616)
 N = fd.Constant(0.01)  # Brunt-Vaisala frequency (1/s)
@@ -48,7 +72,6 @@ dT = fd.Constant(dt)
 # making a mountain out of a molehill
 a = 10000.
 xc = L/2.
-x, z = fd.SpatialCoordinate(mesh)
 hm = 1.
 zs = hm*a**2/((x-xc)**2 + a**2)
 
@@ -62,8 +85,8 @@ else:
     xexpr = fd.as_vector([x, z + ((H-z)/H)*zs])
 mesh.coordinates.interpolate(xexpr)
 
-horizontal_degree = 1
-vertical_degree = 1
+horizontal_degree = args.degree
+vertical_degree = args.degree
 
 S1 = fd.FiniteElement("CG", fd.interval, horizontal_degree+1)
 S2 = fd.FiniteElement("DG", fd.interval, horizontal_degree)
@@ -91,18 +114,13 @@ PETSc.Sys.Print(f"DoFs/core: {W.dim()/comm.size}")
 
 Un = fd.Function(W)
 
-x, z = fd.SpatialCoordinate(mesh)
-
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
 Tsurf = fd.Constant(300.)
 thetab = Tsurf*fd.exp(N**2*z/g)
 
-cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
 Up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
-un = Un.subfunctions[0]
-rhon = Un.subfunctions[1]
-thetan = Un.subfunctions[2]
+un, rhon, thetan = Un.subfunctions
 un.project(fd.as_vector([10.0, 0.0]))
 thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
@@ -131,10 +149,11 @@ hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
 
 rho_back = fd.Function(V2).assign(rhon)
 
-zc = H-10000.
-mubar = 0.15/dt
-mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(H-zc))**2)
-mu = fd.Function(V2).interpolate(mu_top/dT)
+zc = fd.Constant(H-10000.)
+mubar = fd.Constant(0.15/dt)
+mu_top = fd.conditional(z <= zc, 0.0,
+                        mubar*fd.sin(fd.Constant(pi/2.)*(z-zc)/(fd.Constant(H)-zc))**2)
+mu = fd.Function(V2).interpolate(mu_top)
 
 form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
                                   cp=cp, g=g, R_d=R_d,
@@ -155,18 +174,18 @@ solver_parameters = {
         "monitor": None,
         "converged_reason": None,
         "stol": 1e-12,
-        "atol": 1e-6,
-        "rtol": 1e-6,
+        "atol": args.atol,
+        "rtol": 1e-8,
         "ksp_ew": None,
         "ksp_ew_version": 1,
         "ksp_ew_threshold": 1e-5,
         "ksp_ew_rtol0": 1e-3,
     },
-    "ksp_type": "gmres",
+    "ksp_type": "fgmres",
     "ksp": {
         "monitor": None,
         "converged_reason": None,
-        "atol": 1e-7,
+        "atol": args.atol,
     },
     "pc_type": "python",
     "pc_python_type": "firedrake.AssembledPC",
@@ -218,6 +237,7 @@ def write_to_file(time):
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0
 nonlinear_its = 0
+solver_time = []
 
 cfl_calc = convective_cfl_calculator(mesh)
 cfl_series = []
@@ -232,18 +252,28 @@ def preproc(app, it, time):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-step {it} --- === ###')
     PETSc.Sys.Print('')
+    stime = MPI.Wtime()
+    solver_time.append(stime)
 
 
 def postproc(app, it, time):
     global linear_its
     global nonlinear_its
 
+    etime = MPI.Wtime()
+    stime = solver_time[-1]
+    duration = etime - stime
+    solver_time[-1] = duration
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'Timestep solution time: {duration}\n')
+    PETSc.Sys.Print('')
+
     linear_its += miniapp.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += miniapp.nlsolver.snes.getIterationNumber()
 
-    # assign_out_functions()
-    # write_to_file(time=time)
-    PETSc.Sys.Print('')
+    if (it % output_freq) == 0:
+        assign_out_functions()
+        write_to_file(time=time)
 
     cfl = max_cfl(uout, dt)
     cfl_series.append(cfl)
@@ -262,4 +292,17 @@ PETSc.Sys.Print('')
 
 PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {linear_its/nt}')
 PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/nt}')
+PETSc.Sys.Print('')
+
+PETSc.Sys.Print(f'Total DoFs: {W.dim()}')
+PETSc.Sys.Print(f'Number of MPI ranks: {mesh.comm.size} ')
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
+PETSc.Sys.Print('')
+
+if len(solver_time) > 1:
+    # solver_time = solver_time[1:]
+    solver_time[0] = solver_time[1]
+
+PETSc.Sys.Print(f'Total solution time: {sum(solver_time)}')
+PETSc.Sys.Print(f'Average timestep solution time: {sum(solver_time)/len(solver_time)}')
 PETSc.Sys.Print('')

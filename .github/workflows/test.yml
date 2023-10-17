@@ -54,6 +54,7 @@ jobs:
       - name: Lint
         run: |
           . /home/firedrake/firedrake/bin/activate
+          flake8 --version
           flake8 .
       - name: Test
         run: |

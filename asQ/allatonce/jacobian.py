@@ -1,5 +1,4 @@
 import firedrake as fd
-from firedrake.petsc import PETSc
 from functools import partial
 
 from asQ.profiling import profiler
@@ -44,7 +43,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         :arg options_prefix: string prefix for the Jacobian PETSc options.
         :arg appctx: the appcontext for the Jacobian and the preconditioner.
         """
-        self.time_partition_setup(aaoform.ensemble, aaoform.time_partition)
+        self._time_partition_setup(aaoform.ensemble, aaoform.time_partition)
         prefix = self.prefix + options_prefix
 
         aaofunc = aaoform.aaofunc
@@ -105,7 +104,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         self.update()
 
-    @PETSc.Log.EventDecorator()
+    @profiler()
     def update(self, X=None):
         """
         Update the state to linearise around according to aaos_jacobian_state.
@@ -141,7 +140,6 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         return
 
-    @PETSc.Log.EventDecorator()
     @profiler()
     def mult(self, mat, X, Y):
         """

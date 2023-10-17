@@ -91,8 +91,6 @@ def form_mass(u, h, v, q):
 # solver parameters for the implicit solve
 serial_sparameters = {
     'snes': {
-        'monitor': None,
-        'converged_reason': None,
         'atol': 1e-0,
         'rtol': 1e-12,
         'stol': 1e-12,
@@ -102,8 +100,6 @@ serial_sparameters = {
     'ksp': {
         'atol': 1e-8,
         'rtol': 1e-8,
-        'monitor': None,
-        'converged_reason': None
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
@@ -136,6 +132,12 @@ serial_sparameters = {
         },
     }
 }
+
+if ensemble.ensemble_comm.rank == 0:
+    serial_sparameters['snes']['monitor'] = None
+    serial_sparameters['snes']['converged_reason'] = None
+    serial_sparameters['ksp']['monitor'] = None
+    serial_sparameters['ksp']['converged_reason'] = None
 
 # parameters for the implicit diagonal solve in step-(b)
 block_sparameters = {
@@ -185,34 +187,41 @@ parallel_sparameters = {
         'atol': 1e-0,
         'rtol': 1e-12,
         'stol': 1e-12,
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-2,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'preonly',
+    'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
+        'atol': 1e-0,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'
+    'pc_python_type': 'asQ.DiagFFTPC',
+    'diagfft': {
+        'alpha': args.alpha
+    }
 }
 
 parallel_sparameters['diagfft_block_'] = block_sparameters
 
-block_ctx = {}
+appctx = {}
 transfer_managers = []
 for _ in range(time_partition[ensemble.ensemble_comm.rank]):
     tm = mg.manifold_transfer_manager(W)
     transfer_managers.append(tm)
-block_ctx['diagfft_transfer_managers'] = transfer_managers
+appctx['diagfft_transfer_managers'] = transfer_managers
 
 miniapp = ComparisonMiniapp(ensemble, time_partition,
-                            form_mass,
-                            form_function,
-                            w_initial,
-                            dt, args.theta, args.alpha,
-                            serial_sparameters,
-                            parallel_sparameters,
-                            block_ctx=block_ctx)
+                            form_mass=form_mass,
+                            form_function=form_function,
+                            w_initial=w_initial,
+                            dt=dt, theta=args.theta,
+                            serial_sparameters=serial_sparameters,
+                            parallel_sparameters=parallel_sparameters,
+                            appctx=appctx)
 
 miniapp.serial_app.nlsolver.set_transfer_manager(
     mg.manifold_transfer_manager(W))
@@ -238,7 +247,7 @@ def serial_postproc(app, it, t):
     return
 
 
-def parallel_postproc(pdg, wndw):
+def parallel_postproc(pdg, wndw, rhs):
     if args.print_norms:
         aaos = miniapp.paradiag.aaos
         for step in range(aaos.nlocal_timesteps):

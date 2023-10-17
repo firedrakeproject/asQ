@@ -10,6 +10,7 @@ from asQ.allatonce.mixin import TimePartitionMixin
 __all__ = ['time_average', 'AllAtOnceFunction']
 
 
+@profiler()
 def time_average(aaofunc, uout, uwrk, average='window'):
     """
     Compute the time average of an all-at-once function
@@ -57,7 +58,7 @@ class AllAtOnceFunction(TimePartitionMixin):
             ensemble rank.
         :arg function_space: a FunctionSpace for the solution at a single timestep.
         """
-        self.time_partition_setup(ensemble, time_partition)
+        self._time_partition_setup(ensemble, time_partition)
 
         # function space for single timestep
         self.field_function_space = function_space
@@ -241,7 +242,7 @@ class AllAtOnceFunction(TimePartitionMixin):
     @profiler()
     def bcast_field(self, step, u):
         """
-        Broadcast solution at given timestep to all time-ranks.
+        Broadcast solution at given timestep `step` to Function `u` on all time-ranks.
 
         :arg step: window index of field to broadcast.
         :arg u: fd.Function to place field into.
