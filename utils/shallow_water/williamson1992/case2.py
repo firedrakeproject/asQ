@@ -59,6 +59,12 @@ def elevation_function(x, y, z, V2, href=H0, uref=U0, name="elevation"):
     return eta.project(elevation_expression(x, y, z, href=href, uref=uref))
 
 
+def depth_expression(x, y, z, href=H0, uref=U0):
+    b = topography_expression(x, y, z)
+    eta = elevation_expression(x, y, z, href=href, uref=uref)
+    return href - b + eta
+
+
 # topography field b
 def topography_expression(x, y, z):
     return fd.Constant(0)
