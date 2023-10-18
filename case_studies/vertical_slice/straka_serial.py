@@ -180,20 +180,22 @@ miniapp = SerialMiniApp(dt=dt, theta=theta, w_initial=Un,
 
 PETSc.Sys.Print("Solving problem")
 
-uout = fd.Function(V1, name='velocity')
-thetaout = fd.Function(Vt, name='temperature')
-rhoout = fd.Function(V2, name='density')
+uout = fd.Function(V1, name='velocity').assign(Un.subfunctions[0])
+rhoout = fd.Function(V2, name='density').assign(Un.subfunctions[1])
+thetaout = fd.Function(Vt, name='temperature').assign(Un.subfunctions[2])
 
 ofile = fd.File(f'output/straka/{args.filename}.pvd',
                 comm=comm)
 
+def output_iteration(it):
+    return (it+1) % args.output_freq
 
 def assign_out_functions(it):
-    uout.assign(miniapp.w0.subfunctions[0])
+    uout.assign(miniapp.w1.subfunctions[0])
 
-    if (it % args.output_freq) == 0:
-        rhoout.assign(miniapp.w0.subfunctions[1])
-        thetaout.assign(miniapp.w0.subfunctions[2])
+    if output_iteration(it):
+        rhoout.assign(miniapp.w1.subfunctions[1])
+        thetaout.assign(miniapp.w1.subfunctions[2])
 
         rhoout.assign(rhoout - rho_back)
         thetaout.assign(thetaout - theta_back)
@@ -245,12 +247,11 @@ def postproc(app, it, time):
 
     assign_out_functions(it)
 
-    if (it % args.output_freq) == 0:
+    if output_iteration(it):
         write_to_file(time=time)
 
     cfl = max_cfl(uout, dt)
     cfl_series.append(cfl)
-    PETSc.Sys.Print('')
     PETSc.Sys.Print(f'Time = {time}')
     PETSc.Sys.Print(f'Maximum CFL = {cfl}')
 

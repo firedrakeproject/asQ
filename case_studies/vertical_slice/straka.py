@@ -42,7 +42,7 @@ dt = args.dt
 
 nlayers = args.nlayers  # horizontal layers
 base_columns = args.ncolumns  # number of columns
-L = 512e3
+L = 51.2e3
 H = 6.4e3  # Height position of the model top
 
 distribution_parameters = {
@@ -231,8 +231,8 @@ if is_last_slice:
         ofile = fd.File(f'{args.metrics_dir}/vtk/{args.filename}.pvd',
                         comm=ensemble.comm)
 
-        def write_to_file():
-            ofile.write(uout, rhoout, thetaout)
+        def write_to_file(time):
+            ofile.write(uout, rhoout, thetaout, t=time)
 
     def assign_out_functions():
         uout.assign(aaofunc[-1].subfunctions[0])
@@ -242,6 +242,11 @@ if is_last_slice:
 
             rhoout.assign(rhoout - rho_back)
             thetaout.assign(thetaout - theta_back)
+
+    if args.write_file:
+        assign_out_functions()
+        write_to_file(time=0)
+
 
     cfl_calc = convective_cfl_calculator(mesh)
     cfl_series = []
@@ -275,7 +280,7 @@ def window_postproc(pdg, wndw, rhs):
         assign_out_functions()
 
         if args.write_file:
-            write_to_file()
+            write_to_file(time=pdg.aaoform.time[-1])
 
         cfl = max_cfl(uout, dt)
         cfl_series.append(cfl)
