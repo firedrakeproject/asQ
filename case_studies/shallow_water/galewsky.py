@@ -2,6 +2,7 @@ from firedrake.petsc import PETSc
 
 import asQ
 import firedrake as fd  # noqa: F401
+from math import sqrt
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
@@ -24,6 +25,7 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
+parser.add_argument('--atol', type=float, default=1e0, help='Average absolute tolerance for each timestep.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
 parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
@@ -69,7 +71,7 @@ patch_parameters = {
 mg_parameters = {
     'levels': {
         'ksp_type': 'gmres',
-        'ksp_max_it': 5,
+        'ksp_max_it': 4,
         'pc_type': 'python',
         'pc_python_type': 'firedrake.PatchPC',
         'patch': patch_parameters
@@ -86,8 +88,8 @@ sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-5,
-        'rtol': 1e-5,
+        'atol': 1e-10,
+        'rtol': 0.1*args.alpha,
         'max_it': 50,
     },
     'pc_type': 'mg',
@@ -96,25 +98,27 @@ sparameters = {
     'mg': mg_parameters
 }
 
+atol = args.atol
+patol = sqrt(sum(time_partition))*atol
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
-        'monitor': None,
+        # 'monitor': None,
         'converged_reason': None,
-        'atol': 1e-0,
-        'rtol': 1e-10,
+        'atol': patol,
+        'rtol': 1e-12,
         'stol': 1e-12,
         'ksp_ew': None,
         'ksp_ew_version': 1,
         'ksp_ew_threshold': 1e-2,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'preonly',
     'ksp': {
-        'monitor': None,
-        'converged_reason': None,
+        # 'monitor': None,
+        # 'converged_reason': None,
         'rtol': 1e-5,
-        'atol': 1e-0,
+        'atol': patol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
@@ -132,24 +136,63 @@ create_mesh = partial(
     coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
 
 # check convergence of each timestep
+class Cache(object):
+    def __init__(self):
+        self._item_dict = {}
+        self._factory_dict = {}
+
+    def register_item(self, key, factory):
+        self._factory_dict[key] = factory
+        return self
+
+    def get(self, key, *args, **kwargs):
+        if key not in self._factory_dict:
+            raise KeyError("key must be pre-registered")
+        if key not in self._item_dict:
+            factory = self._factory_dict[key]
+            self._item_dict[key] = factory(*args, **kwargs)
+        return self._item_dict[key]
+
+def array_factory(ensemble):
+    return asQ.SharedArray(time_partition,
+                           comm=ensemble.ensemble_comm)
+
+cache = Cache()
+cache.register_item('residuals', array_factory)
+cache.register_item('aaofunc', lambda aaofunc: aaofunc.copy())
+cache.register_item('aaobuf', lambda aaofunc: aaofunc.copy())
+
+step_converged = [False for _ in range(args.slice_length)]
+
+def pre_function_callback(aaosolver, X):
+    # aaobuf = cache.get('aaobuf', aaosolver.aaofunc)
+    # converged_aaofunc = cache.get('aaofunc', aaosolver.aaofunc)
+    # aaobuf.assign(X)
+    # for i in range(aaosolver.nlocal_timesteps):
+    #     if step_converged[i]:
+    #         aaobuf.set_field(i, converged_aaofunc.get_field(i))
+    # with aaobuf.global_vec_ro() as gvec:
+    #     gvec.copy(X)
+    pass
 
 
 def post_function_callback(aaosolver, X, F):
-    residuals = asQ.SharedArray(time_partition,
-                                comm=aaosolver.ensemble.ensemble_comm)
     # all-at-once residual
+    residuals = cache.get('residuals', aaosolver.ensemble)
     res = aaosolver.aaoform.F
+    # converged_aaofunc = cache.get('aaofunc')
+    # aaofunc = aaosolver.aaofunc
     for i in range(res.nlocal_timesteps):
-        w = res[i]
-        # residuals.dlocal[i] = fd.norm(w)
-        with w.dat.vec_ro as vec:
+        with res[i].dat.vec_ro as vec:
             residuals.dlocal[i] = vec.norm()
+        # if residuals.dlocal[i] < 0.2*atol:
+        #     step_converged[i] = True
+        #     converged_aaofunc.set_field(i, aaofunc.get_field(i))
     residuals.synchronise()
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print('Field residuals:')
-    fr = [f"{r:.4e}" for r in residuals.data()]
-    PETSc.Sys.Print(fr)
-    PETSc.Sys.Print('')
+    # PETSc.Sys.Print('')
+    # PETSc.Sys.Print('Field residuals:')
+    PETSc.Sys.Print([f"{r:.4e}" for r in residuals.data()])
+    # PETSc.Sys.Print('')
 
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
@@ -165,14 +208,15 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename,
+                                  pre_function_callback=pre_function_callback,
                                   post_function_callback=post_function_callback,
                                   record_diagnostics={'cfl': True, 'file': False})
 
 ics = miniapp.aaofunc.initial_condition
 reference_state = miniapp.solver.jacobian.reference_state
 reference_state.assign(ics)
-reference_state.subfunctions[0].assign(0)
-reference_state.subfunctions[1].assign(galewsky.H0)
+# reference_state.subfunctions[0].assign(0)
+# reference_state.subfunctions[1].assign(galewsky.H0)
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -188,8 +232,8 @@ def window_postproc(swe_app, pdg, wndw):
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)
         PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
-        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
+        PETSc.Sys.Print(f'Hours = {float(time/units.hour)}', comm=comm)
+        PETSc.Sys.Print(f'Days = {float(time/earth.day)}', comm=comm)
         PETSc.Sys.Print('', comm=comm)
 
 
