@@ -7,21 +7,41 @@ from utils.vertical_slice import hydrostatic_rho, \
 from firedrake.petsc import PETSc
 import asQ
 
+import argparse
+parser = argparse.ArgumentParser(description='Mountain testcase.')
+parser.add_argument('--nlayers', type=int, default=35, help='Number of layers, default 10.')
+parser.add_argument('--ncolumns', type=int, default=90, help='Number of columns, default 10.')
+parser.add_argument('--nwindows', type=int, default=1, help='Number of windows to solve.')
+parser.add_argument('--nslices', type=int, default=2, help='Number of slices in the all-at-once system.')
+parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps in each slice of the all-at-once system.')
+parser.add_argument('--dt', type=float, default=5, help='Timestep in seconds. Default 1.')
+parser.add_argument('--atol', type=float, default=1e-3, help='Average absolute tolerance for each timestep')
+parser.add_argument('--alpha', type=float, default=1e-3, help='Circulant parameter')
+parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space). Default 1.')
+parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
+
+args = parser.parse_known_args()
+args = args[0]
+
+if args.show_args:
+    PETSc.Sys.Print(args)
+
 PETSc.Sys.Print("Setting up problem")
 
-time_partition = tuple((1 for _ in range(2)))
+time_partition = tuple((args.slice_length for _ in range(args.nslices)))
+window_length = sum(time_partition)
 
-ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+global_comm = fd.COMM_WORLD
+ensemble = asQ.create_ensemble(time_partition, comm=global_comm)
 
 comm = ensemble.comm
 
 # set up the mesh
 
-nt = 5
-dt = 5
+dt = args.dt
 
-nlayers = 35  # horizontal layers
-base_columns = 90  # number of columns
+nlayers = args.nlayers  # horizontal layers
+base_columns = args.ncolumns  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -69,8 +89,8 @@ else:
     xexpr = fd.as_vector([x, z + ((H-z)/H)*zs])
 mesh.coordinates.interpolate(xexpr)
 
-horizontal_degree = 1
-vertical_degree = 1
+horizontal_degree = args.degree
+vertical_degree = args.degree
 
 S1 = fd.FiniteElement("CG", fd.interval, horizontal_degree+1)
 S2 = fd.FiniteElement("DG", fd.interval, horizontal_degree)
@@ -153,7 +173,8 @@ for bc in bcs:
     bc.apply(Un)
 
 # Parameters for the newton iterations
-atol = 1e-6
+atol = args.atol
+patol = sqrt(window_length)*atol
 
 lines_parameters = {
     "ksp_type": "fgmres",
@@ -200,7 +221,7 @@ parallel_parameters = {
     "snes": {
         "monitor": None,
         "converged_reason": None,
-        "atol": sqrt(sum(time_partition))*atol,
+        "atol": patol,
         "rtol": 1e-8,
         "stol": 1e-12,
         "ksp_ew": None,
@@ -213,11 +234,11 @@ parallel_parameters = {
     "ksp": {
         "monitor": None,
         "converged_reason": None,
-        "atol": atol,
+        "atol": patol,
     },
     "pc_type": "python",
     "pc_python_type": "asQ.DiagFFTPC",
-    "diagfft_alpha": 1e-4
+    "diagfft_alpha": args.alpha
 }
 
 for i in range(sum(time_partition)):
@@ -263,7 +284,7 @@ def parallel_postproc(pdg, wndw, rhs):
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-errors = miniapp.solve(nwindows=1,
+errors = miniapp.solve(nwindows=args.nwindows,
                        preproc=preproc,
                        serial_postproc=serial_postproc,
                        parallel_postproc=parallel_postproc)
