@@ -75,9 +75,9 @@ class SerialMiniApp(object):
         Integrate forward nt timesteps
         '''
         for step in range(nt):
-            preproc(self, step, self.time)
+            preproc(self, step, float(self.time))
             self.nlsolver.solve()
-            postproc(self, step, self.time.values()[0])
+            postproc(self, step, float(self.time))
 
             self.w0.assign(self.w1)
             self.time.assign(self.time + self.dt)
