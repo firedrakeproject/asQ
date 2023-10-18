@@ -2,9 +2,10 @@ import firedrake as fd
 import asQ
 from math import pi, sqrt
 from pyop2.mpi import MPI
+from utils.misc import function_maximum
 from utils.diagnostics import convective_cfl_calculator
 from utils.vertical_slice import hydrostatic_rho, \
-    get_form_mass, get_form_function, maximum
+    get_form_mass, get_form_function
 from firedrake.petsc import PETSc
 
 import argparse
@@ -138,12 +139,12 @@ Pi = fd.Function(V2)
 hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.02),
                 cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
                 top=True, Pi=Pi)
-p0 = maximum(Pi)
+p0 = function_maximum(Pi)
 
 hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.05),
                 cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
                 top=True, Pi=Pi)
-p1 = maximum(Pi)
+p1 = function_maximum(Pi)
 alpha = 2.*(p1-p0)
 beta = p1-alpha
 pi_top = (1.-beta)/alpha

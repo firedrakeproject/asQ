@@ -1,14 +1,15 @@
 import firedrake as fd
 from math import pi, sqrt
 from utils.serial import ComparisonMiniapp
+from utils.misc import function_maximum
 from utils.vertical_slice import hydrostatic_rho, \
-    get_form_mass, get_form_function, maximum
+    get_form_mass, get_form_function
 from firedrake.petsc import PETSc
 import asQ
 
 PETSc.Sys.Print("Setting up problem")
 
-time_partition = tuple((2 for _ in range(4)))
+time_partition = tuple((1 for _ in range(2)))
 
 ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
@@ -19,8 +20,8 @@ comm = ensemble.comm
 nt = 5
 dt = 5
 
-nlayers = 70  # horizontal layers
-base_columns = 180  # number of columns
+nlayers = 35  # horizontal layers
+base_columns = 90  # number of columns
 L = 144e3
 H = 35e3  # Height position of the model top
 
@@ -116,12 +117,12 @@ Pi = fd.Function(V2)
 hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.02),
                 cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
                 top=True, Pi=Pi)
-p0 = maximum(Pi)
+p0 = function_maximum(Pi)
 
 hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.05),
                 cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
                 top=True, Pi=Pi)
-p1 = maximum(Pi)
+p1 = function_maximum(Pi)
 alpha = 2.*(p1-p0)
 beta = p1-alpha
 pi_top = (1.-beta)/alpha
@@ -262,7 +263,7 @@ def parallel_postproc(pdg, wndw, rhs):
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 
-errors = miniapp.solve(nwindows=20,
+errors = miniapp.solve(nwindows=1,
                        preproc=preproc,
                        serial_postproc=serial_postproc,
                        parallel_postproc=parallel_postproc)
