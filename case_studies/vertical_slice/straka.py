@@ -247,7 +247,6 @@ if is_last_slice:
         assign_out_functions()
         write_to_file(time=0)
 
-
     cfl_calc = convective_cfl_calculator(mesh)
     cfl_series = []
 

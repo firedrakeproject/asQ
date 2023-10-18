@@ -187,8 +187,10 @@ thetaout = fd.Function(Vt, name='temperature').assign(Un.subfunctions[2])
 ofile = fd.File(f'output/straka/{args.filename}.pvd',
                 comm=comm)
 
+
 def output_iteration(it):
     return (it+1) % args.output_freq
+
 
 def assign_out_functions(it):
     uout.assign(miniapp.w1.subfunctions[0])
