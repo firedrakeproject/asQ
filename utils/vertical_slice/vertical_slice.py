@@ -1,6 +1,6 @@
 import firedrake as fd
-import numpy as np
 from firedrake.petsc import PETSc
+from utils.misc import curl0, cross0, cross1
 
 
 def pi_formula(rho, theta, R_d, p_0, kappa):
@@ -163,90 +163,6 @@ def rho_tendency(q, rho, u, n):
 
 def u_mass(u, w):
     return fd.inner(u, w)*fd.dx
-
-
-def curl0(u):
-    """
-    Curl function from y-cpt field to x-z field
-    """
-    mesh = u.ufl_domain()
-    d = np.sum(mesh.cell_dimension())
-
-    if d == 2:
-        # equivalent vector is (0, u, 0)
-
-        # |i   j   k  |
-        # |d_x 0   d_z| = (- du/dz, 0, du/dx)
-        # |0   u   0  |
-        return fd.as_vector([-u.dx(1), u.dx(0)])
-    elif d == 3:
-        return fd.curl(u)
-    else:
-        raise NotImplementedError("curl only implemented for 2 or 3 dimensions")
-
-
-def curl1(u):
-    """
-    dual curl function from dim-1 forms to dim-2 forms
-    """
-    mesh = u.ufl_domain()
-    d = np.sum(mesh.cell_dimension())
-
-    if d == 2:
-        # we have vector in x-z plane and return scalar
-        # representing y component of the curl
-
-        # |i   j   k   |
-        # |d_x 0   d_z | = (0, -du_3/dx + du_1/dz, 0)
-        # |u_1 0   u_3 |
-
-        return -u[1].dx(0) + u[0].dx(1)
-    elif d == 3:
-        return fd.curl(u)
-    else:
-        raise NotImplementedError("curl only implemented for 2 or 3 dimensions")
-
-
-def cross1(u, w):
-    """
-    cross product (slice vector field with slice vector field)
-    """
-    mesh = u.ufl_domain()
-    d = np.sum(mesh.cell_dimension())
-
-    if d == 2:
-        # cross product of two slice vectors goes into y cpt
-
-        # |i   j   k   |
-        # |u_1 0   u_3 | = (0, -u_1*w_3 + u_3*w_1, 0)
-        # |w_1 0   w_3 |
-
-        return w[0]*u[1] - w[1]*u[0]
-    elif d == 3:
-        return fd.cross(u, w)
-    else:
-        raise NotImplementedError("cross only implemented for 2 or 3 dimensions")
-
-
-def cross0(u, w):
-    """
-    cross product (slice vector field with out-of-slice vector field)
-    """
-
-    # |i   j   k   |
-    # |u_1 0   u_3 | = (-w*u_3, 0, w*u_1)
-    # |0   w   0   |
-
-    mesh = u.ufl_domain()
-    d = np.sum(mesh.cell_dimension())
-
-    if d == 2:
-        # cross product of two slice vectors goes into y cpt
-        return fd.as_vector([-w*u[1], w*u[0]])
-    elif d == 3:
-        return fd.cross(u, w)
-    else:
-        raise NotImplementedError("cross only implemented for 2 or 3 dimensions")
 
 
 def both(u):
