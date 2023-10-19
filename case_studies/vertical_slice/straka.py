@@ -3,7 +3,6 @@ import asQ
 from pyop2.mpi import MPI
 from math import sqrt
 from utils.diagnostics import convective_cfl_calculator
-from utils.vertical_slice import get_form_mass, get_form_function
 from utils import compressible_flow as euler
 from firedrake.petsc import PETSc
 
@@ -113,11 +112,11 @@ rhon.project(rhon*thetan/theta_back)
 
 viscosity = fd.Constant(75.)
 
-form_mass = get_form_mass()
+form_mass = euler.get_form_mass()
 
-form_function = get_form_function(n=n, Up=Up, c_pen=fd.Constant(2.0**(-7./2)),
-                                  gas=gas, mu=None,
-                                  viscosity=viscosity, diffusivity=viscosity)
+form_function = euler.get_form_function(n=n, Up=Up, c_pen=fd.Constant(2.0**(-7./2)),
+                                        gas=gas, mu=None,
+                                        viscosity=viscosity, diffusivity=viscosity)
 
 zv = fd.as_vector([fd.Constant(0.), fd.Constant(0.)])
 bcs = [fd.DirichletBC(W.sub(0), zv, "bottom"),
