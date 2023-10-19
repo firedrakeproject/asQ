@@ -116,7 +116,7 @@ viscosity = fd.Constant(75.)
 form_mass = get_form_mass()
 
 form_function = get_form_function(n=n, Up=Up, c_pen=fd.Constant(2.0**(-7./2)),
-                                  cp=gas.cp, g=gas.g, R_d=gas.R_d, p_0=gas.p_0, kappa=gas.kappa, mu=None,
+                                  gas=gas, mu=None,
                                   viscosity=viscosity, diffusivity=viscosity)
 
 zv = fd.as_vector([fd.Constant(0.), fd.Constant(0.)])

@@ -181,13 +181,13 @@ def both(u):
     return 2*fd.avg(u)
 
 
-def u_tendency(w, n, u, theta, rho,
-               cp, g, R_d, p_0, kappa, Up,
-               mu=None, f=None, F=None):
+def u_tendency(w, n, u, theta, rho, gas, Up,
+               mu=None, f=None, F=None,
+               pi_degree=6):
     """
     Written in a dimension agnostic way
     """
-    Pi = pi_formula(rho, theta, R_d=R_d, p_0=p_0, kappa=kappa)
+    Pi = pi_formula(rho, theta, gas)
 
     K = fd.Constant(0.5)*fd.inner(u, u)
     Upwind = 0.5*(fd.sign(fd.dot(u, n))+1)
@@ -197,9 +197,9 @@ def u_tendency(w, n, u, theta, rho,
         - fd.inner(both(Upwind*u),
                    both(cross0(n, cross1(u, w))))*(fd.dS_h + fd.dS_v)
         - fd.div(w)*K*fd.dx
-        - cp*fd.div(theta*w)*Pi*fd.dx(degree=6)
-        + cp*fd.jump(w*theta, n)*fd.avg(Pi)*fd.dS_v(degree=6)
-        + fd.inner(w, Up)*g*fd.dx
+        - gas.cp*fd.div(theta*w)*Pi*fd.dx(degree=pi_degree)
+        + gas.cp*fd.jump(w*theta, n)*fd.avg(Pi)*fd.dS_v(degree=pi_degree)
+        + fd.inner(w, Up)*gas.g*fd.dx
     )
 
     if mu:  # Newtonian dissipation in vertical
@@ -217,15 +217,14 @@ def get_form_mass():
     return form_mass
 
 
-def get_form_function(n, Up, c_pen,
-                      cp, g, R_d, p_0, kappa, mu,
+def get_form_function(n, Up, c_pen, gas, mu,
                       f=None, F=None,
                       viscosity=None, diffusivity=None):
     def form_function(u, rho, theta, du, drho, dtheta, t):
         eqn = theta_tendency(dtheta, u, theta, n, Up, c_pen)
         eqn += rho_tendency(drho, rho, u, n)
         eqn += u_tendency(du, n, u, theta, rho,
-                          cp, g, R_d, p_0, kappa, Up, mu, f, F)
+                          gas, Up, mu, f, F)
         if viscosity:
             eqn += form_viscosity(u, du, viscosity)
         if diffusivity:
