@@ -3,8 +3,7 @@ import asQ
 from pyop2.mpi import MPI
 from math import sqrt
 from utils.diagnostics import convective_cfl_calculator
-from utils.vertical_slice import hydrostatic_rho, pi_formula, \
-    get_form_mass, get_form_function
+from utils.vertical_slice import get_form_mass, get_form_function
 from utils import compressible_flow as euler
 from firedrake.petsc import PETSc
 
@@ -88,8 +87,9 @@ thetan.interpolate(thetab)
 theta_back = fd.Function(Vt).assign(thetan)
 rhon.assign(1.0e-5)
 
-hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(1.0),
-                gas=gas, Up=Up, top=False)
+euler.hydrostatic_rho(Vv, V2, mesh, thetan, rhon,
+                      pi_boundary=fd.Constant(1.0),
+                      gas=gas, Up=Up, top=False)
 
 x = fd.SpatialCoordinate(mesh)
 xc = 0.
@@ -100,7 +100,7 @@ r = fd.sqrt(((x[0]-xc)/xr)**2 + ((x[1]-zc)/zr)**2)
 T_pert = fd.conditional(r > 1., 0., -7.5*(1.+fd.cos(fd.pi*r)))
 # T = theta*Pi so Delta theta = Delta T/Pi assuming Pi fixed
 
-Pi_back = pi_formula(rhon, thetan, gas)
+Pi_back = euler.pi_formula(rhon, thetan, gas)
 # this keeps perturbation at zero away from bubble
 thetan.project(theta_back + T_pert/Pi_back)
 # save the background stratification for rho

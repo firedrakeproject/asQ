@@ -1,38 +1,6 @@
 import firedrake as fd
 
 
-class GasProperties:
-    def __init__(self, g, cp, cv, R_d, kappa, N, p_0, T_0):
-        """
-        :arg g: Gravity
-        :arg N: Brunt-Vaisala frequency (1/s)
-        :arg cp: SHC of dry air at const. pressure (J/kg/K)
-        :arg R_d: Gas constant for dry air (J/kg/K)
-        :arg kappa: R_d/c_p
-        :arg p_0: reference pressure (Pa, not hPa)
-        :arg cv: SHC of dry air at const. volume (J/kg/K)
-        :arg T_0: ref. temperature
-        :arg cp: SHC of dry air at const. pressure (J/kg/K)
-        """
-        self.g = fd.Constant(g)
-        self.cp = fd.Constant(cp)
-        self.cv = fd.Constant(cv)
-        self.R_d = fd.Constant(R_d)
-        self.kappa = fd.Constant(kappa)
-        self.N = fd.Constant(N)
-        self.p_0 = fd.Constant(p_0)
-        self.T_0 = fd.Constant(T_0)
-
-
-def StandardAtmosphere(N=0):
-    """
-    :arg N: Brunt-Vaisala frequency (1/s)
-    """
-    return GasProperties(N=N, g=9.810616,
-                         cp=1004.5, cv=717., R_d=287., kappa=2.0/7.0,
-                         p_0=1000.0*100.0, T_0=273.15)
-
-
 def function_space(mesh, horizontal_degree=1, vertical_degree=1,
                    vertical_velocity_space=False):
     if not mesh.extruded:
@@ -90,3 +58,115 @@ def density_function_space(mesh, horizontal_degree=1, vertical_degree=1):
 
 def temperature_function_space(mesh, horizontal_degree=1, vertical_degree=1):
     return function_space(mesh, horizontal_degree, vertical_degree).subfunctions[2]
+
+
+def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
+                    gas, Up, top=False, Pi=None, verbose=0):
+    from utils.compressible_flow.gas import pi_formula, rho_formula
+    # Calculate hydrostatic Pi, rho
+    W_h = Vv * V2
+    wh = fd.Function(W_h)
+    n = fd.FacetNormal(mesh)
+    dv, drho = fd.TestFunctions(W_h)
+
+    v, Pi0 = fd.TrialFunctions(W_h)
+
+    Pieqn = (
+        gas.cp*(fd.inner(v, dv) - fd.div(dv*thetan)*Pi0)*fd.dx
+        + drho*fd.div(thetan*v)*fd.dx
+    )
+
+    if top:
+        bmeasure = fd.ds_t
+        bstring = "bottom"
+    else:
+        bmeasure = fd.ds_b
+        bstring = "top"
+
+    zeros = []
+    for i in range(Up.ufl_shape[0]):
+        zeros.append(fd.Constant(0.))
+
+    L = -gas.cp*fd.inner(dv, n)*thetan*pi_boundary*bmeasure
+    L -= gas.g*fd.inner(dv, Up)*fd.dx
+    bcs = [fd.DirichletBC(W_h.sub(0), zeros, bstring)]
+
+    PiProblem = fd.LinearVariationalProblem(Pieqn, L, wh, bcs=bcs)
+
+    lu_params = {
+        'snes_stol': 1e-10,
+        'mat_type': 'aij',
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        "pc_factor_mat_ordering_type": "rcm",
+        "pc_factor_mat_solver_type": "mumps",
+    }
+
+    verbose_options = {
+        'snes_monitor': None,
+        'snes_converged_reason': None,
+        'ksp_monitor': None,
+        'ksp_converged_reason': None,
+    }
+
+    if verbose == 0:
+        pass
+    elif verbose == 1:
+        lu_params['snes_converged_reason'] = None
+    elif verbose >= 2:
+        lu_params.update(verbose_options)
+
+    PiSolver = fd.LinearVariationalSolver(PiProblem,
+                                          solver_parameters=lu_params,
+                                          options_prefix="pisolver")
+    PiSolver.solve()
+    v = wh.subfunctions[0]
+    Pi0 = wh.subfunctions[1]
+    if Pi:
+        Pi.assign(Pi0)
+
+    if rhon:
+        rhon.interpolate(rho_formula(Pi0, thetan, gas))
+        v = wh.subfunctions[0]
+        rho = wh.subfunctions[1]
+        rho.assign(rhon)
+        v, rho = fd.split(wh)
+
+        Pif = pi_formula(rho, thetan, gas)
+
+        rhoeqn = gas.cp*(
+            (fd.inner(v, dv) - fd.div(dv*thetan)*Pif)*fd.dx
+            + drho*fd.div(thetan*v)*fd.dx
+        )
+
+        if top:
+            bmeasure = fd.ds_t
+            bstring = "bottom"
+        else:
+            bmeasure = fd.ds_b
+            bstring = "top"
+
+        zeros = []
+        for i in range(Up.ufl_shape[0]):
+            zeros.append(fd.Constant(0.))
+
+        rhoeqn += gas.cp*fd.inner(dv, n)*thetan*pi_boundary*bmeasure
+        rhoeqn += gas.g*fd.inner(dv, Up)*fd.dx
+        bcs = [fd.DirichletBC(W_h.sub(0), zeros, bstring)]
+
+        RhoProblem = fd.NonlinearVariationalProblem(rhoeqn, wh, bcs=bcs)
+
+        RhoSolver = fd.NonlinearVariationalSolver(RhoProblem,
+                                                  solver_parameters=lu_params,
+                                                  options_prefix="rhosolver")
+
+        RhoSolver.solve()
+        v = wh.subfunctions[0]
+        Rho0 = wh.subfunctions[1]
+        rhon.assign(Rho0)
+        del RhoSolver
+    del PiSolver
+    from firedrake.petsc import PETSc
+    import gc
+    gc.collect()
+    PETSc.garbage_cleanup(mesh._comm)
