@@ -3,18 +3,30 @@ from firedrake.petsc import PETSc
 from utils.misc import curl0, cross0, cross1
 
 
-def pi_formula(rho, theta, R_d, p_0, kappa):
+def pi_formula(rho, theta, gas=None, R_d=None, p_0=None, kappa=None):
+    if gas is None:
+        if any(x is None for x in (R_d, p_0, kappa)):
+            raise ValueError("R_d, p_0, and kappa must be specified if GasProperties not given")
+    else:
+        R_d = gas.R_d
+        p_0 = gas.p_0
+        kappa = gas.kappa
     return (rho * R_d * theta / p_0) ** (kappa / (1 - kappa))
 
 
-def rho_formula(pi, theta, R_d, p_0, kappa):
+def rho_formula(pi, theta, gas=None, R_d=None, p_0=None, kappa=None):
+    if gas is None:
+        if any(x is None for x in (R_d, p_0, kappa)):
+            raise ValueError("R_d, p_0, and kappa must be specified if GasProperties not given")
+    else:
+        R_d = gas.R_d
+        p_0 = gas.p_0
+        kappa = gas.kappa
     return p_0*pi**((1-kappa)/kappa)/R_d/theta
 
 
 def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
-                    cp, R_d, p_0, kappa, g, Up,
-                    top=False, Pi=None,
-                    verbose=0):
+                    gas, Up, top=False, Pi=None, verbose=0):
     # Calculate hydrostatic Pi, rho
     W_h = Vv * V2
     wh = fd.Function(W_h)
@@ -24,7 +36,7 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
     v, Pi0 = fd.TrialFunctions(W_h)
 
     Pieqn = (
-        (cp*fd.inner(v, dv) - cp*fd.div(dv*thetan)*Pi0)*fd.dx
+        gas.cp*(fd.inner(v, dv) - fd.div(dv*thetan)*Pi0)*fd.dx
         + drho*fd.div(thetan*v)*fd.dx
     )
 
@@ -39,8 +51,8 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
     for i in range(Up.ufl_shape[0]):
         zeros.append(fd.Constant(0.))
 
-    L = -cp*fd.inner(dv, n)*thetan*pi_boundary*bmeasure
-    L -= g*fd.inner(dv, Up)*fd.dx
+    L = -gas.cp*fd.inner(dv, n)*thetan*pi_boundary*bmeasure
+    L -= gas.g*fd.inner(dv, Up)*fd.dx
     bcs = [fd.DirichletBC(W_h.sub(0), zeros, bstring)]
 
     PiProblem = fd.LinearVariationalProblem(Pieqn, L, wh, bcs=bcs)
@@ -78,17 +90,17 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
         Pi.assign(Pi0)
 
     if rhon:
-        rhon.interpolate(rho_formula(Pi0, thetan, R_d, p_0, kappa))
+        rhon.interpolate(rho_formula(Pi0, thetan, gas))
         v = wh.subfunctions[0]
         rho = wh.subfunctions[1]
         rho.assign(rhon)
         v, rho = fd.split(wh)
 
-        Pif = pi_formula(rho, thetan, R_d, p_0, kappa)
+        Pif = pi_formula(rho, thetan, gas)
 
-        rhoeqn = (
-            (cp*fd.inner(v, dv) - cp*fd.div(dv*thetan)*Pif)*fd.dx
-            + cp*drho*fd.div(thetan*v)*fd.dx
+        rhoeqn = gas.cp*(
+            (fd.inner(v, dv) - fd.div(dv*thetan)*Pif)*fd.dx
+            + drho*fd.div(thetan*v)*fd.dx
         )
 
         if top:
@@ -102,8 +114,8 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
         for i in range(Up.ufl_shape[0]):
             zeros.append(fd.Constant(0.))
 
-        rhoeqn += cp*fd.inner(dv, n)*thetan*pi_boundary*bmeasure
-        rhoeqn += g*fd.inner(dv, Up)*fd.dx
+        rhoeqn += gas.cp*fd.inner(dv, n)*thetan*pi_boundary*bmeasure
+        rhoeqn += gas.g*fd.inner(dv, Up)*fd.dx
         bcs = [fd.DirichletBC(W_h.sub(0), zeros, bstring)]
 
         RhoProblem = fd.NonlinearVariationalProblem(rhoeqn, wh, bcs=bcs)
@@ -175,7 +187,7 @@ def u_tendency(w, n, u, theta, rho,
     """
     Written in a dimension agnostic way
     """
-    Pi = pi_formula(rho, theta, R_d, p_0, kappa)
+    Pi = pi_formula(rho, theta, R_d=R_d, p_0=p_0, kappa=kappa)
 
     K = fd.Constant(0.5)*fd.inner(u, u)
     Upwind = 0.5*(fd.sign(fd.dot(u, n))+1)

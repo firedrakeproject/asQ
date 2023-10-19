@@ -89,8 +89,7 @@ theta_back = fd.Function(Vt).assign(thetan)
 rhon.assign(1.0e-5)
 
 hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(1.0),
-                cp=gas.cp, R_d=gas.R_d, p_0=gas.p_0, kappa=gas.kappa, g=gas.g, Up=Up,
-                top=False)
+                gas=gas, Up=Up, top=False)
 
 x = fd.SpatialCoordinate(mesh)
 xc = 0.
@@ -101,7 +100,7 @@ r = fd.sqrt(((x[0]-xc)/xr)**2 + ((x[1]-zc)/zr)**2)
 T_pert = fd.conditional(r > 1., 0., -7.5*(1.+fd.cos(fd.pi*r)))
 # T = theta*Pi so Delta theta = Delta T/Pi assuming Pi fixed
 
-Pi_back = pi_formula(rhon, thetan, gas.R_d, gas.p_0, gas.kappa)
+Pi_back = pi_formula(rhon, thetan, gas)
 # this keeps perturbation at zero away from bubble
 thetan.project(theta_back + T_pert/Pi_back)
 # save the background stratification for rho
