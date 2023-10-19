@@ -1,6 +1,4 @@
-import matplotlib.pyplot as plt
 from math import pi
-from matplotlib.animation import FuncAnimation
 import firedrake as fd
 from firedrake.petsc import PETSc
 import asQ
@@ -40,16 +38,19 @@ ensemble = asQ.create_ensemble(time_partition)
 # # # === --- domain --- === # # #
 
 # The mesh needs to be created with the spatial communicator
-mesh = fd.SquareMesh(args.nx, args.nx, 100, quadrilateral=False, comm=ensemble.comm)
+# mesh = fd.SquareMesh(args.nx, args.nx, 100, quadrilateral=False, comm=ensemble.comm)
+with fd.CheckpointFile("example.h5", 'r', comm=ensemble.comm) as afile:
+    mesh = afile.load_mesh("meshA")
+    f = afile.load_function(mesh, "Ic")
 
-V = fd.FunctionSpace(mesh, "CG", args.degree)
+V = f.function_space()
 
 # # # === --- initial conditions --- === # # #
 
 x, y = fd.SpatialCoordinate(mesh)
 
 s0 = fd.Function(V, name="scalar_initial")
-s0.interpolate(fd.Constant(0.0))
+s0.assign(f)
 
 
 # The sediment movement D
@@ -103,15 +104,15 @@ block_parameters = {
 #    The solver options for this are:
 #    'ksp_type': 'preonly'
 
-atol = 1e-8
 paradiag_parameters = {
     'snes': {
+        'ksp_ew': None,
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-8,
-        'atol': atol,
-        'stol': 1e-8,
+        'atol': 1e-100,
+        'stol': 1e-100,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
@@ -119,8 +120,8 @@ paradiag_parameters = {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-8,
-        'atol': atol,
-        'stol': 1e-8,
+        'atol': 1e-100,
+        'stol': 1e-100,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
@@ -152,12 +153,10 @@ def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
+    pdg.aaoform.time_update(t=4000)
+    pdg.solver.jacobian_form.time_update(t=4000)
 
 
-# The last time-slice will be saving snapshots to create an animation.
-# The layout member describes the time_partition.
-# layout.is_local(i) returns True/False if the timestep index i is on the
-# current time-slice. Here we use -1 to mean the last timestep in the window.
 is_last_slice = pdg.layout.is_local(-1)
 
 # Make an output Function on the last time-slice and start a snapshot list
@@ -199,24 +198,3 @@ PETSc.Sys.Print(f'linear iterations: {pdg.linear_iterations}  |  iterations per 
 # Number of iterations needed for each block in step-(b), total and per block solve
 # The number of iterations for each block will usually be different because of the different eigenvalues
 PETSc.Sys.Print(f'block linear iterations: {pdg.block_iterations.data()}  |  iterations per block solve: {pdg.block_iterations.data()/pdg.linear_iterations}')
-
-# We can write these diagnostics to file, along with some other useful information.
-# Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt
-asQ.write_paradiag_metrics(pdg)
-
-# Make an animation from the snapshots we collected and save it to periodic.mp4.
-if is_last_slice:
-
-    fn_plotter = fd.FunctionPlotter(mesh, num_sample_points=args.nsample)
-
-    fig, axes = plt.subplots()
-    axes.set_aspect('equal')
-    colors = fd.tripcolor(qout, num_sample_points=args.nsample, axes=axes)
-    fig.colorbar(colors)
-
-    def animate(q):
-        colors.set_array(fn_plotter(q))
-
-    animation = FuncAnimation(fig, animate, frames=timeseries)
-
-    animation.save("periodic.mp4", writer="ffmpeg")
