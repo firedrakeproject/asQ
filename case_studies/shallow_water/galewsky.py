@@ -1,7 +1,6 @@
 from firedrake.petsc import PETSc
 
 import asQ
-import firedrake as fd  # noqa: F401
 from math import sqrt
 from utils import units
 from utils.planets import earth
@@ -23,7 +22,7 @@ parser.add_argument('--ref_level', type=int, default=2, help='Refinement level o
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
-parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
+parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--atol', type=float, default=1e0, help='Average absolute tolerance for each timestep.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
@@ -124,7 +123,6 @@ sparameters_diag = {
     'pc_python_type': 'asQ.DiagFFTPC',
     'diagfft_alpha': args.alpha,
     'diagfft_state': 'window',
-    'aaos_jacobian_state': 'current'
 }
 
 for i in range(window_length):
@@ -134,6 +132,7 @@ create_mesh = partial(
     swe.create_mg_globe_mesh,
     ref_level=args.ref_level,
     coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
+
 
 # check convergence of each timestep
 class Cache(object):
@@ -153,9 +152,11 @@ class Cache(object):
             self._item_dict[key] = factory(*args, **kwargs)
         return self._item_dict[key]
 
+
 def array_factory(ensemble):
     return asQ.SharedArray(time_partition,
                            comm=ensemble.ensemble_comm)
+
 
 cache = Cache()
 cache.register_item('residuals', array_factory)
@@ -163,6 +164,7 @@ cache.register_item('aaofunc', lambda aaofunc: aaofunc.copy())
 cache.register_item('aaobuf', lambda aaofunc: aaofunc.copy())
 
 step_converged = [False for _ in range(args.slice_length)]
+
 
 def pre_function_callback(aaosolver, X):
     # aaobuf = cache.get('aaobuf', aaosolver.aaofunc)
