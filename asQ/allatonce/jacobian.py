@@ -91,11 +91,13 @@ class AllAtOnceJacobian(TimePartitionMixin):
                                       state_option, valid_jacobian_states,
                                       default_index=0)
 
-        if reference_state is not None:
-            self.reference_state = fd.Function(aaofunc.field_function_space)
-            self.reference_state.assign(reference_state)
-        else:
-            self.reference_state = None
+        # if reference_state is not None:
+        #     self.reference_state = fd.Function(aaofunc.field_function_space)
+        #     self.reference_state.assign(reference_state)
+        # else:
+        #     self.reference_state = None
+
+        self.reference_state = reference_state
 
         jacobian_state = self.jacobian_state()
 
