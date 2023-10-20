@@ -91,14 +91,11 @@ class DistributedDataLayout1D(object):
         :arg i: globally addressed index.
         :arg throws: if True, raises IndexError if i is outside the global address range
         '''
-        try:
-            self.transform_index(i, itype='g', rtype='l')
-            return True
-        except IndexError:
-            if throws:
-                raise
-            else:
-                return False
+        is_local = (self.rank == self.rank_of(i))
+        if not is_local and throws:
+            raise IndexError(f"Index {i} is not on the local rank {self.rank}")
+        else:
+            return is_local
 
     def rank_of(self, i):
         '''
