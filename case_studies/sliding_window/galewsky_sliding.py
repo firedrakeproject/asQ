@@ -2,7 +2,10 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 import asQ
+from asQ.pencil import Pencil, Subcomm
 
+import numpy as np
+from scipy.fft import rfft
 from math import sqrt
 from utils import mg
 from utils import units
@@ -10,6 +13,15 @@ from utils.planets import earth
 from utils.diagnostics import convective_cfl_calculator
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
+
+
+def transposer(comm, sizes, dtype):
+    subcomm = Subcomm(comm, [0, 1])
+    pencilA = Pencil(subcomm, sizes, axis=1)
+    pencilB = pencilA.pencil(0)
+    transfer = pencilA.transfer(pencilB, dtype)
+    return transfer
+
 
 Print = PETSc.Sys.Print
 
@@ -151,7 +163,7 @@ block_sparameters = {
 atol = args.atol
 patol = sqrt(sum(time_partition))*atol
 sparameters = {
-    # 'snes_type': 'basic',
+    'snes_type': 'ksponly',
     'snes': {
         'monitor': None,
         'converged_reason': None,
@@ -161,10 +173,11 @@ sparameters = {
         # 'ksp_ew': None,
         # 'ksp_ew_version': 1,
         # 'ksp_ew_threshold': 1e-3,
+        'min_it': 1,
         'max_it': 2,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'preonly',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
@@ -206,6 +219,7 @@ aaofunc.assign(ics)
 # timestep residual evaluations
 vresiduals = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
 fresiduals = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+mresiduals = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
 
 
 def timestep_residuals(aaores):
@@ -217,9 +231,41 @@ def timestep_residuals(aaores):
     vresiduals.synchronise()
 
 
+aaofreqs = aaofunc.copy()
+aaosizes = np.array((aaofunc.ntimesteps, W.node_set.size), dtype=int)
+transfer = transposer(ensemble.ensemble_comm, aaosizes, dtype=float)
+aaoarray = np.zeros(transfer.subshapeA, dtype=transfer.dtype)
+transposed_array = np.zeros(transfer.subshapeB, dtype=transfer.dtype)
+fft_array = np.zeros((1+aaofunc.ntimesteps//2, transfer.subshapeB[1]), dtype=complex)
+
+
+def frequency_residuals(aaores):
+    with aaores.global_vec_ro() as rvec:
+        aaoarray[:] = rvec.array_r.reshape((aaores.nlocal_timesteps,
+                                            W.node_set.size))
+
+    transposed_array[:] = 0
+    transfer.forward(aaoarray, transposed_array)
+    fft_array[:] = 0
+    fft_array[:] = rfft(transposed_array, axis=0)
+    transposed_array[:1+aaores.ntimesteps//2, :] = np.abs(fft_array)
+    aaoarray[:] = 0
+    transfer.backward(transposed_array, aaoarray)
+
+    with aaofreqs.global_vec_wo() as rvec:
+        rvec.array[:] = aaoarray.reshape(-1)
+
+    for i in range(aaofreqs.nlocal_timesteps):
+        with aaofreqs[i].dat.vec_ro as rvec:
+            mresiduals.dlocal[i] = rvec.norm()
+        # mresiduals.dlocal[i] = fd.norm(aaofreqs[i])
+    mresiduals.synchronise()
+
+
 def post_function_callback(aaosolver, X, F):
     return
     timestep_residuals(aaosolver.aaoform.F)
+    frequency_residuals(aaosolver.aaoform.F)
     Print('')
     Print([f"{r:.4e}" for r in vresiduals.data()])
     Print([f"{r:.4e}" for r in fresiduals.data()])
@@ -306,6 +352,7 @@ for wndw in range(args.niterations):
 
     # timestep residuals
     timestep_residuals(aaosolver.aaoform.F)
+    frequency_residuals(aaosolver.aaoform.F)
     for i in range(aaofunc.nlocal_timesteps):
         conv = vresiduals.dlocal[i] < args.atol
         timestep_converged.dlocal[i] = conv
@@ -322,7 +369,10 @@ for wndw in range(args.niterations):
 
     Print('')
     Print("Residuals before rotate:")
+    Print("Timestep residuals:")
     Print([f"{r:.3e}" for r in vresiduals.data()])
+    Print("Frequency residuals:")
+    Print([f"{r:.3e}" for r in mresiduals.data()])
     Print(f"Converged timesteps: {nconverged}")
     Print('')
 
@@ -383,7 +433,11 @@ for wndw in range(args.niterations):
     Print("Residuals after rotate:")
     aaosolver.aaoform.assemble()
     timestep_residuals(aaosolver.aaoform.F)
+    frequency_residuals(aaosolver.aaoform.F)
+    Print("Timestep residuals:")
     Print([f"{r:.3e}" for r in vresiduals.data()])
+    Print("Frequency residuals:")
+    Print([f"{r:.3e}" for r in mresiduals.data()])
     Print('')
 
     simulated_time = args.dt*nsimulated
@@ -393,8 +447,10 @@ for wndw in range(args.niterations):
         Print(f"Ending simulation after max time: {args.max_time}")
         break
 
+itspertimestep = 0 if (nsimulated == 0) else window_length*kspits/nsimulated
+
 Print(f"Iterations: {args.niterations}")
 Print(f"KSP iterations: {kspits}")
 Print(f"Converged timesteps: {nsimulated}")
 Print(f"Converged timesteps/KSP iteration: {nsimulated/kspits}")
-Print(f"KSP iterations to converge each timestep: {window_length*kspits/nsimulated}")
+Print(f"KSP iterations to converge each timestep: {itspertimestep}")
