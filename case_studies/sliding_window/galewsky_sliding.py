@@ -24,6 +24,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve.')
 parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid.')
 parser.add_argument('--niterations', type=int, default=1, help='Number of all-at-once iterations.')
+parser.add_argument('--max_time', type=float, default=1000, help='Maximum time to simulate in hours.')
 parser.add_argument('--nslices', type=int, default=1, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=4, help='Number of timesteps per time-slice.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
@@ -31,6 +32,7 @@ parser.add_argument('--theta', type=float, default=0.5, help='Implicit parameter
 parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
 parser.add_argument('--atol', type=float, default=1e0, help='Average absolute tolerance for each timestep.')
 parser.add_argument('--brtol', type=float, default=1e-5, help='Relative tolerance for each block.')
+parser.add_argument('--max_converged', type=int, default=-1, help='Maximum number of timesteps converging each iteration.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space).')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
@@ -141,41 +143,42 @@ block_sparameters = {
         'max_it': 50,
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
-    'pc_mg_type': 'multiplicative',
+    'pc_mg_cycle_type': 'w',
+    'pc_mg_type': 'full',
     'mg': mg_parameters
 }
 
 atol = args.atol
 patol = sqrt(sum(time_partition))*atol
 sparameters = {
-    'snes_type': 'ksponly',
+    # 'snes_type': 'basic',
     'snes': {
-        'linesearch_type': 'basic',
         'monitor': None,
-        # 'converged_reason': None,
+        'converged_reason': None,
         'atol': patol,
-        'rtol': 1e-12,
-        'stol': 1e-12,
-        'ksp_ew': None,
-        'ksp_ew_version': 1,
-        'ksp_ew_threshold': 1e-3,
+        'rtol': 1e-2,
+        'stol': 1e-100,
+        # 'ksp_ew': None,
+        # 'ksp_ew_version': 1,
+        # 'ksp_ew_threshold': 1e-3,
+        'max_it': 2,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        # 'converged_reason': None,
-        'rtol': 1e-5,
+        'converged_reason': None,
+        'rtol': 1e-2,
         'atol': patol,
-        'max_it': 1,
+        'stol': 1e-100,
+        'max_it': 2,
         'min_it': 1,
-        # 'converged_maxits': None,
+        'converged_maxits': None,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
     'diagfft_alpha': args.alpha,
-    'diagfft_state': 'reference',
+    'diagfft_state': 'initial',
 }
 
 Print('### === --- Calculating parallel solution --- === ###')
@@ -218,8 +221,8 @@ def post_function_callback(aaosolver, X, F):
     return
     timestep_residuals(aaosolver.aaoform.F)
     Print('')
-    PETSc.Sys.Print([f"{r:.4e}" for r in vresiduals.data()])
-    PETSc.Sys.Print([f"{r:.4e}" for r in fresiduals.data()])
+    Print([f"{r:.4e}" for r in vresiduals.data()])
+    Print([f"{r:.4e}" for r in fresiduals.data()])
     Print('')
 
 
@@ -268,8 +271,8 @@ def window_postproc(wndw):
         time = aaoform.time[-1]
         hours = float(time/units.hour)
         Print('', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Hours = {hours}', comm=ensemble.comm)
+        Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
+        Print(f'Hours = {hours}', comm=ensemble.comm)
         Print('', comm=ensemble.comm)
         write_file(aaofunc[-1], t=hours)
 
@@ -282,6 +285,8 @@ timestep_norms = asQ.SharedArray(time_partition,
 
 nsimulated = 0
 kspits = 0
+max_converged = args.max_converged if args.max_converged > 0 else aaofunc.ntimesteps
+check_norms = False
 for wndw in range(args.niterations):
     # all-at-once iteration
     refstate.assign(aaofunc.initial_condition)
@@ -289,6 +294,15 @@ for wndw in range(args.niterations):
     aaosolver.solve()
     window_postproc(wndw)
     kspits += aaosolver.snes.getLinearSolveIterations()
+
+    converged_reason = aaosolver.snes.getConvergedReason()
+    if converged_reason == -5:
+        Print("Warning: SNES did not converge to tolerance")
+        Print("Continuing iteration.")
+    elif not (1 < converged_reason <= 5):
+        Print("Warning: SNES diverged with error code {converged_reason}")
+        Print("Cancelling iteration.")
+        break
 
     # timestep residuals
     timestep_residuals(aaosolver.aaoform.F)
@@ -304,22 +318,23 @@ for wndw in range(args.niterations):
             nconverged += 1
         else:
             break
-    nconverged = min(nconverged, aaofunc.ntimesteps)
+    nconverged = min(nconverged, max_converged)
 
     Print('')
-    PETSc.Sys.Print("Residuals before rotate:")
-    PETSc.Sys.Print([f"{r:.4e}" for r in vresiduals.data()])
-    PETSc.Sys.Print(f"Converged timesteps: {nconverged}")
+    Print("Residuals before rotate:")
+    Print([f"{r:.3e}" for r in vresiduals.data()])
+    Print(f"Converged timesteps: {nconverged}")
     Print('')
 
     # check timestep norms
-    for i in range(aaofunc.nlocal_timesteps):
-        timestep_norms.dlocal[i] = fd.norm(aaofunc[i]-ics)
-    timestep_norms.synchronise()
-    norms = [fd.norm(aaofunc.initial_condition-ics)] + [n for n in timestep_norms.data()]
+    if check_norms:
+        for i in range(aaofunc.nlocal_timesteps):
+            timestep_norms.dlocal[i] = fd.norm(aaofunc[i]-ics)
+        timestep_norms.synchronise()
+        norms = [fd.norm(aaofunc.initial_condition-ics)] + [n for n in timestep_norms.data()]
 
-    PETSc.Sys.Print("Norms before/after rotate:")
-    PETSc.Sys.Print([f"{n:.3e}" for n in norms])
+        Print("Norms before/after rotate:")
+        Print([f"{n:.3e}" for n in norms])
 
     # rotate timesteps
     if nconverged > 0:
@@ -355,25 +370,31 @@ for wndw in range(args.niterations):
         aaosolver.jacobian_form.time_update(rt)
 
     # check timestep norms
-    for i in range(aaofunc.nlocal_timesteps):
-        timestep_norms.dlocal[i] = fd.norm(aaofunc[i]-ics)
-    timestep_norms.synchronise()
-    norms = [fd.norm(aaofunc.initial_condition-ics)] + [n for n in timestep_norms.data()]
+    if check_norms:
+        for i in range(aaofunc.nlocal_timesteps):
+            timestep_norms.dlocal[i] = fd.norm(aaofunc[i]-ics)
+        timestep_norms.synchronise()
+        norms = [fd.norm(aaofunc.initial_condition-ics)] + [n for n in timestep_norms.data()]
 
-    PETSc.Sys.Print([f"{n:.3e}" for n in norms])
-    Print('')
+        Print([f"{n:.3e}" for n in norms])
+        Print('')
 
     # new timestep residuals
-    PETSc.Sys.Print("Residuals after rotate:")
+    Print("Residuals after rotate:")
     aaosolver.aaoform.assemble()
     timestep_residuals(aaosolver.aaoform.F)
-    PETSc.Sys.Print([f"{r:.4e}" for r in vresiduals.data()])
+    Print([f"{r:.3e}" for r in vresiduals.data()])
     Print('')
 
-    PETSc.Sys.Print(f"Time at ics: {args.dt*nsimulated}")
+    simulated_time = args.dt*nsimulated
+    Print(f"Time at ics: {simulated_time}")
     Print('')
+    if simulated_time > args.max_time:
+        Print(f"Ending simulation after max time: {args.max_time}")
+        break
 
-PETSc.Sys.Print(f"Iterations: {args.niterations}")
-PETSc.Sys.Print(f"KSP iterations: {kspits}")
-PETSc.Sys.Print(f"Converged timesteps: {nsimulated}")
-PETSc.Sys.Print(f"Converged timesteps/KSP iteration: {nsimulated/kspits}")
+Print(f"Iterations: {args.niterations}")
+Print(f"KSP iterations: {kspits}")
+Print(f"Converged timesteps: {nsimulated}")
+Print(f"Converged timesteps/KSP iteration: {nsimulated/kspits}")
+Print(f"KSP iterations to converge each timestep: {window_length*kspits/nsimulated}")
