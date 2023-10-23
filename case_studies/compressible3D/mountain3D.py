@@ -10,7 +10,10 @@ import asQ
 PETSc.Sys.popErrorHandler()
 
 import argparse
-parser = argparse.ArgumentParser(description='3D mountain testcase.')
+parser = argparse.ArgumentParser(
+    description='3D mountain testcase.',
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
 parser.add_argument('--nx', type=int, default=10, help='Number of columns in the streamwise direction.')
 parser.add_argument('--ny', type=int, default=10, help='Number of columns in the spanwise direction.')
 parser.add_argument('--nz', type=int, default=24, help='Number of layers.')
@@ -109,7 +112,6 @@ Un = fd.Function(W)
 Tsurf = fd.Constant(300.)
 thetab = Tsurf*fd.exp(gas.N**2*z/gas.g)
 
-cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
 Up = fd.as_vector([fd.Constant(0.0), fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
 un = Un.subfunctions[0]
