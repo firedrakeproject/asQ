@@ -39,7 +39,6 @@ mesh = mountain.mesh(comm, ncolumns=args.ncolumns,
                      nlayers=args.nlayers,
                      hydrostatic=False)
 n = fd.FacetNormal(mesh)
-x, z = fd.SpatialCoordinate(mesh)
 
 W, Vv = euler.function_space(mesh, horizontal_degree=args.degree,
                              vertical_degree=args.degree,
@@ -52,8 +51,6 @@ PETSc.Sys.Print(f"DoFs/core: {W.dim()/comm.size}")
 gas = euler.StandardAtmosphere(N=0.01)
 
 dT = fd.Constant(dt)
-
-Un = fd.Function(W)
 
 PETSc.Sys.Print("Calculating hydrostatic state")
 

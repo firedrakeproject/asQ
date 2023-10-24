@@ -1,10 +1,10 @@
 import firedrake as fd
 import asQ
-from math import pi, sqrt
+from math import sqrt
 from pyop2.mpi import MPI
-from utils.misc import function_maximum
 from utils.diagnostics import convective_cfl_calculator
 from utils import compressible_flow as euler
+from utils.vertical_slice import mount_agnesi as mountain
 from firedrake.petsc import PETSc
 
 import argparse
@@ -39,46 +39,15 @@ global_comm = fd.COMM_WORLD
 ensemble = asQ.create_ensemble(time_partition, comm=global_comm)
 
 # set up the mesh
-
-nlayers = args.nlayers  # horizontal layers
-base_columns = args.ncolumns  # number of columns
-L = 144e3
-H = 35e3  # Height position of the model top
-
-distribution_parameters = {
-    "partition": True,
-    "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)
-}
-
-# surface mesh of ground
-base_mesh = fd.PeriodicIntervalMesh(base_columns, L,
-                                    distribution_parameters=distribution_parameters,
-                                    comm=ensemble.comm)
-
-# volume mesh of the slice
-mesh = fd.ExtrudedMesh(base_mesh, layers=nlayers, layer_height=H/nlayers)
+mesh = mountain.mesh(ensemble.comm,
+                     ncolumns=args.ncolumns,
+                     nlayers=args.nlayers,
+                     hydrostatic=False)
 n = fd.FacetNormal(mesh)
-x, z = fd.SpatialCoordinate(mesh)
-
-gas = euler.StandardAtmosphere(N=0.01)
 
 dt = args.dt
 
-# making a mountain out of a molehill
-a = 10000.
-xc = L/2.
-hm = 1.
-zs = hm*a**2/((x-xc)**2 + a**2)
-
-smooth_z = True
-name = "mountain_nh"
-if smooth_z:
-    name += '_smootherz'
-    zh = 5000.
-    xexpr = fd.as_vector([x, fd.conditional(z < zh, z + fd.cos(0.5*pi*z/zh)**6*zs, z)])
-else:
-    xexpr = fd.as_vector([x, z + ((H-z)/H)*zs])
-mesh.coordinates.interpolate(xexpr)
+gas = euler.StandardAtmosphere(N=0.01)
 
 W, Vv = euler.function_space(mesh, horizontal_degree=args.degree,
                              vertical_degree=args.degree,
@@ -88,61 +57,22 @@ V1, V2, Vt = W.subfunctions  # velocity, density, temperature
 PETSc.Sys.Print(f"DoFs: {W.dim()}")
 PETSc.Sys.Print(f"DoFs/core: {W.dim()/ensemble.comm.size}")
 
-Un = fd.Function(W)
-
-# N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
-Tsurf = fd.Constant(300.)
-thetab = Tsurf*fd.exp(gas.N**2*z/gas.g)
-
-Up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
-
-un = Un.subfunctions[0]
-rhon = Un.subfunctions[1]
-thetan = Un.subfunctions[2]
-un.project(fd.as_vector([10.0, 0.0]))
-thetan.interpolate(thetab)
-theta_back = fd.Function(Vt).assign(thetan)
-rhon.assign(1.0e-5)
-
 PETSc.Sys.Print("Calculating hydrostatic state")
 
-Pi = fd.Function(V2)
+Un = mountain.initial_conditions(mesh, W, Vv, gas)
+rho_back = fd.Function(V2).assign(Un.subfunctions[1])
+theta_back = fd.Function(Vt).assign(Un.subfunctions[2])
 
-euler.hydrostatic_rho(Vv, V2, mesh, thetan, rhon,
-                      pi_boundary=fd.Constant(0.02),
-                      gas=gas, Up=Up, top=True, Pi=Pi)
-p0 = function_maximum(Pi)
-
-euler.hydrostatic_rho(Vv, V2, mesh, thetan, rhon,
-                      pi_boundary=fd.Constant(0.05),
-                      gas=gas, Up=Up, top=True, Pi=Pi)
-p1 = function_maximum(Pi)
-alpha = 2.*(p1-p0)
-beta = p1-alpha
-pi_top = (1.-beta)/alpha
-
-euler.hydrostatic_rho(Vv, V2, mesh, thetan, rhon,
-                      pi_boundary=fd.Constant(pi_top),
-                      gas=gas, Up=Up, top=True)
-
-rho_back = fd.Function(V2).assign(rhon)
-
-zc = fd.Constant(H-10000.)
-mubar = fd.Constant(0.15/dt)
-mu_top = fd.conditional(z <= zc, 0.0,
-                        mubar*fd.sin(fd.Constant(pi/2.)*(z-zc)/(H-zc))**2)
-mu = fd.Function(V2).interpolate(mu_top)
+mu = mountain.sponge_layer(mesh, V2, dt)
 
 form_mass = euler.get_form_mass()
 
+up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 form_function = euler.get_form_function(
-    n, Up, c_pen=fd.Constant(2.0**(-7./2)),
+    n, up, c_pen=fd.Constant(2.0**(-7./2)),
     gas=gas, mu=mu)
 
-zv = fd.as_vector([fd.Constant(0.), fd.Constant(0.)])
-bcs = [fd.DirichletBC(W.sub(0), zv, "bottom"),
-       fd.DirichletBC(W.sub(0), zv, "top")]
-
+bcs = mountain.boundary_conditions(W)
 for bc in bcs:
     bc.apply(Un)
 
