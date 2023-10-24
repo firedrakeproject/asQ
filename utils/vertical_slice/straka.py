@@ -50,12 +50,11 @@ def initial_conditions(mesh, W, Vv, gas):
                     pi_boundary=fd.Constant(1.0),
                     gas=gas, Up=up, top=False)
 
-    x = fd.SpatialCoordinate(mesh)
     xc = 0.
     xr = 4000.
     zc = 3000.
     zr = 2000.
-    r = fd.sqrt(((x[0]-xc)/xr)**2 + ((x[1]-zc)/zr)**2)
+    r = fd.sqrt(((x-xc)/xr)**2 + ((z-zc)/zr)**2)
     T_pert = fd.conditional(r > 1., 0., -7.5*(1.+fd.cos(fd.pi*r)))
     # T = theta*Pi so Delta theta = Delta T/Pi assuming Pi fixed
 
