@@ -231,29 +231,42 @@ def timestep_residuals(aaores):
     vresiduals.synchronise()
 
 
+nt = aaofunc.ntimesteps
+# gamma = args.alpha**np.arange(nt)/nt
+gamma = np.ones(nt)
+
+
+def aaofft(transfer, aaofunc, aaofreq, xarray, yarray):
+    local_size = [aaofunc.nlocal_timesteps,
+                  aaofunc.field_function_space.node_set.size]
+
+    with aaofunc.global_vec_ro() as fvec:
+        xarray[:] = fvec.array_r.reshape(local_size)[:]
+
+    transfer.forward(xarray, yarray)
+    yarray[:] = (gamma*yarray.T).T
+
+    fftarray = rfft(yarray, axis=0)
+
+    yarray[:1+nt//2, :] = np.abs(fftarray)
+    yarray[1+nt//2:, :] = 0
+
+    transfer.backward(yarray, xarray)
+
+    with aaofreq.global_vec_wo() as fvec:
+        fvec.array.reshape(local_size)[:] = xarray[:]
+
+
 aaofreqs = aaofunc.copy()
 aaosizes = np.array((aaofunc.ntimesteps, W.node_set.size), dtype=int)
 transfer = transposer(ensemble.ensemble_comm, aaosizes, dtype=float)
-aaoarray = np.zeros(transfer.subshapeA, dtype=transfer.dtype)
-transposed_array = np.zeros(transfer.subshapeB, dtype=transfer.dtype)
-fft_array = np.zeros((1+aaofunc.ntimesteps//2, transfer.subshapeB[1]), dtype=complex)
+xarray = np.zeros(transfer.subshapeA, dtype=transfer.dtype)
+yarray = np.zeros(transfer.subshapeB, dtype=transfer.dtype)
+# fft_array = np.zeros((1+aaofunc.ntimesteps//2, transfer.subshapeB[1]), dtype=complex)
 
 
 def frequency_residuals(aaores):
-    with aaores.global_vec_ro() as rvec:
-        aaoarray[:] = rvec.array_r.reshape((aaores.nlocal_timesteps,
-                                            W.node_set.size))
-
-    transposed_array[:] = 0
-    transfer.forward(aaoarray, transposed_array)
-    fft_array[:] = 0
-    fft_array[:] = rfft(transposed_array, axis=0)
-    transposed_array[:1+aaores.ntimesteps//2, :] = np.abs(fft_array)
-    aaoarray[:] = 0
-    transfer.backward(transposed_array, aaoarray)
-
-    with aaofreqs.global_vec_wo() as rvec:
-        rvec.array[:] = aaoarray.reshape(-1)
+    aaofft(transfer, aaores, aaofreqs, xarray, yarray)
 
     for i in range(aaofreqs.nlocal_timesteps):
         with aaofreqs[i].dat.vec_ro as rvec:
@@ -372,7 +385,7 @@ for wndw in range(args.niterations):
     Print("Timestep residuals:")
     Print([f"{r:.3e}" for r in vresiduals.data()])
     Print("Frequency residuals:")
-    Print([f"{r:.3e}" for r in mresiduals.data()])
+    Print([f"{r:.3e}" for r in mresiduals.data()[:window_length//2+1]])
     Print(f"Converged timesteps: {nconverged}")
     Print('')
 
@@ -437,7 +450,7 @@ for wndw in range(args.niterations):
     Print("Timestep residuals:")
     Print([f"{r:.3e}" for r in vresiduals.data()])
     Print("Frequency residuals:")
-    Print([f"{r:.3e}" for r in mresiduals.data()])
+    Print([f"{r:.3e}" for r in mresiduals.data()[:window_length//2+1]])
     Print('')
 
     simulated_time = args.dt*nsimulated
