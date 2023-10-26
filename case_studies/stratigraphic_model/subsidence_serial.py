@@ -2,8 +2,11 @@ import firedrake as fd
 from math import pi
 from utils.serial import SerialMiniApp
 
-N = 1000
+N = 250
 mesh = fd.SquareMesh(N, N, 100000, quadrilateral=False)
+hierarchy = fd.MeshHierarchy(mesh, 2)
+mesh = hierarchy[-1]
+
 V = fd.FunctionSpace(mesh, "CG", 1)
 
 # # # === --- initial conditions --- === # # #
@@ -40,7 +43,7 @@ def form_mass(s, q):
 D_c = fd.Constant(.002)
 G_0 = fd.Constant(.004)
 A = fd.Constant(50)
-b = 100*fd.tanh(1/100000*(x-50000))
+b = 100*fd.tanh(1/20000*(x-50000))
 
 
 def form_function(s, q, t):
@@ -48,16 +51,42 @@ def form_function(s, q, t):
 
 
 sp = {
-    "snes_max_it": 2000,
-    "snes_atol": 1.0e-2,
-    "snes_rtol": 1.0e-8,
-    "snes_monitor": None,
-    "snes_linesearch_type": "l2",
-    "snes_converged_reason": None,
     "mat_type": "aij",
-    "ksp_type": "preonly",
-    "pc_type": "lu",
-    "pc_factor_mat_solver_type": "mumps"
+    "snes_type": "newtonls",
+    "snes_atol": 1.0e-8,
+    "snes_rtol": 1.0e-8,
+    "snes_stol": 1.0e-100,
+    "snes_monitor": None,
+    "ksp_type": "fgmres",
+    "ksp_norm_type": "unpreconditioned",
+    "ksp_monitor": None,
+    "snes_linesearch_type": "l2",
+    "snes_linesearch_monitor": None,
+    "ksp_converged_reason": None,
+    "snes_ksp_ew": None,
+    "ksp_max_it": 100,
+    "ksp_gmres_restart": 50,
+    "pc_type": "mg",
+    "pc_mg_cycle_type": "v",
+    "pc_mg_type": "multiplicative",
+    "mg_levels_ksp_type": "gmres",
+    "mg_levels_ksp_max_it": 3,
+    "mg_levels_pc_type": "python",
+    "mg_levels_pc_python_type": "firedrake.PatchPC",
+    "mg_levels_patch_pc_patch_save_operators": True,
+    "mg_levels_patch_pc_patch_partition_of_unity": False,
+    "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
+    "mg_levels_patch_pc_patch_construct_codim": 0,
+    "mg_levels_patch_pc_patch_construct_type": "vanka",
+    "mg_levels_patch_pc_patch_exclude_subspaces": 1,
+    "mg_levels_patch_pc_patch_precompute_element_tensors": True,
+    "mg_levels_patch_sub_ksp_type": "preonly",
+    "mg_levels_patch_sub_pc_type": "lu",
+    "mg_levels_patch_pc_factor_mat_solver_type": "mumps",
+    "mg_coarse_pc_type": "python",
+    "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+    "mg_coarse_assembled_pc_type": "lu",
+    "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
 }
 
 
