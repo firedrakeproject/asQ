@@ -34,6 +34,7 @@ parser.add_argument('--atol', type=float, default=1e0, help='Average absolute to
 parser.add_argument('--brtol', type=float, default=1e-5, help='Relative tolerance for each block.')
 parser.add_argument('--max_converged', type=int, default=-1, help='Maximum number of timesteps converging each iteration.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
+parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory for metrics output')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space).')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
@@ -56,12 +57,14 @@ dt = args.dt*units.hour
 # multigrid mesh set up
 
 ensemble = asQ.create_ensemble(time_partition)
+nlocal_timesteps = time_partition[ensemble.ensemble_comm.rank]
 
 # mesh set up
 mesh = swe.create_mg_globe_mesh(comm=ensemble.comm,
                                 base_level=args.base_level,
                                 ref_level=args.ref_level,
                                 coords_degree=1)
+
 
 x = fd.SpatialCoordinate(mesh)
 
@@ -143,8 +146,8 @@ block_sparameters = {
         'max_it': 50,
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'full',
+    'pc_mg_cycle_type': 'v',
+    'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
 
@@ -184,7 +187,7 @@ sparameters = {
 Print('### === --- Calculating parallel solution --- === ###')
 Print('')
 
-for i in range(window_length):
+for i in range(nlocal_timesteps):
     sparameters['diagfft_block_'+str(i)+'_'] = block_sparameters
 
 # non-petsc information for block solve
@@ -192,7 +195,6 @@ appctx = {}
 
 # mesh transfer operators
 transfer_managers = []
-nlocal_timesteps = time_partition[ensemble.ensemble_comm.rank]
 for _ in range(nlocal_timesteps):
     tm = mg.manifold_transfer_manager(W)
     transfer_managers.append(tm)
@@ -392,6 +394,16 @@ for wndw in range(args.niterations):
     if simulated_time > args.max_time:
         Print(f"Ending simulation after max time: {args.max_time}")
         break
+
+if ensemble.global_comm.rank == 0:
+    from json import dumps
+    dir_name = args.metrics_dir
+    if (dir_name != "") and (dir_name[-1] != "/"):
+        dir_name += "/"
+    file_name = "solver_parameters.txt"
+    path = dir_name + file_name
+    with open(path, "w") as f:
+        f.write(dumps(sparameters, indent=4))
 
 Print(f"Iterations: {args.niterations}")
 Print(f"KSP iterations: {kspits}")
