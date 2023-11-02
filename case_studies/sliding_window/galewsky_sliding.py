@@ -166,7 +166,7 @@ block_sparameters = {
 atol = args.atol
 patol = sqrt(sum(time_partition))*atol
 sparameters = {
-    'snes_type': 'ksponly',
+    # 'snes_type': 'ksponly',
     'snes': {
         'monitor': None,
         'converged_reason': None,
@@ -180,15 +180,15 @@ sparameters = {
         'max_it': 2,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'preonly',
+    'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-2,
         'atol': patol,
         'stol': 1e-100,
-        'max_it': 2,
         'min_it': 1,
+        'max_it': 2,
         'converged_maxits': None,
     },
     'pc_type': 'python',
@@ -356,13 +356,16 @@ for wndw in range(args.niterations):
     window_postproc(wndw)
     kspits += aaosolver.snes.getLinearSolveIterations()
 
+    successful_iteration = True
     converged_reason = aaosolver.snes.getConvergedReason()
     if converged_reason == -5:
         Print("Warning: SNES did not converge to tolerance")
         Print("Continuing iteration.")
+        successful_iteration = False
     elif not (1 < converged_reason <= 5):
         Print("Warning: SNES diverged with error code {converged_reason}")
         Print("Cancelling iteration.")
+        successful_iteration = False
         break
 
     # timestep residuals
@@ -380,7 +383,7 @@ for wndw in range(args.niterations):
             nconverged += 1
         else:
             break
-    nconverged = min(nconverged, max_converged)
+    nconverged = min(nconverged, max_converged) if successful_iteration else 0
 
     Print('')
     Print("Residuals before rotate:")
