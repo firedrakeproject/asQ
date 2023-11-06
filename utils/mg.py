@@ -1,6 +1,5 @@
 
 import firedrake as fd
-from ufl.domain import extract_unique_domain as ufl_domain
 
 
 # transfer between mesh levels on a manifold
@@ -14,11 +13,11 @@ class ManifoldTransfer(object):
         '''
 
         # list of flags to say if we've set up before
-        self.registered_meshes = {}
+        self.registered_meshes = []
         self.Ftransfer = fd.TransferManager()  # is this the firedrake warning?
 
     def prolong(self, coarse, fine):
-        self._transfer(fine, coarse, self.Ftransfer.prolong)
+        self._transfer(fine, coarse, self.Ftransfer.prolong, coarse_first=True)
 
     def restrict(self, fine, coarse):
         self._transfer(fine, coarse, self.Ftransfer.restrict)
@@ -26,43 +25,33 @@ class ManifoldTransfer(object):
     def inject(self, fine, coarse):
         self._transfer(fine, coarse, self.Ftransfer.inject)
 
-    def _transfer(self, fine, coarse, transfer_op):
-        coarse_mesh = ufl_domain(coarse)
-        fine_mesh = ufl_domain(fine)
+    def _transfer(self, fine, coarse, transfer_op, coarse_first=False):
+        coarse_mesh = coarse.function_space().mesh()
+        fine_mesh = fine.function_space().mesh()
 
-        # check if we have seen this mesh before
-        Vfine = fd.FunctionSpace(fine_mesh,
-                                 fine.function_space().ufl_element())
-
-        self._register_meshes(fine_mesh, coarse_mesh, key=Vfine.dim())
+        # backup the original coordinates the first time we see a mesh
+        self._register_mesh(coarse_mesh)
+        self._register_mesh(fine_mesh)
 
         # change to the transfer coordinates for transfer operations
-        self._to_transfer_coordinates(coarse_mesh)
-        self._to_transfer_coordinates(fine_mesh)
+        fine_mesh.coordinates.assign(fine_mesh.transfer_coordinates)
+        coarse_mesh.coordinates.assign(coarse_mesh.transfer_coordinates)
 
         # standard transfer preserves divergence-free subspaces
-        transfer_op(uf=fine, uc=coarse)
+        if coarse_first:
+            transfer_op(coarse, fine)
+        else:
+            transfer_op(fine, coarse)
 
         # change back to original mesh
-        self._to_original_coordinates(coarse_mesh)
-        self._to_original_coordinates(fine_mesh)
+        fine_mesh.coordinates.assign(fine_mesh.original_coordinates)
+        coarse_mesh.coordinates.assign(coarse_mesh.original_coordinates)
 
-    def _register_meshes(self, fine_mesh, coarse_mesh, key):
-        firsttime = self.registered_meshes.get(key, None) is None
-        if firsttime:
-            self.registered_meshes[key] = True
-            self._backup_mesh_coordinates(fine_mesh)
-            self._backup_mesh_coordinates(coarse_mesh)
-
-    def _backup_mesh_coordinates(self, mesh):
-        if not hasattr(mesh, "coordinates_bk"):
-            mesh.coordinates_bk = fd.Function(mesh.coordinates)
-
-    def _to_transfer_coordinates(self, mesh):
-        mesh.coordinates.assign(mesh.transfer_coordinates)
-
-    def _to_original_coordinates(self, mesh):
-        mesh.coordinates.assign(mesh.coordinates_bk)
+    def _register_mesh(self, mesh):
+        mesh_key = mesh.coordinates.function_space().dim()
+        if mesh_key not in self.registered_meshes:
+            mesh.original_coordinates = fd.Function(mesh.coordinates)
+            self.registered_meshes.append(mesh_key)
 
 
 def manifold_transfer_manager(W):
