@@ -11,9 +11,6 @@ class ManifoldTransfer(object):
         where we pull back to a piecewise flat mesh
         before doing transfers
         '''
-
-        # list of flags to say if we've set up before
-        self.registered_meshes = set()
         self.Ftransfer = fd.TransferManager()  # is this the firedrake warning?
 
     def prolong(self, coarse, fine):
@@ -45,14 +42,12 @@ class ManifoldTransfer(object):
         mesh1.coordinates.assign(mesh1.original_coordinates)
 
     def _register_mesh(self, mesh):
-        mesh_id = id(mesh)
-        if mesh_id not in self.registered_meshes:
-            if not hasattr(mesh, "transfer_coordinates"):
-                msg = "ManifoldTransfer requires mesh to have `transfer_coordinates`" \
-                      + " stashed on each member of heirarchy."
-                raise AttributeError(msg)
+        if not hasattr(mesh, "transfer_coordinates"):
+            msg = "ManifoldTransfer requires mesh to have `transfer_coordinates`" \
+                  + " stashed on each member of heirarchy."
+            raise AttributeError(msg)
+        if not hasattr(mesh, "original_coordinates"):
             mesh.original_coordinates = fd.Function(mesh.coordinates)
-            self.registered_meshes.add(mesh_id)
 
 
 def manifold_transfer_manager(W):
