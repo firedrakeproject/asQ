@@ -343,8 +343,7 @@ def test_galewsky_timeseries():
     appctx = {}
     transfer_managers = []
     for _ in range(time_partition[ensemble.ensemble_comm.rank]):
-        tm = mg.manifold_transfer_manager(W)
-        transfer_managers.append(tm)
+        transfer_managers.append(mg.ManifoldTransferManager())
     appctx['diag_transfer_managers'] = transfer_managers
 
     miniapp = ComparisonMiniapp(ensemble, time_partition,
@@ -356,7 +355,7 @@ def test_galewsky_timeseries():
                                 appctx=appctx)
 
     miniapp.serial_app.nlsolver.set_transfer_manager(
-        mg.manifold_transfer_manager(W))
+        mg.ManifoldTransferManager())
 
     norm0 = fd.norm(w_initial)
 

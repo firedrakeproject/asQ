@@ -120,8 +120,7 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         # should look at removing this once the manifold transfer manager has found a proper home
         transfer_managers = []
         for _ in range(self.nlocal_timesteps):
-            tm = mg.manifold_transfer_manager(self.function_space())
-            transfer_managers.append(tm)
+            transfer_managers.append(mg.ManifoldTransferManager())
 
         appctx['diagfft_transfer_managers'] = transfer_managers
 
