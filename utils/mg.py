@@ -17,7 +17,7 @@ class ManifoldTransfer(object):
         self.Ftransfer = fd.TransferManager()  # is this the firedrake warning?
 
     def prolong(self, coarse, fine):
-        self._transfer(fine, coarse, self.Ftransfer.prolong, coarse_first=True)
+        self._transfer(coarse, fine, self.Ftransfer.prolong)
 
     def restrict(self, fine, coarse):
         self._transfer(fine, coarse, self.Ftransfer.restrict)
@@ -25,27 +25,24 @@ class ManifoldTransfer(object):
     def inject(self, fine, coarse):
         self._transfer(fine, coarse, self.Ftransfer.inject)
 
-    def _transfer(self, fine, coarse, transfer_op, coarse_first=False):
-        fine_mesh = fine.function_space().mesh()
-        coarse_mesh = coarse.function_space().mesh()
+    def _transfer(self, f0, f1, transfer_op):
+        mesh0 = f0.function_space().mesh()
+        mesh1 = f1.function_space().mesh()
 
         # backup the original coordinates the first time we see a mesh
-        self._register_mesh(fine_mesh)
-        self._register_mesh(coarse_mesh)
+        self._register_mesh(mesh0)
+        self._register_mesh(mesh1)
 
         # change to the transfer coordinates for transfer operations
-        fine_mesh.coordinates.assign(fine_mesh.transfer_coordinates)
-        coarse_mesh.coordinates.assign(coarse_mesh.transfer_coordinates)
+        mesh0.coordinates.assign(mesh0.transfer_coordinates)
+        mesh1.coordinates.assign(mesh1.transfer_coordinates)
 
         # standard transfer preserves divergence-free subspaces
-        if coarse_first:
-            transfer_op(coarse, fine)
-        else:
-            transfer_op(fine, coarse)
+        transfer_op(f0, f1)
 
         # change back to original mesh
-        fine_mesh.coordinates.assign(fine_mesh.original_coordinates)
-        coarse_mesh.coordinates.assign(coarse_mesh.original_coordinates)
+        mesh0.coordinates.assign(mesh0.original_coordinates)
+        mesh1.coordinates.assign(mesh1.original_coordinates)
 
     def _register_mesh(self, mesh):
         mesh_key = mesh.coordinates.function_space().dim()
