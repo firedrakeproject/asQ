@@ -45,10 +45,10 @@ class ManifoldTransfer(object):
         mesh1.coordinates.assign(mesh1.original_coordinates)
 
     def _register_mesh(self, mesh):
-        mesh_key = mesh.coordinates.function_space().dim()
-        if mesh_key not in self.registered_meshes:
+        mesh_id = mesh.ufl_id()
+        if mesh_id not in self.registered_meshes:
             mesh.original_coordinates = fd.Function(mesh.coordinates)
-            self.registered_meshes.add(mesh_key)
+            self.registered_meshes.add(mesh_id)
 
 
 def manifold_transfer_manager(W):
