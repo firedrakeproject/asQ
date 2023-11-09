@@ -2,13 +2,16 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 from pyop2.mpi import MPI
 from math import pi
+from utils.misc import function_maximum
 from utils.diagnostics import convective_cfl_calculator
 from utils.serial import SerialMiniApp
-from utils.vertical_slice import hydrostatic_rho, \
-    get_form_mass, get_form_function, maximum
+from utils import compressible_flow as euler
 
 import argparse
-parser = argparse.ArgumentParser(description='3D Mountain testcase.')
+parser = argparse.ArgumentParser(
+    description='3D Mountain testcase.',
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
 parser.add_argument('--nx', type=int, default=16, help='Number of columns in the streamwise direction.')
 parser.add_argument('--ny', type=int, default=16, help='Number of columns in the spanwise direction.')
 parser.add_argument('--nz', type=int, default=16, help='Number of layers.')
@@ -64,14 +67,7 @@ mesh = fd.ExtrudedMesh(base_mesh, layers=nz, layer_height=Lz/nz)
 n = fd.FacetNormal(mesh)
 x, y, z = fd.SpatialCoordinate(mesh)
 
-g = fd.Constant(9.810616)
-N = fd.Constant(0.01)  # Brunt-Vaisala frequency (1/s)
-cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
-R_d = fd.Constant(287.)  # Gas constant for dry air (J/kg/K)
-kappa = fd.Constant(2.0/7.0)  # R_d/c_p
-p_0 = fd.Constant(1000.0*100.0)  # reference pressure (Pa, not hPa)
-cv = fd.Constant(717.)  # SHC of dry air at const. volume (J/kg/K)
-T_0 = fd.Constant(273.15)  # ref. temperature
+gas = euler.StandardAtmosphere(N=0.01)
 
 # making a mountain out of a molehill
 a = 1000.
@@ -91,29 +87,10 @@ else:
     xexpr = fd.as_vector([x, y, z + ((Lz-z)/Lz)*zs])
 mesh.coordinates.interpolate(xexpr)
 
-horizontal_degree = args.degree
-vertical_degree = args.degree
-
-S1 = fd.FiniteElement("RTCF", fd.quadrilateral, horizontal_degree+1)
-S2 = fd.FiniteElement("DQ", fd.quadrilateral, horizontal_degree)
-
-# vertical base spaces
-T0 = fd.FiniteElement("CG", fd.interval, vertical_degree+1)
-T1 = fd.FiniteElement("DG", fd.interval, vertical_degree)
-
-# build spaces V2, V3, Vt
-V2h_elt = fd.HDiv(fd.TensorProductElement(S1, T1))
-V2t_elt = fd.TensorProductElement(S2, T0)
-V3_elt = fd.TensorProductElement(S2, T1)
-V2v_elt = fd.HDiv(V2t_elt)
-V2_elt = V2h_elt + V2v_elt
-
-V1 = fd.FunctionSpace(mesh, V2_elt, name="Velocity")
-V2 = fd.FunctionSpace(mesh, V3_elt, name="Pressure")
-Vt = fd.FunctionSpace(mesh, V2t_elt, name="Temperature")
-Vv = fd.FunctionSpace(mesh, V2v_elt, name="Vv")
-
-W = V1 * V2 * Vt  # velocity, density, temperature
+W, Vv = euler.function_space(mesh, horizontal_degree=args.degree,
+                             vertical_degree=args.degree,
+                             vertical_velocity_space=True)
+V1, V2, Vt = W.subfunctions  # velocity, density, temperature
 
 PETSc.Sys.Print(f"DoFs: {W.dim()}")
 PETSc.Sys.Print(f"DoFs/core: {W.dim()/comm.size}")
@@ -122,9 +99,8 @@ Un = fd.Function(W)
 
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
 Tsurf = fd.Constant(300.)
-thetab = Tsurf*fd.exp(N**2*z/g)
+thetab = Tsurf*fd.exp(gas.N**2*z/gas.g)
 
-cp = fd.Constant(1004.5)  # SHC of dry air at const. pressure (J/kg/K)
 Up = fd.as_vector([fd.Constant(0.0), fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
 un = Un.subfunctions[0]
@@ -139,22 +115,22 @@ PETSc.Sys.Print("Calculating hydrostatic state")
 
 Pi = fd.Function(V2)
 
-hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.02),
-                cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
-                top=True, Pi=Pi)
-p0 = maximum(Pi)
+euler.hydrostatic_rho(Vv, V2, mesh, thetan, rhon,
+                      pi_boundary=fd.Constant(0.02),
+                      gas=gas, Up=Up, top=True, Pi=Pi)
+p0 = function_maximum(Pi)
 
-hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(0.05),
-                cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
-                top=True, Pi=Pi)
-p1 = maximum(Pi)
+euler.hydrostatic_rho(Vv, V2, mesh, thetan, rhon,
+                      pi_boundary=fd.Constant(0.05),
+                      gas=gas, Up=Up, top=True, Pi=Pi)
+p1 = function_maximum(Pi)
 alpha = 2.*(p1-p0)
 beta = p1-alpha
 pi_top = (1.-beta)/alpha
 
-hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary=fd.Constant(pi_top),
-                cp=cp, R_d=R_d, p_0=p_0, kappa=kappa, g=g, Up=Up,
-                top=True)
+euler.hydrostatic_rho(Vv, V2, mesh, thetan, rhon,
+                      pi_boundary=fd.Constant(pi_top),
+                      gas=gas, Up=Up, top=True)
 
 rho_back = fd.Function(V2).assign(rhon)
 
@@ -163,11 +139,11 @@ mubar = fd.Constant(0.15/dt)
 mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(Lz-zc))**2)
 mu = fd.Function(V2).interpolate(mu_top)
 
-form_function = get_form_function(n, Up, c_pen=2.0**(-7./2),
-                                  cp=cp, g=g, R_d=R_d,
-                                  p_0=p_0, kappa=kappa, mu=mu)
+form_mass = euler.get_form_mass()
 
-form_mass = get_form_mass()
+form_function = euler.get_form_function(
+    n, Up, c_pen=fd.Constant(2.0**(-7./2)),
+    gas=gas, mu=mu)
 
 zv = fd.as_vector([fd.Constant(0.), fd.Constant(0.), fd.Constant(0.)])
 bcs = [fd.DirichletBC(W.sub(0), zv, "bottom"),
