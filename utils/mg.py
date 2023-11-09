@@ -47,6 +47,10 @@ class ManifoldTransfer(object):
     def _register_mesh(self, mesh):
         mesh_id = id(mesh)
         if mesh_id not in self.registered_meshes:
+            if not hasattr(mesh, "transfer_coordinates"):
+                msg = "ManifoldTransfer requires mesh to have `transfer_coordinates`" \
+                      + " stashed on each member of heirarchy."
+                raise AttributeError(msg)
             mesh.original_coordinates = fd.Function(mesh.coordinates)
             self.registered_meshes.add(mesh_id)
 
