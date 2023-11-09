@@ -4,23 +4,20 @@ import firedrake as fd
 
 # transfer between mesh levels on a manifold
 # by first ensuring meshes are nested
-class ManifoldTransfer(object):
-    def __init__(self):
-        '''
-        Object to manage transfer operators for MG
-        where we pull back to a piecewise flat mesh
-        before doing transfers
-        '''
-        self.Ftransfer = fd.TransferManager()  # is this the firedrake warning?
-
+class ManifoldTransferManager(fd.TransferManager):
+    '''
+    Object to manage transfer operators for MG
+    where we pull back to a piecewise flat mesh
+    before doing transfers.
+    '''
     def prolong(self, coarse, fine):
-        self._transfer(coarse, fine, self.Ftransfer.prolong)
+        self._transfer(coarse, fine, super().prolong)
 
     def restrict(self, fine, coarse):
-        self._transfer(fine, coarse, self.Ftransfer.restrict)
+        self._transfer(fine, coarse, super().restrict)
 
     def inject(self, fine, coarse):
-        self._transfer(fine, coarse, self.Ftransfer.inject)
+        self._transfer(fine, coarse, super().inject)
 
     def _transfer(self, f0, f1, transfer_op):
         mesh0 = f0.function_space().mesh()
@@ -43,29 +40,12 @@ class ManifoldTransfer(object):
 
     def _register_mesh(self, mesh):
         if not hasattr(mesh, "transfer_coordinates"):
-            msg = "ManifoldTransfer requires mesh to have `transfer_coordinates`" \
-                  + " stashed on each member of heirarchy."
+            msg = "ManifoldTransferManager requires mesh to have " \
+                  + "`transfer_coordinates` stashed on each member" \
+                  + " of heirarchy."
             raise AttributeError(msg)
         if not hasattr(mesh, "original_coordinates"):
             mesh.original_coordinates = fd.Function(mesh.coordinates)
-
-
-def manifold_transfer_manager(W):
-    '''
-    Return a multigrid transfer manager for manifold meshes
-
-    Uses the ManifoldTransfer operations to manage the
-    prolongation, restriction and injection
-    arg: W: a MixedFunctionSpace over the manifold mesh
-    '''
-
-    Vs = W.subfunctions
-    vtransfer = ManifoldTransfer()
-    transfers = {}
-    for V in Vs:
-        transfers[V.ufl_element()] = (vtransfer.prolong, vtransfer.restrict,
-                                      vtransfer.inject)
-    return fd.TransferManager(native_transfers=transfers)
 
 
 # set up mesh levels for multigrid scheme
