@@ -103,13 +103,14 @@ block_parameters = {
 #    The solver options for this are:
 #    'ksp_type': 'preonly'
 
+atol = 1e-8
 paradiag_parameters = {
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-8,
-        'atol': 1e-2,
+        'atol': atol,
         'stol': 1e-8,
     },
     'mat_type': 'matfree',
@@ -118,7 +119,7 @@ paradiag_parameters = {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-8,
-        'atol': 1e-2,
+        'atol': atol,
         'stol': 1e-8,
     },
     'pc_type': 'python',
@@ -169,10 +170,10 @@ if is_last_slice:
 # We can use this to save the last timestep of each window for plotting.
 def window_postproc(pdg, wndw, rhs):
     if is_last_slice:
-        # The aaos is the AllAtOnceSystem which represents the time-dependent problem.
-        # get_field extracts one timestep of the window. -1 is again used to get the last
-        # timestep and place it in qout.
-        pdg.aaofunc.get_field(-1, index_range='window', uout=qout)
+        # The aaofunc is the AllAtOnceFunction which represents the time-series.
+        # indexing the AllAtOnceFunction accesses one timestep on the local slice.
+        # -1 is again used to get the last timestep and place it in qout.
+        qout.assign(pdg.aaofunc[-1])
         timeseries.append(qout.copy(deepcopy=True))
 
 
@@ -197,7 +198,7 @@ PETSc.Sys.Print(f'linear iterations: {pdg.linear_iterations}  |  iterations per 
 
 # Number of iterations needed for each block in step-(b), total and per block solve
 # The number of iterations for each block will usually be different because of the different eigenvalues
-PETSc.Sys.Print(f'block linear iterations: {pdg.block_iterations._data}  |  iterations per block solve: {pdg.block_iterations._data/pdg.linear_iterations}')
+PETSc.Sys.Print(f'block linear iterations: {pdg.block_iterations.data()}  |  iterations per block solve: {pdg.block_iterations.data()/pdg.linear_iterations}')
 
 # We can write these diagnostics to file, along with some other useful information.
 # Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt

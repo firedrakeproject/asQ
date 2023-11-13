@@ -143,12 +143,12 @@ for i in range(window_length):
 # Give everything to asQ to create the paradiag object.
 # the circ parameter determines where the alpha-circulant
 # approximation is introduced. None means only in the preconditioner.
-PD = asQ.Paradiag(ensemble=ensemble,
-                  form_function=form_function,
-                  form_mass=form_mass,
-                  ics=w0, dt=dt, theta=args.theta,
-                  time_partition=time_partition, bcs=bcs,
-                  solver_parameters=paradiag_parameters)
+pdg = asQ.Paradiag(ensemble=ensemble,
+                   form_function=form_function,
+                   form_mass=form_mass,
+                   ics=w0, dt=dt, theta=args.theta,
+                   time_partition=time_partition, bcs=bcs,
+                   solver_parameters=paradiag_parameters)
 
 
 # This is a callback which will be called before pdg solves each time-window
@@ -162,29 +162,25 @@ def window_preproc(pdg, wndw, rhs):
 qcheck = w0.copy(deepcopy=True)
 
 
-def Exact(w):
+def exact(w):
     q_err = fd.errornorm(w, qcheck)
     return q_err
 
 
-w = fd.Function(V)
-
-
-def window_postproc(PD, wndw, rhs):
+def window_postproc(pdg, wndw, rhs):
     uerrors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
-    for i in range(PD.aaofunc.nlocal_timesteps):
-        PD.aaofunc.get_field(i, uout=w, index_range='slice')
-        uerr = Exact(w)
+    for i in range(pdg.aaofunc.nlocal_timesteps):
+        uerr = exact(pdg.aaofunc[i])
         uerrors.dlocal[i] = uerr
     uerrors.synchronise()
 
-    for i in range(PD.ntimesteps):
+    for i in range(pdg.ntimesteps):
         timestep = wndw*window_length + i
         uerr = uerrors.dglobal[i]
         PETSc.Sys.Print(f"timestep={timestep}, uerr={uerr}")
 
 
 # Solve nwindows of the all-at-once system
-PD.solve(args.nwindows,
-         preproc=window_preproc,
-         postproc=window_postproc)
+pdg.solve(args.nwindows,
+          preproc=window_preproc,
+          postproc=window_postproc)

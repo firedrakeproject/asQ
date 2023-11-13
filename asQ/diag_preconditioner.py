@@ -97,7 +97,7 @@ class DiagFFTPC(TimePartitionMixin):
         A, _ = pc.getOperators()
         jacobian = A.getPythonContext()
         self.jacobian = jacobian
-        self.time_partition_setup(jacobian.ensemble, jacobian.time_partition)
+        self._time_partition_setup(jacobian.ensemble, jacobian.time_partition)
 
         jacobian.pc = self
         aaofunc = jacobian.current_state
@@ -377,24 +377,33 @@ class DiagFFTPC(TimePartitionMixin):
         '''
         cpx = self.cpx
 
+        # default to time at centre of window
+        self.t_average.assign(self.aaoform.t0 + self.dt*(self.ntimesteps + 1)/2)
+
         jac_state = self.jac_state()
         if jac_state == 'linear':
             return
 
         elif jac_state == 'initial':
             ustate = self.aaofunc.initial_condition
+            self.t_average.assign(self.aaoform.t0)
 
         elif jac_state == 'reference':
             ustate = self.jacobian.reference_state
 
         elif jac_state in ('window', 'slice'):
-            time_average_function(self.aaofunc, self.ureduce, self.uwrk, average=jac_state)
+            time_average_function(self.aaofunc, self.ureduce,
+                                  self.uwrk, average=jac_state)
             ustate = self.ureduce
+
+            if jac_state == 'slice':
+                i1 = self.aaofunc.transform_index(0, from_range='slice',
+                                                  to_range='window')
+                t1 = self.aaoform.t0 + i1*self.dt
+                self.t_average.assign(t1 + self.dt*(self.nlocal_timesteps + 1)/2)
 
         cpx.set_real(self.u0, ustate)
         cpx.set_imag(self.u0, ustate)
-
-        self.t_average.assign(self.aaoform.t0 + (self.aaofunc.ntimesteps + 1)*self.dt/2)
         return
 
     @profiler()
@@ -446,8 +455,8 @@ class DiagFFTPC(TimePartitionMixin):
                 # copy the data into solver input
                 self.xtemp.assign(0.)
 
-                cpx.set_real(self.xtemp, self.xfr.get_field_components(i))
-                cpx.set_imag(self.xtemp, self.xfi.get_field_components(i))
+                cpx.set_real(self.xtemp, self.xfr[i])
+                cpx.set_imag(self.xtemp, self.xfi[i])
 
                 # Do a project for Riesz map, to be superceded
                 # when we get Cofunction
@@ -461,8 +470,8 @@ class DiagFFTPC(TimePartitionMixin):
                 self.Jsolvers[i].solve()
 
                 # copy the data from solver output
-                cpx.get_real(self.Jprob_out, self.xfr.get_field_components(i))
-                cpx.get_imag(self.Jprob_out, self.xfi.get_field_components(i))
+                cpx.get_real(self.Jprob_out, self.xfr[i])
+                cpx.get_imag(self.Jprob_out, self.xfi[i])
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy

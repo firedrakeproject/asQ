@@ -140,7 +140,7 @@ def post_function_callback(aaosolver, X, F):
     # all-at-once residual
     res = aaosolver.aaoform.F
     for i in range(res.nlocal_timesteps):
-        w = res.get_field(i)
+        w = res[i]
         # residuals.dlocal[i] = fd.norm(w)
         with w.dat.vec_ro as vec:
             residuals.dlocal[i] = vec.norm()

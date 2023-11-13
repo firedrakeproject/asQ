@@ -5,6 +5,8 @@ from asQ.profiling import profiler
 from asQ.allatonce import AllAtOnceFunction
 from asQ.allatonce.mixin import TimePartitionMixin
 
+from functools import partial
+
 __all__ = ['AllAtOnceForm']
 
 
@@ -32,7 +34,7 @@ class AllAtOnceForm(TimePartitionMixin):
         :arg bcs: a list of DirichletBC boundary conditions on aaofunc.field_function_space.
         :arg alpha: float, circulant matrix parameter. if None then no circulant approximation used.
         """
-        self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
+        self._time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
 
         self.aaofunc = aaofunc
         self.field_function_space = aaofunc.field_function_space
@@ -101,7 +103,7 @@ class AllAtOnceForm(TimePartitionMixin):
                     cpt = bc.function_space().index
                 else:
                     cpt = 0
-                index = aaofunc.transform_index(step, cpt)
+                index = aaofunc._component_indices(step)[cpt]
                 bc_all = fd.DirichletBC(aaofunc.function_space.sub(index),
                                         bc.function_arg,
                                         bc.sub_domain)
@@ -186,11 +188,11 @@ class AllAtOnceForm(TimePartitionMixin):
         dt = self.dt
         theta = self.theta
 
-        def get_step(i):
-            return aaofunc.get_field_components(i, funcs=funcs)
+        def get_components(i, funcs=None):
+            return tuple(funcs[j] for j in aaofunc._component_indices(i))
 
-        def get_test(i):
-            return aaofunc.get_field_components(i, funcs=test_funcs)
+        get_step = partial(get_components, funcs=funcs)
+        get_test = partial(get_components, funcs=test_funcs)
 
         for n in range(self.nlocal_timesteps):
 

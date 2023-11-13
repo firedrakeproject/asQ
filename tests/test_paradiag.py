@@ -2,7 +2,7 @@ import asQ
 import firedrake as fd
 import pytest
 from firedrake.petsc import PETSc
-from functools import reduce
+from functools import reduce, partial
 from operator import mul
 
 
@@ -69,7 +69,7 @@ def test_Nitsche_BCs():
             local_step = PD.aaofunc.transform_index(step, from_range='window')
             t = PD.aaoform.time[local_step]
             q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
-            PD.aaofunc.get_field(local_step, uout=qp)
+            qp.assign(PD.aaofunc[local_step])
 
             errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
             times.dlocal[local_step] = t
@@ -391,55 +391,25 @@ def test_galewsky_timeseries():
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_steady_swe():
+def test_steady_swe_miniapp():
     # test that steady-state is maintained for shallow water eqs
     import utils.units as units
     import utils.planets.earth as earth
-    import utils.shallow_water.nonlinear as swe
+    import utils.shallow_water as swe
     import utils.shallow_water.williamson1992.case2 as case2
 
     # set up the ensemble communicator for space-time parallelism
     ref_level = 2
-    degree = 1
 
     nslices = fd.COMM_WORLD.size//2
     slice_length = 2
 
     time_partition = tuple((slice_length for _ in range(nslices)))
-    ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
-    mesh = fd.IcosahedralSphereMesh(radius=earth.radius,
-                                    refinement_level=ref_level,
-                                    degree=degree,
-                                    comm=ensemble.comm)
-    x = fd.SpatialCoordinate(mesh)
-    mesh.init_cell_orientations(x)
-
-    V1 = fd.FunctionSpace(mesh, "BDM", degree+1)
-    V2 = fd.FunctionSpace(mesh, "DG", degree)
-    W = fd.MixedFunctionSpace((V1, V2))
-
-    # initial conditions
-    f = case2.coriolis_expression(*x)
-
-    g = earth.Gravity
-    H = case2.H0
-    b = fd.Constant(0)
-
-    # W = V1 * V2
-    w0 = fd.Function(W)
-    un = w0.subfunctions[0]
-    hn = w0.subfunctions[1]
-    un.project(case2.velocity_expression(*x))
-    hn.project(H - b + case2.elevation_expression(*x))
-
-    # finite element forms
-
-    def form_function(u, h, v, q, t):
-        return swe.form_function(mesh, g, b, f, u, h, v, q, t)
-
-    def form_mass(u, h, v, q):
-        return swe.form_mass(mesh, u, h, v, q)
+    create_mesh = partial(
+        swe.create_mg_globe_mesh,
+        ref_level=ref_level,
+        coords_degree=1)
 
     # Parameters for the diag
     sparameters = {
@@ -471,25 +441,36 @@ def test_steady_swe():
 
     theta = 0.5
 
-    pdg = asQ.Paradiag(ensemble=ensemble,
-                       form_function=form_function,
-                       form_mass=form_mass,
-                       ics=w0, dt=dt, theta=theta,
-                       time_partition=time_partition,
-                       solver_parameters=solver_parameters_diag)
-    pdg.solve()
+    miniapp = swe.ShallowWaterMiniApp(
+        gravity=earth.Gravity,
+        topography_expression=case2.topography_expression,
+        velocity_expression=case2.velocity_expression,
+        depth_expression=case2.depth_expression,
+        reference_depth=case2.H0,
+        create_mesh=create_mesh,
+        dt=dt, theta=theta,
+        time_partition=time_partition,
+        paradiag_sparameters=solver_parameters_diag)
+
+    miniapp.solve()
+    pdg = miniapp.paradiag
 
     # check against initial conditions
-    hn.assign(hn - H + b)
+    x = fd.SpatialCoordinate(miniapp.mesh)
+    w0 = fd.Function(miniapp.W)
+    un = w0.subfunctions[0]
+    hn = w0.subfunctions[1]
+    un.project(case2.velocity_expression(*x))
+    hn.project(case2.elevation_expression(*x))
 
     hmag = fd.norm(hn)
     umag = fd.norm(un)
 
     for step in range(pdg.nlocal_timesteps):
 
-        up = pdg.aaofunc.get_component(step, 0, index_range='slice')
-        hp = pdg.aaofunc.get_component(step, 1, index_range='slice')
-        hp.assign(hp-H+b)
+        up = pdg.aaofunc[step].subfunctions[0]
+        hp = pdg.aaofunc[step].subfunctions[1]
+        miniapp.elevation(hp, hp)
 
         herr = fd.errornorm(hn, hp)/hmag
         uerr = fd.errornorm(un, up)/umag
@@ -609,9 +590,11 @@ def test_solve_para_form(bc_opt, extruded):
         vfull_list[i].assign(unp1)
         un.assign(unp1)
 
+    u = fd.Function(V)
     for i in range(pdg.nlocal_timesteps):
         fidx = pdg.aaofunc.transform_index(i, from_range='slice', to_range='window')
-        assert (fd.errornorm(vfull.sub(fidx), pdg.aaofunc.get_field(i, index_range='slice')) < 1.0e-9)
+        u.assign(pdg.aaofunc[i])
+        assert (fd.errornorm(vfull.sub(fidx), u) < 1.0e-9)
 
 
 @pytest.mark.parallel(nprocs=6)

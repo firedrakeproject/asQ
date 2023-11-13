@@ -43,7 +43,7 @@ class AllAtOnceSolver(TimePartitionMixin):
         :arg pre_jacobian_callback: As above, but called immediately before Jacobian assembly.
         :arg post_jacobian_callback: As above, but called immediately after Jacobian assembly.
         """
-        self.time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
+        self._time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
         self.aaofunc = aaofunc
         self.aaoform = aaoform
 

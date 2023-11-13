@@ -1,20 +1,28 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 from pyop2.mpi import MPI
+from math import pi
+from utils.misc import function_maximum
 from utils.diagnostics import convective_cfl_calculator
 from utils.serial import SerialMiniApp
 from utils import compressible_flow as euler
-from utils.vertical_slice import mount_agnesi as mountain
 
 import argparse
-parser = argparse.ArgumentParser(description='Mountain testcase.')
-parser.add_argument('--nlayers', type=int, default=35, help='Number of layers, default 10.')
-parser.add_argument('--ncolumns', type=int, default=90, help='Number of columns, default 10.')
+parser = argparse.ArgumentParser(
+    description='3D Mountain testcase.',
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+parser.add_argument('--nx', type=int, default=16, help='Number of columns in the streamwise direction.')
+parser.add_argument('--ny', type=int, default=16, help='Number of columns in the spanwise direction.')
+parser.add_argument('--nz', type=int, default=16, help='Number of layers.')
+parser.add_argument('--Lx', type=float, default=32e3, help='Streamwise length of domain.')
+parser.add_argument('--Ly', type=float, default=32e3, help='Spanwise length of domain.')
+parser.add_argument('--Lz', type=float, default=32e3, help='Vertical length of domain.')
 parser.add_argument('--nt', type=int, default=1, help='Number of timesteps to solve.')
 parser.add_argument('--dt', type=float, default=5, help='Timestep in seconds. Default 1.')
-parser.add_argument('--atol', type=float, default=1e-3, help='Average absolute tolerance for each timestep')
+parser.add_argument('--atol', type=float, default=1e-1, help='Average absolute tolerance for each timestep')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space). Default 1.')
-parser.add_argument('--filename', type=str, default='slice_mountain', help='Name of vtk file.')
+parser.add_argument('--filename', type=str, default='slice_mountain3D', help='Name of vtk file.')
 parser.add_argument('--write_file', action='store_true', help='Write vtk file at end of each window.')
 parser.add_argument('--output_freq', type=int, default=10, help='How often to write to file.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
@@ -35,10 +43,49 @@ output_freq = args.output_freq
 nt = args.nt
 dt = args.dt
 
-mesh = mountain.mesh(comm, ncolumns=args.ncolumns,
-                     nlayers=args.nlayers,
-                     hydrostatic=False)
+nx = args.nx  # number streamwise of columns
+ny = args.ny  # number spanwise of columns
+nz = args.nz  # horizontal layers
+
+Lx = args.Lx
+Ly = args.Ly
+Lz = args.Lz  # Height position of the model top
+
+distribution_parameters = {
+    "partition": True,
+    "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)
+}
+
+# surface mesh of ground
+base_mesh = fd.PeriodicRectangleMesh(nx, ny, Lx, Ly,
+                                     direction='both', quadrilateral=True,
+                                     distribution_parameters=distribution_parameters,
+                                     comm=comm)
+
+# volume mesh of the slice
+mesh = fd.ExtrudedMesh(base_mesh, layers=nz, layer_height=Lz/nz)
 n = fd.FacetNormal(mesh)
+x, y, z = fd.SpatialCoordinate(mesh)
+
+gas = euler.StandardAtmosphere(N=0.01)
+
+# making a mountain out of a molehill
+a = 1000.
+xc = Lx/2.
+yc = Ly/2.
+hm = 1.
+r2 = ((x - xc)/a)**2 + ((y - yc)/(2*a))**2
+zs = hm*fd.exp(-r2)
+
+smooth_z = True
+name = "mountain_nh"
+if smooth_z:
+    name += '_smootherz'
+    zh = 5000.
+    xexpr = fd.as_vector([x, y, fd.conditional(z < zh, z + fd.cos(0.5*pi*z/zh)**6*zs, z)])
+else:
+    xexpr = fd.as_vector([x, y, z + ((Lz-z)/Lz)*zs])
+mesh.coordinates.interpolate(xexpr)
 
 W, Vv = euler.function_space(mesh, horizontal_degree=args.degree,
                              vertical_degree=args.degree,
@@ -48,25 +95,60 @@ V1, V2, Vt = W.subfunctions  # velocity, density, temperature
 PETSc.Sys.Print(f"DoFs: {W.dim()}")
 PETSc.Sys.Print(f"DoFs/core: {W.dim()/comm.size}")
 
-gas = euler.StandardAtmosphere(N=0.01)
+Un = fd.Function(W)
 
-dT = fd.Constant(dt)
+# N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
+Tsurf = fd.Constant(300.)
+thetab = Tsurf*fd.exp(gas.N**2*z/gas.g)
+
+Up = fd.as_vector([fd.Constant(0.0), fd.Constant(0.0), fd.Constant(1.0)])  # up direction
+
+un = Un.subfunctions[0]
+rhon = Un.subfunctions[1]
+thetan = Un.subfunctions[2]
+un.project(fd.as_vector([10.0, 0.0, 0.0]))
+thetan.interpolate(thetab)
+theta_back = fd.Function(Vt).assign(thetan)
+rhon.assign(1.0e-5)
 
 PETSc.Sys.Print("Calculating hydrostatic state")
 
-Un = mountain.initial_conditions(mesh, W, Vv, gas)
-rho_back = fd.Function(V2).assign(Un.subfunctions[1])
-theta_back = fd.Function(Vt).assign(Un.subfunctions[2])
+Pi = fd.Function(V2)
 
-mu = mountain.sponge_layer(mesh, V2, dt)
+euler.hydrostatic_rho(Vv, V2, mesh, thetan, rhon,
+                      pi_boundary=fd.Constant(0.02),
+                      gas=gas, Up=Up, top=True, Pi=Pi)
+p0 = function_maximum(Pi)
+
+euler.hydrostatic_rho(Vv, V2, mesh, thetan, rhon,
+                      pi_boundary=fd.Constant(0.05),
+                      gas=gas, Up=Up, top=True, Pi=Pi)
+p1 = function_maximum(Pi)
+alpha = 2.*(p1-p0)
+beta = p1-alpha
+pi_top = (1.-beta)/alpha
+
+euler.hydrostatic_rho(Vv, V2, mesh, thetan, rhon,
+                      pi_boundary=fd.Constant(pi_top),
+                      gas=gas, Up=Up, top=True)
+
+rho_back = fd.Function(V2).assign(rhon)
+
+zc = fd.Constant(Lz-10000.)
+mubar = fd.Constant(0.15/dt)
+mu_top = fd.conditional(z <= zc, 0.0, mubar*fd.sin((pi/2.)*(z-zc)/(Lz-zc))**2)
+mu = fd.Function(V2).interpolate(mu_top)
 
 form_mass = euler.get_form_mass()
 
-up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 form_function = euler.get_form_function(
-    n, up, c_pen=fd.Constant(2.0**(-7./2)), gas=gas, mu=mu)
+    n, Up, c_pen=fd.Constant(2.0**(-7./2)),
+    gas=gas, mu=mu)
 
-bcs = mountain.boundary_conditions(W)
+zv = fd.as_vector([fd.Constant(0.), fd.Constant(0.), fd.Constant(0.)])
+bcs = [fd.DirichletBC(W.sub(0), zv, "bottom"),
+       fd.DirichletBC(W.sub(0), zv, "top")]
+
 for bc in bcs:
     bc.apply(Un)
 
@@ -96,8 +178,12 @@ solver_parameters = {
         "pc_python_type": "firedrake.ASMVankaPC",
         "pc_vanka": {
             "construct_dim": 0,
-            "sub_sub_pc_type": "lu",
-            "sub_sub_pc_factor_mat_solver_type": 'mumps',
+            "sub_sub": {
+                "pc_type": "lu",
+                "pc_factor_mat_ordering_type": "rcm",
+                "pc_factor_reuse_ordering": None,
+                "pc_factor_reuse_fill": None,
+            }
         },
     },
 }
@@ -113,28 +199,32 @@ miniapp = SerialMiniApp(dt=dt, theta=theta, w_initial=Un,
 PETSc.Sys.Print("Solving problem")
 
 uout = fd.Function(V1, name='velocity')
-thetaout = fd.Function(Vt, name='temperature')
-rhoout = fd.Function(V2, name='density')
+if args.write_file:
+    thetaout = fd.Function(Vt, name='temperature')
+    rhoout = fd.Function(V2, name='density')
 
-ofile = fd.File('output/slice_mountain.pvd',
-                comm=comm)
+    ofile = fd.File(f'output/{args.filename}.pvd',
+                    comm=comm)
 
 
 def assign_out_functions():
     uout.assign(miniapp.w0.subfunctions[0])
-    rhoout.assign(miniapp.w0.subfunctions[1])
-    thetaout.assign(miniapp.w0.subfunctions[2])
+    if args.write_file:
+        rhoout.assign(miniapp.w0.subfunctions[1])
+        thetaout.assign(miniapp.w0.subfunctions[2])
 
-    rhoout.assign(rhoout - rho_back)
-    thetaout.assign(thetaout - theta_back)
+        rhoout.assign(rhoout - rho_back)
+        thetaout.assign(thetaout - theta_back)
 
 
 def write_to_file(time):
-    ofile.write(uout, rhoout, thetaout, t=time)
+    if args.write_file:
+        ofile.write(uout, rhoout, thetaout, t=time)
 
 
-# assign_out_functions()
-# write_to_file(time=0)
+if args.write_file:
+    assign_out_functions()
+    write_to_file(time=0)
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0
@@ -175,7 +265,8 @@ def postproc(app, it, time):
 
     if (it % output_freq) == 0:
         assign_out_functions()
-        write_to_file(time=time)
+        if args.write_file:
+            write_to_file(time=time)
 
     cfl = max_cfl(uout, dt)
     cfl_series.append(cfl)
