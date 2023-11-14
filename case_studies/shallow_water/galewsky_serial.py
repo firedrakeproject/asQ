@@ -141,7 +141,7 @@ miniapp = SerialMiniApp(dt, args.theta,
                         sparameters)
 
 miniapp.nlsolver.set_transfer_manager(
-    mg.manifold_transfer_manager(W))
+    mg.ManifoldTransferManager())
 
 potential_vorticity = diagnostics.potential_vorticity_calculator(
     u_initial.function_space(), name='vorticity')

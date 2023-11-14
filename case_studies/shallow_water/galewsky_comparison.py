@@ -211,8 +211,8 @@ parallel_sparameters['diagfft_block_'] = block_sparameters
 appctx = {}
 transfer_managers = []
 for _ in range(time_partition[ensemble.ensemble_comm.rank]):
-    tm = mg.manifold_transfer_manager(W)
-    transfer_managers.append(tm)
+    transfer_managers.append(mg.ManifoldTransferManager())
+
 appctx['diagfft_transfer_managers'] = transfer_managers
 
 miniapp = ComparisonMiniapp(ensemble, time_partition,
@@ -225,7 +225,7 @@ miniapp = ComparisonMiniapp(ensemble, time_partition,
                             appctx=appctx)
 
 miniapp.serial_app.nlsolver.set_transfer_manager(
-    mg.manifold_transfer_manager(W))
+    mg.ManifoldTransferManager())
 
 rank = ensemble.ensemble_comm.rank
 norm0 = fd.norm(w_initial)

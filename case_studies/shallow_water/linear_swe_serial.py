@@ -53,7 +53,7 @@ coriolis = case.coriolis_expression(*x)
 
 # initial conditions
 w_initial = fd.Function(W)
-u_initial, h_initial = w_initial.split()
+u_initial, h_initial = w_initial.subfunctions
 
 u_initial.project(case.velocity_expression(*x))
 h_initial.project(case.depth_expression(*x))
@@ -142,8 +142,7 @@ miniapp = SerialMiniApp(dt, args.theta,
                         form_function,
                         sparameters)
 
-miniapp.nlsolver.set_transfer_manager(
-    mg.manifold_transfer_manager(W))
+miniapp.nlsolver.set_transfer_manager(mg.ManifoldTransferManager())
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0
@@ -171,7 +170,7 @@ def postproc(app, step, t):
     linear_its += app.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += app.nlsolver.snes.getIterationNumber()
 
-    u, h = app.w0.split()
+    u, h = app.w0.subfunctions
     uout.assign(u)
     hout.assign(h-case.H)
     ofile.write(uout, hout, time=t/units.hour)
