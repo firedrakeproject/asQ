@@ -49,6 +49,10 @@ jobs:
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
+          cd /home/firedrake/firedrake/src/firedrake
+          git pull
+          git checkout JHopeCollins/mixed_dual_spaces
+          cd -
           firedrake-status
           python -m pip install -e .
       - name: Lint
