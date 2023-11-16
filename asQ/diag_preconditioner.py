@@ -453,7 +453,7 @@ class DiagFFTPC(TimePartitionMixin):
         with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.block_solves"):
             for i in range(self.nlocal_timesteps):
                 # copy the data into solver input
-                self.xtemp.assign(0.)
+                self.xtemp.zero()
 
                 cpx.set_real(self.xtemp, self.xfr[i])
                 cpx.set_imag(self.xtemp, self.xfi[i])
@@ -466,7 +466,7 @@ class DiagFFTPC(TimePartitionMixin):
                     xvec.copy(cfvec)
 
                 # solve the block system
-                self.Jprob_out.assign(0.)
+                self.Jprob_out.zero()
                 self.Jsolvers[i].solve()
 
                 # copy the data from solver output
