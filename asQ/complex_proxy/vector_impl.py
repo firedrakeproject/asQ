@@ -24,16 +24,16 @@ def FiniteElement(elem):
     """
     if isinstance(elem, fd.TensorElement):
         shape = (2,) + elem._shape
-        scalar_element = elem.sub_elements()[0]
+        scalar_element = elem.sub_elements[0]
         return fd.TensorElement(scalar_element, shape=shape)
 
     elif isinstance(elem, fd.VectorElement):
-        shape = (2, elem.num_sub_elements())
-        scalar_element = elem.sub_elements()[0]
+        shape = (2, elem.num_sub_elements)
+        scalar_element = elem.sub_elements[0]
         return fd.TensorElement(scalar_element, shape=shape)
 
     elif isinstance(elem, fd.MixedElement):  # recurse
-        return fd.MixedElement([FiniteElement(e) for e in elem.sub_elements()])
+        return fd.MixedElement([FiniteElement(e) for e in elem.sub_elements])
 
     else:
         return fd.VectorElement(elem, dim=2)
