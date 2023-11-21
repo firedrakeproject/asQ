@@ -76,7 +76,7 @@ mg_parameters = {
         'pc_type': 'python',
         'pc_python_type': 'firedrake.AssembledPC',
         'assembled_pc_type': 'lu',
-        'assembled_pc_factor_mat_solver_type': 'mumps',
+        'assembled_pc_factor_mat_solver_type': 'mumps'
     }
 }
 
