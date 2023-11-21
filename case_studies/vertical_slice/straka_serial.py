@@ -79,19 +79,25 @@ sparameters = {
         "stol": stol,
         "atol": atol,
     },
+    "mat_type": "matfree",
     "pc_type": "python",
-    "pc_python_type": "firedrake.AssembledPC",
-    "assembled": {
-        "pc_type": "python",
-        "pc_python_type": "firedrake.ASMVankaPC",
-        "pc_vanka": {
-            "construct_dim": 0,
-            "sub_sub_pc_type": "lu",
-            "sub_sub_pc_factor_mat_ordering_type": "rcm",
-            "sub_sub_pc_factor_reuse_ordering": None,
-            "sub_sub_pc_factor_reuse_fill": None,
-        },
-    },
+    "pc_python_type": "firedrake.HybridizationPC",
+    "hybridization": {
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+    }
+    # "pc_python_type": "firedrake.AssembledPC",
+    # "assembled": {
+    #     "pc_type": "python",
+    #     "pc_python_type": "firedrake.ASMVankaPC",
+    #     "pc_vanka": {
+    #         "construct_dim": 0,
+    #         "sub_sub_pc_type": "lu",
+    #         "sub_sub_pc_factor_mat_ordering_type": "rcm",
+    #         "sub_sub_pc_factor_reuse_ordering": None,
+    #         "sub_sub_pc_factor_reuse_fill": None,
+    #     },
+    # },
 }
 
 theta = 0.5
