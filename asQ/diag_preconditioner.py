@@ -213,48 +213,8 @@ class DiagFFTPC(TimePartitionMixin):
         self.a1 = np.zeros(self.p1.subshape, complex)
         self.transfer = self.p0.transfer(self.p1, complex)
 
-        # setting up the Riesz map
-        default_riesz_method = {
-            'ksp_type': 'preonly',
-            'pc_type': 'lu',
-            'pc_factor_mat_solver_type': 'mumps',
-            'mat_type': 'aij'
-        }
-
-        # mixed mass matrices are decoupled so solve seperately
-        if isinstance(self.blockV.ufl_element(), fd.MixedElement):
-            default_riesz_parameters = {
-                'ksp_type': 'preonly',
-                'mat_type': 'nest',
-                'pc_type': 'fieldsplit',
-                'pc_field_split_type': 'additive',
-                'fieldsplit': default_riesz_method
-            }
-        else:
-            default_riesz_parameters = default_riesz_method
-
-        # we need to pass the mat_types to assemble directly because
-        # it won't pick them up from Options
-
-        riesz_mat_type = PETSc.Options().getString(
-            f"{prefix}mass_mat_type",
-            default=default_riesz_parameters['mat_type'])
-
-        riesz_sub_mat_type = PETSc.Options().getString(
-            f"{prefix}mass_fieldsplit_mat_type",
-            default=default_riesz_method['mat_type'])
-
-        # input for the Riesz map
+        # input for the cofunc rhs map
         self.xtemp = fd.Function(self.CblockV)
-        v = fd.TestFunction(self.CblockV)
-        u = fd.TrialFunction(self.CblockV)
-
-        a = fd.assemble(fd.inner(u, v)*fd.dx,
-                        mat_type=riesz_mat_type,
-                        sub_mat_type=riesz_sub_mat_type)
-
-        self.Proj = fd.LinearSolver(a, solver_parameters=default_riesz_parameters,
-                                    options_prefix=f"{prefix}mass_")
 
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system
@@ -307,7 +267,6 @@ class DiagFFTPC(TimePartitionMixin):
 
             # The rhs
             v = fd.TestFunction(self.CblockV)
-            # L = fd.inner(v, self.Jprob_in)*fd.dx
             L = self.cofunc
 
             # pass sigma into PC:
@@ -453,17 +412,11 @@ class DiagFFTPC(TimePartitionMixin):
         with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.block_solves"):
             for i in range(self.nlocal_timesteps):
                 # copy the data into solver input
-                self.xtemp.zero()
-
                 cpx.set_real(self.xtemp, self.xfr[i])
                 cpx.set_imag(self.xtemp, self.xfi[i])
 
-                # Do a project for Riesz map, to be superceded
-                # when we get Cofunction
-                # self.Proj.solve(self.Jprob_in, self.xtemp)
-
-                with self.cofunc.dat.vec_wo as cfvec, self.xtemp.dat.vec_ro as xvec:
-                    xvec.copy(cfvec)
+                for cdat, xdat in zip(self.cofunc.dat, self.xtemp.dat):
+                    cdat.data[:] = xdat.data[:]
 
                 # solve the block system
                 self.Jprob_out.zero()
