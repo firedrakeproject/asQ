@@ -53,7 +53,7 @@ jobs:
           # fixes constructing a dual space from a mixed element
           cd /home/firedrake/firedrake/src/firedrake
           git pull
-          git checkout JHopeCollins/mixed_dual_spaces
+          git checkout pbrubeck/feature/reconstruct-functionspace
           cd -
 
           # makes ordering of FormSum.coefficients() deterministic
