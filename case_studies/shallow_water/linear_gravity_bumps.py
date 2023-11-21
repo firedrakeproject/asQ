@@ -64,24 +64,19 @@ patch_parameters = {
     }
 }
 
-lu_params = {
-    'ksp_type': 'preonly',
-    'pc_type': 'lu',
-    'pc_factor_mat_solver_type': 'mumps'
-}
-
 mg_parameters = {
     'levels': {
         'ksp_type': 'gmres',
         'ksp_max_it': 5,
-        'pc_type': 'jacobi',
-        # 'pc_python_type': 'firedrake.PatchPC',
-        # 'patch': patch_parameters
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.PatchPC',
+        'patch': patch_parameters
     },
     'coarse': {
         'pc_type': 'python',
         'pc_python_type': 'firedrake.AssembledPC',
-        'assembled': lu_params
+        'assembled_pc_type': 'lu',
+        'assembled_pc_factor_mat_solver_type': 'mumps',
     }
 }
 
@@ -126,7 +121,6 @@ sparameters_diag = {
 }
 
 for i in range(window_length):
-    # sparameters_diag['diagfft_block_'+str(i)+'_'] = lu_params
     sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
