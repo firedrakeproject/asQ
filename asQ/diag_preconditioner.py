@@ -188,10 +188,10 @@ class DiagFFTPC(TimePartitionMixin):
             self.uwrk = fd.Function(self.blockV)
 
         # input and output functions to the block solve
-        self.Jprob_in = fd.Function(self.CblockV)
-        self.Jprob_out = fd.Function(self.CblockV)
-
-        self.cofunc = fd.Cofunction(self.CblockV.dual())
+        self.block_sol = fd.Function(self.CblockV)
+        self.block_rhs = fd.Cofunction(self.CblockV.dual())
+        # input for the cofunc rhs map
+        self.xtemp = fd.Function(self.CblockV)
 
         # A place to store the real/imag components of the all-at-once residual after fft
         self.xfi = aaofunc.copy()
@@ -213,9 +213,6 @@ class DiagFFTPC(TimePartitionMixin):
         self.a1 = np.zeros(self.p1.subshape, complex)
         self.transfer = self.p0.transfer(self.p1, complex)
 
-        # input for the cofunc rhs map
-        self.xtemp = fd.Function(self.CblockV)
-
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system
         # coupling the real and imaginary parts.
@@ -225,7 +222,7 @@ class DiagFFTPC(TimePartitionMixin):
         # This is constructed by cpx.derivative
 
         #  Building the nonlinear operator
-        self.Jsolvers = []
+        self.block_solvers = []
 
         # which form to linearise around
         valid_linearisations = ['consistent', 'user']
@@ -267,7 +264,7 @@ class DiagFFTPC(TimePartitionMixin):
 
             # The rhs
             v = fd.TestFunction(self.CblockV)
-            L = self.cofunc
+            L = self.block_rhs
 
             # pass sigma into PC:
             sigma = self.D1[ii]**2/self.D2[ii]
@@ -292,22 +289,22 @@ class DiagFFTPC(TimePartitionMixin):
                     block_prefix = f"{block_prefix}{str(ii)}_"
                     break
 
-            jprob = fd.LinearVariationalProblem(A, L, self.Jprob_out,
-                                                bcs=self.CblockV_bcs)
-            Jsolver = fd.LinearVariationalSolver(jprob,
-                                                 appctx=appctx_h,
-                                                 options_prefix=block_prefix)
+            block_problem = fd.LinearVariationalProblem(A, L, self.block_sol,
+                                                        bcs=self.CblockV_bcs)
+            block_solver = fd.LinearVariationalSolver(block_problem,
+                                                      appctx=appctx_h,
+                                                      options_prefix=block_prefix)
             # multigrid transfer manager
             if f'{self.prefix}transfer_managers' in appctx:
-                # Jsolver.set_transfer_manager(jacobian.appctx['diagfft_transfer_managers'][ii])
+                # block_solver.set_transfer_manager(jacobian.appctx['diagfft_transfer_managers'][ii])
                 tm = appctx[f'{self.prefix}transfer_managers'][i]
-                Jsolver.set_transfer_manager(tm)
-                tm_set = (Jsolver._ctx.transfer_manager is tm)
+                block_solver.set_transfer_manager(tm)
+                tm_set = (block_solver._ctx.transfer_manager is tm)
 
                 if tm_set is False:
-                    print(f"transfer manager not set on Jsolvers[{ii}]")
+                    print(f"transfer manager not set on block_solvers[{ii}]")
 
-            self.Jsolvers.append(Jsolver)
+            self.block_solvers.append(block_solver)
 
         self.block_iterations = SharedArray(self.time_partition,
                                             dtype=int,
@@ -322,7 +319,7 @@ class DiagFFTPC(TimePartitionMixin):
         Must be called exactly once at the end of each apply().
         """
         for i in range(self.nlocal_timesteps):
-            its = self.Jsolvers[i].snes.getLinearSolveIterations()
+            its = self.block_solvers[i].snes.getLinearSolveIterations()
             self.block_iterations.dlocal[i] += its
 
     @profiler()
@@ -415,16 +412,16 @@ class DiagFFTPC(TimePartitionMixin):
                 cpx.set_real(self.xtemp, self.xfr[i])
                 cpx.set_imag(self.xtemp, self.xfi[i])
 
-                for cdat, xdat in zip(self.cofunc.dat, self.xtemp.dat):
+                for cdat, xdat in zip(self.block_rhs.dat, self.xtemp.dat):
                     cdat.data[:] = xdat.data[:]
 
                 # solve the block system
-                self.Jprob_out.zero()
-                self.Jsolvers[i].solve()
+                self.block_sol.zero()
+                self.block_solvers[i].solve()
 
                 # copy the data from solver output
-                cpx.get_real(self.Jprob_out, self.xfr[i])
-                cpx.get_imag(self.Jprob_out, self.xfi[i])
+                cpx.get_real(self.block_sol, self.xfr[i])
+                cpx.get_imag(self.block_sol, self.xfi[i])
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
