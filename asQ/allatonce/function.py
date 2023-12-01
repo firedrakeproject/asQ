@@ -27,8 +27,7 @@ def time_average(aaofunc, uout, uwrk, average='window'):
     # accumulate over local slice
     uout.zero()
     for i in range(aaofunc.nlocal_timesteps):
-        for uo, uc in zip(uout.subfunctions, aaofunc[i].subfunctions):
-            uo += uc
+        uout += aaofunc[i]
 
     if average == 'slice':
         nsamples = aaofunc.nlocal_timesteps
