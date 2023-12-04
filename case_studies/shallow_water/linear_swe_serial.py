@@ -110,6 +110,38 @@ mg_parameters = {
     },
 }
 
+mg_sparams = {
+    'pc_type': 'mg',
+    'pc_mg_cycle_type': 'w',
+    'pc_mg_type': 'multiplicative',
+    'mg': mg_parameters
+}
+
+hybridization_sparams = {
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": "firedrake.HybridizationPC",
+    "hybridization": {
+        # "ksp_type": "preonly",
+        # "pc_type": "lu",
+        # 'pc_factor_mat_solver_type': 'mumps',
+        "ksp_rtol": 1e-10,
+        "ksp_type": "cg",
+        "ksp_converged_rate": None,
+        'pc_type': 'gamg',
+        'pc_gamg_sym_graph': None,
+        'pc_mg_type': 'multiplicative',
+        'mg': {
+            'levels': {
+                'ksp_type': 'richardson',
+                'ksp_max_it': 3,
+                'pc_type': 'bjacobi',
+                'sub_pc_type': 'ilu',
+            },
+        }
+    }
+}
+
 # solver parameters for the implicit solve
 sparameters = {
     'snes_type': 'ksponly',
@@ -129,11 +161,10 @@ sparameters = {
         'monitor': None,
         'converged_reason': None
     },
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'multiplicative',
-    'mg': mg_parameters
 }
+
+# sparameters.update(mg_sparams)
+sparameters.update(hybridization_sparams)
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta,
@@ -180,6 +211,7 @@ miniapp.solve(args.nt,
               preproc=preproc,
               postproc=postproc)
 
+PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
