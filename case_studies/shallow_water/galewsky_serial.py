@@ -84,54 +84,96 @@ def form_mass(u, h, v, q):
 
 
 # solver parameters for the implicit solve
+patch_parameters = {
+    'pc_patch': {
+        'save_operators': True,
+        'partition_of_unity': True,
+        'sub_mat_type': 'seqdense',
+        'construct_dim': 0,
+        'construct_type': 'vanka',
+        'local_type': 'additive',
+        'precompute_element_tensors': True,
+        'symmetrise_sweep': False
+    },
+    'sub': {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
+    }
+}
+
+mg_parameters = {
+    'levels': {
+        'ksp_type': 'gmres',
+        'ksp_max_it': 5,
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.PatchPC',
+        'patch': patch_parameters
+    },
+    'coarse': {
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.AssembledPC',
+        'assembled_pc_type': 'lu',
+        'assembled_pc_factor_mat_solver_type': 'mumps',
+    },
+}
+
+mg_sparams = {
+    'pc_type': 'mg',
+    'pc_mg_cycle_type': 'w',
+    'pc_mg_type': 'multiplicative',
+    'mg': mg_parameters
+}
+
+hybridization_sparams = {
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": "firedrake.HybridizationPC",
+    "hybridization": {
+        # "ksp_type": "preonly",
+        # "pc_type": "lu",
+        # 'pc_factor_mat_solver_type': 'mumps',
+        "ksp_rtol": 1e-5,
+        "ksp_type": "fgmres",
+        "ksp_converged_rate": None,
+        'pc_type': 'gamg',
+        'pc_mg_type': 'full',
+        'pc_mg_cycle_type': 'w',
+        'pc_gamg_sym_graph': None,
+        'mg': {
+            'levels': {
+                'ksp_type': 'richardson',
+                'ksp_max_it': 3,
+                'pc_type': 'bjacobi',
+                'sub_pc_type': 'ilu',
+            },
+        }
+    }
+}
+
+
+atol = 1e2
 sparameters = {
     'snes': {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-12,
-        'atol': 1e-0,
+        'atol': atol,
         'ksp_ew': None,
         'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-3,
     },
-    'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
-        'atol': 1e-5,
+        'converged_rate': None,
+        'atol': atol,
         'rtol': 1e-5,
     },
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'multiplicative',
-    'mg': {
-        'levels': {
-            'ksp_type': 'gmres',
-            'ksp_max_it': 5,
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.PatchPC',
-            'patch': {
-                'pc_patch_save_operators': True,
-                'pc_patch_partition_of_unity': True,
-                'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_dim': 0,
-                'pc_patch_construct_type': 'vanka',
-                'pc_patch_local_type': 'additive',
-                'pc_patch_precompute_element_tensors': True,
-                'pc_patch_symmetrise_sweep': False,
-                'sub_ksp_type': 'preonly',
-                'sub_pc_type': 'lu',
-                'sub_pc_factor_shift_type': 'nonzero',
-            },
-        },
-        'coarse': {
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.AssembledPC',
-            'assembled_pc_type': 'lu',
-            'assembled_pc_factor_mat_solver_type': 'mumps',
-        },
-    }
 }
+
+# sparameters.update(mg_sparams)
+sparameters.update(hybridization_sparams)
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta,
@@ -181,6 +223,7 @@ miniapp.solve(args.nt,
               preproc=preproc,
               postproc=postproc)
 
+PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 

@@ -71,6 +71,7 @@ def form_mass(u, h, v, q):
     return swe.linear.form_mass(mesh, u, h, v, q)
 
 
+# solver parameters for the implicit solve
 patch_parameters = {
     'pc_patch': {
         'save_operators': True,
@@ -84,13 +85,8 @@ patch_parameters = {
     },
     'sub': {
         'ksp_type': 'preonly',
-        'pc_type': 'fieldsplit',
-        'pc_fieldsplit_type': 'schur',
-        'pc_fieldsplit_detect_saddle_point': None,
-        'pc_fieldsplit_schur_fact_type': 'full',
-        'pc_fieldsplit_schur_precondition': 'full',
-        'fieldsplit_ksp_type': 'preonly',
-        'fieldsplit_pc_type': 'lu',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
     }
 }
 
@@ -142,7 +138,6 @@ hybridization_sparams = {
     }
 }
 
-# solver parameters for the implicit solve
 sparameters = {
     'snes_type': 'ksponly',
     'snes': {
@@ -159,7 +154,7 @@ sparameters = {
         'rtol': 1e-10,
         'stol': 1e-12,
         'monitor': None,
-        'converged_reason': None
+        'converged_rate': None
     },
 }
 
