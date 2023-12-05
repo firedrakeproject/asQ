@@ -35,13 +35,19 @@ def rho_mass(q, rho):
 def rho_tendency(q, rho, u, n):
     unn = 0.5*(fd.inner(u, n) + abs(fd.inner(u, n)))
     dS = (fd.dS_v + fd.dS_h)
-    return (
-        #- fd.inner(fd.grad(q), u*rho)*fd.dx
-        + q*fd.div(u*rho)*fd.dx
-        + fd.jump(q)*(unn('+')*rho('+')
-                      - unn('-')*rho('-'))*dS
+
+    Forig = (  # noqa: F841
+        - fd.inner(fd.grad(q), u*rho)*fd.dx
+        + fd.jump(q)*(unn('+')*rho('+') - unn('-')*rho('-'))*dS
+    )
+
+    Fhybr = (  # noqa: F841
+        + fd.inner(q, fd.div(u*rho))*fd.dx
+        + fd.jump(q)*(unn('+')*rho('+') - unn('-')*rho('-'))*dS
         - fd.jump(q*rho*u, n)*dS
     )
+
+    return Fhybr
 
 
 def u_mass(u, w):
