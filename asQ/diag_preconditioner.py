@@ -12,7 +12,57 @@ from asQ.parallel_arrays import SharedArray
 
 from functools import partial
 
-__all__ = ['DiagFFTPC']
+__all__ = ['DiagFFTPC', 'AuxiliaryBlockPC']
+
+
+class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
+    """
+    A preconditioner for the complex blocks that builds a PC using a specified form.
+
+    This preconditioner is analogous to firedrake.AuxiliaryOperatorPC. Given
+    `form_mass` and `form_function` functions on the real function space (with the
+    usual call-signatures), it constructs an AuxiliaryOperatorPC on the complex
+    block function space.
+
+    By default, the circulant eigenvalues and the form_mass and form_function of the
+    circulant preconditioner are used (i.e. exactly the same operator as the block).
+
+    User-defined `form_mass` and `form_function` functions and complex coeffiecients
+    can be passed through the block_appctx using the following keys:
+        'aux_form_mass': function used to build the mass matrix.
+        'aux_form_function': function used to build the stiffness matrix.
+        'aux_%d_d1': complex coefficient on the mass matrix of the %d'th block.
+        'aux_%d_d2': complex coefficient on the stiffness matrix of the %d'th block.
+    """
+    def form(self, pc, v, u):
+        appctx = self.get_appctx(pc)
+
+        blockid = appctx['blockid']
+        cpx = appctx['cpx']
+
+        bcs = appctx['bcs']
+        u0 = appctx['u0']
+        t0 = appctx['t0']
+
+        d1 = appctx['d1']
+        d2 = appctx['d2']
+
+        aux_d1 = appctx.get(f'aux_{blockid}_d1', d1)
+        aux_d2 = appctx.get(f'aux_{blockid}_d2', d2)
+
+        form_mass = appctx['form_mass']
+        form_function = appctx['form_function']
+
+        aux_form_mass = appctx.get('aux_form_mass', form_mass)
+        aux_form_function = appctx.get('aux_form_function', form_function)
+
+        Vc = v.function_space()
+        M = cpx.BilinearForm(Vc, aux_d1, aux_form_mass)
+        K = cpx.derivative(aux_d2, partial(aux_form_function, t=t0), u0)
+
+        A = M + K
+
+        return (A, bcs)
 
 
 class DiagFFTPC(TimePartitionMixin):
@@ -68,6 +118,19 @@ class DiagFFTPC(TimePartitionMixin):
             as a 2-component VectorFunctionSpace
         'mixed': the real-imag components of the complex function space are implemented
             as a 2-component MixedFunctionSpace
+
+    If the AllAtOnceSolver's appctx contains a 'block_appctx' dictionary, this is
+    added to the appctx of each block solver.  The appctx of each block solver also
+    contains the following:
+        'blockid': index of the block.
+        'd1': circulant eigenvalue of the mass matrix.
+        'd2': circulant eigenvalue of the stiffness matrix.
+        'cpx': complex-proxy module implementation set with 'diagfft_complex_proxy'.
+        'u0': state around which the blocks are linearised.
+        't0': time at which the blocks are linearised.
+        'bcs': block boundary conditions.
+        'form_mass': function used to build the block mass matrix.
+        'form_function': function used to build the block stiffness matrix.
     """
     prefix = "diagfft_"
     default_alpha = 1e-3
@@ -177,10 +240,10 @@ class DiagFFTPC(TimePartitionMixin):
         self.CblockV = cpx.FunctionSpace(self.blockV)
 
         # set the boundary conditions to zero for the residual
-        self.CblockV_bcs = tuple((cb
-                                  for bc in self.aaoform.field_bcs
-                                  for cb in cpx.DirichletBC(self.CblockV, self.blockV,
-                                                            bc, 0*bc.function_arg)))
+        self.block_bcs = tuple((cb
+                                for bc in self.aaoform.field_bcs
+                                for cb in cpx.DirichletBC(self.CblockV, self.blockV,
+                                                          bc, 0*bc.function_arg)))
 
         # function to do global reduction into for average block jacobian
         if jac_state in ('window', 'slice'):
@@ -277,6 +340,9 @@ class DiagFFTPC(TimePartitionMixin):
                 "cpx": cpx,
                 "u0": self.u0,
                 "t0": self.t_average,
+                "bcs": self.block_bcs,
+                "form_mass": self.form_mass,
+                "form_function": self.form_function,
             }
 
             appctx_h.update(block_appctx)
@@ -292,7 +358,7 @@ class DiagFFTPC(TimePartitionMixin):
                     break
 
             block_problem = fd.LinearVariationalProblem(A, L, self.block_sol,
-                                                        bcs=self.CblockV_bcs)
+                                                        bcs=self.block_bcs)
             block_solver = fd.LinearVariationalSolver(block_problem,
                                                       appctx=appctx_h,
                                                       options_prefix=block_prefix)
