@@ -101,8 +101,8 @@ def form_depth_hybrid(mesh, u, h, q, t):
     uup = 0.5 * (fd.dot(u, n) + abs(fd.dot(u, n)))  # noqa: F841
 
     Fhybr = (  # noqa: F841
-        # + fd.inner(q, fd.div(u*h))*fd.dx
-        + fd.inner(q, fd.div(u))*H*fd.dx
+        + fd.inner(q, fd.div(u*h))*fd.dx
+        # + fd.inner(q, fd.div(u))*H*fd.dx
         # + fd.jump(q)*(uup('+')*h('+') - uup('-')*h('-'))*fd.dS
         # - fd.jump(q*u*h, n)*fd.dS
     )
@@ -111,10 +111,14 @@ def form_depth_hybrid(mesh, u, h, q, t):
 
 
 def form_function_hybrid(u, h, v, q, t):
-    Ku = swe.nonlinear.form_function_velocity(
-        mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
+    # Ku = swe.nonlinear.form_function_velocity(
+    #     mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
 
-    Kh = form_depth_hybrid(mesh, u, h, q, t)
+    Ku = swe.linear.form_function_u(
+        mesh, gravity, coriolis, u, h, v, t)
+
+    Kh = swe.linear.form_function_h(
+        mesh, H, u, h, q, t)
 
     return Ku + Kh
 
