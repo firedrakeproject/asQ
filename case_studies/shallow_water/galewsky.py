@@ -112,9 +112,10 @@ sparameters_diag = {
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
+        'converged_rate': None,
         'rtol': 1e-5,
         'atol': 1e-0,
+        'view_eigenvalues': None,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
@@ -135,6 +136,7 @@ create_mesh = partial(
 
 
 def post_function_callback(aaosolver, X, F):
+    return
     residuals = asQ.SharedArray(time_partition,
                                 comm=aaosolver.ensemble.ensemble_comm)
     # all-at-once residual

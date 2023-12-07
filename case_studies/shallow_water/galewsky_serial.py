@@ -111,11 +111,11 @@ def form_depth_hybrid(mesh, u, h, q, t):
 
 
 def form_function_hybrid(u, h, v, q, t):
-    # Ku = swe.nonlinear.form_function_velocity(
-    #     mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
+    Ku = swe.nonlinear.form_function_velocity(
+        mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
 
-    Ku = swe.linear.form_function_u(
-        mesh, gravity, coriolis, u, h, v, t)
+    # Ku = swe.linear.form_function_u(
+    #     mesh, gravity, coriolis, u, h, v, t)
 
     Kh = swe.linear.form_function_h(
         mesh, H, u, h, q, t)
@@ -222,6 +222,7 @@ sparameters = {
         'converged_rate': None,
         'atol': atol,
         'rtol': 1e-5,
+        'view_eigenvalues': None,
     },
 }
 
