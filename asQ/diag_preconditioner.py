@@ -251,6 +251,9 @@ class DiagFFTPC(TimePartitionMixin):
         # Now need to build the block solver
         self.u0 = fd.Function(self.CblockV)  # time average to linearise around
 
+        # user appctx for the blocks
+        block_appctx = appctx.get('block_appctx', {})
+
         # building the block problem solvers
         for i in range(self.nlocal_timesteps):
             ii = aaofunc.transform_index(i, from_range='slice', to_range='window')
@@ -266,18 +269,17 @@ class DiagFFTPC(TimePartitionMixin):
             v = fd.TestFunction(self.CblockV)
             L = self.block_rhs
 
-            # pass sigma into PC:
-            sigma = self.D1[ii]**2/self.D2[ii]
-            sigma_inv = self.D2[ii]**2/self.D1[ii]
-            appctx_h = {}
-            appctx_h["sr"] = fd.Constant(np.real(sigma))
-            appctx_h["si"] = fd.Constant(np.imag(sigma))
-            appctx_h["sinvr"] = fd.Constant(np.real(sigma_inv))
-            appctx_h["sinvi"] = fd.Constant(np.imag(sigma_inv))
-            appctx_h["D2r"] = D2r
-            appctx_h["D2i"] = D2i
-            appctx_h["D1r"] = D1r
-            appctx_h["D1i"] = D1i
+            # pass parameters into PC:
+            appctx_h = {
+                "blockid": i,
+                "d1": d1,
+                "d2": d2,
+                "cpx": cpx,
+                "u0": self.u0,
+                "t0": self.t_average,
+            }
+
+            appctx_h.update(block_appctx)
 
             # Options with prefix 'diagfft_block_' apply to all blocks by default
             # If any options with prefix 'diagfft_block_{i}' exist, where i is the
