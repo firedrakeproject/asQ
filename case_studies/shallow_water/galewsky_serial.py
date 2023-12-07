@@ -70,6 +70,19 @@ w0 = fd.Function(W).assign(w_initial)
 w1 = fd.Function(W).assign(w_initial)
 
 
+# mean height
+def function_mean(f):
+    mesh = f.function_space().mesh()
+    cells = fd.Function(fd.FunctionSpace(mesh, "DG", 0))
+    cells.assign(1)
+    area = fd.assemble(cells*fd.dx)
+    ftotal = fd.assemble(f*fd.dx)
+    return ftotal / area
+
+
+H = function_mean(h_initial)
+
+
 # shallow water equation forms
 def form_function(u, h, v, q, t):
     return swe.nonlinear.form_function(mesh,
@@ -83,7 +96,54 @@ def form_mass(u, h, v, q):
     return swe.nonlinear.form_mass(mesh, u, h, v, q)
 
 
+def form_depth_hybrid(mesh, u, h, q, t):
+    n = fd.FacetNormal(mesh)
+    uup = 0.5 * (fd.dot(u, n) + abs(fd.dot(u, n)))  # noqa: F841
+
+    Fhybr = (  # noqa: F841
+        # + fd.inner(q, fd.div(u*h))*fd.dx
+        + fd.inner(q, fd.div(u))*H*fd.dx
+        # + fd.jump(q)*(uup('+')*h('+') - uup('-')*h('-'))*fd.dS
+        # - fd.jump(q*u*h, n)*fd.dS
+    )
+
+    return Fhybr
+
+
+def form_function_hybrid(u, h, v, q, t):
+    Ku = swe.nonlinear.form_function_velocity(
+        mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
+
+    Kh = form_depth_hybrid(mesh, u, h, q, t)
+
+    return Ku + Kh
+
+
+class AuxHybridPC(fd.AuxiliaryOperatorPC):
+    def form(self, pc, v, u):
+        w1 = self.get_appctx(pc).get('w1')
+        us = fd.split(w1)
+        vs = fd.split(v)
+
+        M = form_mass(*us, *vs)
+        K = form_function_hybrid(*us, *vs, None)
+
+        dt1 = fd.Constant(1/dt)
+        thet = fd.Constant(args.theta)
+
+        F = dt1*M + thet*K
+        a = fd.derivative(F, w1)
+        bcs = None
+        return (a, bcs)
+
+
 # solver parameters for the implicit solve
+lu_params = {
+    # 'ksp_type': 'preonly',
+    'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps',
+}
+
 patch_parameters = {
     'pc_patch': {
         'save_operators': True,
@@ -113,12 +173,12 @@ mg_parameters = {
     'coarse': {
         'pc_type': 'python',
         'pc_python_type': 'firedrake.AssembledPC',
-        'assembled_pc_type': 'lu',
-        'assembled_pc_factor_mat_solver_type': 'mumps',
+        'assembled': lu_params
     },
 }
 
 mg_sparams = {
+    "mat_type": "matfree",
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
@@ -129,26 +189,15 @@ hybridization_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": "firedrake.HybridizationPC",
-    "hybridization": {
-        # "ksp_type": "preonly",
-        # "pc_type": "lu",
-        # 'pc_factor_mat_solver_type': 'mumps',
-        "ksp_rtol": 1e-5,
-        "ksp_type": "fgmres",
-        "ksp_converged_rate": None,
-        'pc_type': 'gamg',
-        'pc_mg_type': 'full',
-        'pc_mg_cycle_type': 'w',
-        'pc_gamg_sym_graph': None,
-        'mg': {
-            'levels': {
-                'ksp_type': 'richardson',
-                'ksp_max_it': 3,
-                'pc_type': 'bjacobi',
-                'sub_pc_type': 'ilu',
-            },
-        }
-    }
+    "hybridization": lu_params
+}
+
+aux_sparams = {
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": f"{__name__}.AuxHybridPC",
+    # "aux": lu_params
+    "aux": hybridization_sparams
 }
 
 
@@ -172,8 +221,10 @@ sparameters = {
     },
 }
 
+# sparameters.update(lu_params)
 # sparameters.update(mg_sparams)
-sparameters.update(hybridization_sparams)
+# sparameters.update(hybridization_sparams)
+sparameters.update(aux_sparams)
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta,

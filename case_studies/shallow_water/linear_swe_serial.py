@@ -6,7 +6,7 @@ from utils import units
 from utils import mg
 from utils.planets import earth
 import utils.shallow_water as swe
-import utils.shallow_water.gravity_bumps as case
+import utils.shallow_water.gravity_bumps as gcase
 
 from utils.serial import SerialMiniApp
 
@@ -48,21 +48,21 @@ dt = args.dt*units.hour
 W = swe.default_function_space(mesh, degree=args.degree)
 
 # parameters
-coriolis = case.coriolis_expression(*x)
+coriolis = gcase.coriolis_expression(*x)
 
 
 # initial conditions
 w_initial = fd.Function(W)
 u_initial, h_initial = w_initial.subfunctions
 
-u_initial.project(case.velocity_expression(*x))
-h_initial.project(case.depth_expression(*x))
+u_initial.project(gcase.velocity_expression(*x))
+h_initial.project(gcase.depth_expression(*x))
 
 
 # shallow water equation forms
 def form_function(u, h, v, q, t):
     return swe.linear.form_function(mesh,
-                                    earth.Gravity, case.H,
+                                    earth.Gravity, gcase.H,
                                     coriolis,
                                     u, h, v, q, t)
 
@@ -71,7 +71,29 @@ def form_mass(u, h, v, q):
     return swe.linear.form_mass(mesh, u, h, v, q)
 
 
+class AuxHybridPC(fd.AuxiliaryOperatorPC):
+    def form(self, pc, v, u):
+        us = fd.split(u)
+        vs = fd.split(v)
+
+        M = form_mass(*us, *vs)
+        K = form_function(*us, *vs, None)
+
+        dt1 = fd.Constant(1/dt)
+        thet = fd.Constant(args.theta)
+
+        a = dt1*M + thet*K
+        bcs = None
+        return (a, bcs)
+
+
 # solver parameters for the implicit solve
+lu_params = {
+    'ksp_type': 'preonly',
+    'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps',
+}
+
 patch_parameters = {
     'pc_patch': {
         'save_operators': True,
@@ -101,12 +123,12 @@ mg_parameters = {
     'coarse': {
         'pc_type': 'python',
         'pc_python_type': 'firedrake.AssembledPC',
-        'assembled_pc_type': 'lu',
-        'assembled_pc_factor_mat_solver_type': 'mumps',
+        'assembled': lu_params
     },
 }
 
 mg_sparams = {
+    'mat_type': 'matfree',
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
@@ -117,40 +139,30 @@ hybridization_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": "firedrake.HybridizationPC",
-    "hybridization": {
-        # "ksp_type": "preonly",
-        # "pc_type": "lu",
-        # 'pc_factor_mat_solver_type': 'mumps',
-        "ksp_rtol": 1e-10,
-        "ksp_type": "cg",
-        "ksp_converged_rate": None,
-        'pc_type': 'gamg',
-        'pc_gamg_sym_graph': None,
-        'pc_mg_type': 'multiplicative',
-        'mg': {
-            'levels': {
-                'ksp_type': 'richardson',
-                'ksp_max_it': 3,
-                'pc_type': 'bjacobi',
-                'sub_pc_type': 'ilu',
-            },
-        }
-    }
+    "hybridization": lu_params
 }
 
+aux_sparams = {
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": f"{__name__}.AuxHybridPC",
+    # "aux": lu_params
+    "aux": hybridization_sparams
+}
+
+atol = 1e2
 sparameters = {
     'snes_type': 'ksponly',
     'snes': {
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-0,
+        'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
     },
-    'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-0,
+        'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
         'monitor': None,
@@ -158,8 +170,10 @@ sparameters = {
     },
 }
 
+# sparameters.update(lu_params)
 # sparameters.update(mg_sparams)
-sparameters.update(hybridization_sparams)
+# sparameters.update(hybridization_sparams)
+sparameters.update(aux_sparams)
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta,
@@ -179,7 +193,7 @@ uout = fd.Function(u_initial.function_space(), name='velocity')
 hout = fd.Function(h_initial.function_space(), name='depth')
 
 uout.assign(u_initial)
-hout.assign(h_initial - case.H)
+hout.assign(h_initial - gcase.H)
 ofile.write(uout, hout, time=0)
 
 
@@ -198,7 +212,7 @@ def postproc(app, step, t):
 
     u, h = app.w0.subfunctions
     uout.assign(u)
-    hout.assign(h-case.H)
+    hout.assign(h-gcase.H)
     ofile.write(uout, hout, time=t/units.hour)
 
 
