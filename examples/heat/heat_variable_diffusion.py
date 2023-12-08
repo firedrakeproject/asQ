@@ -33,11 +33,12 @@ def form_mass(u, v):
     return u*v*dx
 
 
+# the problem we're solving uses the variable diffusivity
 def form_function(u, v, t):
     return inner(mu*grad(u), grad(v))*dx
 
 
-# precondition blocks with constant diffusivity
+# the blocks are preconditioned with constant diffusivity
 def aux_form_function(u, v, t):
     return inner(nu*grad(u), grad(v))*dx
 
