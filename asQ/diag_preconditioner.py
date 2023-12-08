@@ -40,8 +40,10 @@ class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
         blockid = appctx['blockid']
         cpx = appctx['cpx']
 
-        bcs = appctx['bcs']
         u0 = appctx['u0']
+        assert u0.function_space() == v.function_space()
+
+        bcs = appctx['bcs']
         t0 = appctx['t0']
 
         d1 = appctx['d1']
