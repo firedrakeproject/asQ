@@ -57,6 +57,7 @@ aux_parameters = {
     }
 }
 
+# give the alternative form to the auxiliary pc through the appctx
 block_appctx = {
     'aux_form_function': aux_form_function
 }
