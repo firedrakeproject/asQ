@@ -181,7 +181,9 @@ class Paradiag(TimePartitionMixin):
         """
         Solve multiple windows of the all-at-once system.
 
-        preproc and postproc must have call signature (paradiag, int)
+        preproc and postproc must have call signature:
+            (Paradiag, int, Any[AllAtOnceFunction, None]).
+
         :arg nwindows: number of windows to solve for
         :arg preproc: callback called before each window solve
         :arg postproc: callback called after each window solve
