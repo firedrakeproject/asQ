@@ -5,6 +5,9 @@ import numpy as np
 import asQ
 
 
+__all__ = ['SerialMiniApp', 'ComparisonMiniapp']
+
+
 class SerialMiniApp(object):
     def __init__(self,
                  dt, theta,
@@ -41,6 +44,12 @@ class SerialMiniApp(object):
         self.w1 = fd.Function(self.function_space).assign(self.initial_condition)
 
         appctx['w1'] = self.w1
+        appctx['bcs'] = bcs
+        appctx['t1'] = self.time
+        appctx['theta'] = theta
+        appctx['dt'] = dt
+        appctx['form_mass'] = form_mass
+        appctx['form_function'] = form_function
 
         # time integration form
         self.form_full = self.set_theta_form(self.form_mass,

@@ -102,7 +102,7 @@ def form_depth_hybrid(mesh, u, h, q, t):
     return Fhybr
 
 
-def form_function_hybrid(u, h, v, q, t):
+def aux_form_function(u, h, v, q, t):
     # Ku = swe.nonlinear.form_function_velocity(
     #     mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
 
@@ -115,22 +115,7 @@ def form_function_hybrid(u, h, v, q, t):
     return Ku + Kh
 
 
-class AuxHybridPC(fd.AuxiliaryOperatorPC):
-    def form(self, pc, v, u):
-        w1 = self.get_appctx(pc).get('w1')
-        us = fd.split(w1)
-        vs = fd.split(v)
-
-        M = form_mass(*us, *vs)
-        K = form_function_hybrid(*us, *vs, None)
-
-        dt1 = fd.Constant(1/dt)
-        thet = fd.Constant(args.theta)
-
-        F = dt1*M + thet*K
-        a = fd.derivative(F, w1)
-        bcs = None
-        return (a, bcs)
+appctx = {'aux_form_function': aux_form_function}
 
 
 # solver parameters for the implicit solve
@@ -196,11 +181,11 @@ gamg_sparams = {
     'pc_type': 'gamg',
     'pc_gamg_sym_graph': None,
     'pc_mg_type': 'multiplicative',
-    'pc_mg_cycle_type': 'w',
+    'pc_mg_cycle_type': 'v',
     'mg': {
         'levels': {
             'ksp_type': 'cg',
-            'ksp_max_it': 1,
+            'ksp_max_it': 3,
             'pc_type': 'bjacobi',
             'sub': icc_params,
         },
@@ -219,7 +204,7 @@ hybridization_sparams = {
 aux_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
-    "pc_python_type": f"{__name__}.AuxHybridPC",
+    "pc_python_type": "utils.serial.AuxiliarySerialPC",
     # "aux": lu_params
     # "aux": mg_sparams
     "aux": hybridization_sparams
@@ -254,16 +239,17 @@ sparameters = {
 # sparameters.update(hybridization_sparams)
 sparameters.update(aux_sparams)
 
-from json import dumps as dump_json
-PETSc.Sys.Print("sparameters =")
-PETSc.Sys.Print(dump_json(sparameters, indent=4))
+# from json import dumps as dump_json
+# PETSc.Sys.Print("sparameters =")
+# PETSc.Sys.Print(dump_json(sparameters, indent=4))
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta,
                         w_initial,
                         form_mass,
                         form_function,
-                        sparameters)
+                        sparameters,
+                        appctx=appctx)
 
 miniapp.nlsolver.set_transfer_manager(
     mg.ManifoldTransferManager())
