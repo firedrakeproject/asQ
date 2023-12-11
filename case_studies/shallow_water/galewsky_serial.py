@@ -4,6 +4,7 @@ from firedrake.petsc import PETSc
 
 from utils import units
 from utils import mg
+from utils.misc import function_mean
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
@@ -71,15 +72,6 @@ w1 = fd.Function(W).assign(w_initial)
 
 
 # mean height
-def function_mean(f):
-    mesh = f.function_space().mesh()
-    cells = fd.Function(fd.FunctionSpace(mesh, "DG", 0))
-    cells.assign(1)
-    area = fd.assemble(cells*fd.dx)
-    ftotal = fd.assemble(f*fd.dx)
-    return ftotal / area
-
-
 H = function_mean(h_initial)
 
 
