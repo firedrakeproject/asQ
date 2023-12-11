@@ -111,11 +111,11 @@ def form_depth_hybrid(mesh, u, h, q, t):
 
 
 def form_function_hybrid(u, h, v, q, t):
-    Ku = swe.nonlinear.form_function_velocity(
-        mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
+    # Ku = swe.nonlinear.form_function_velocity(
+    #     mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
 
-    # Ku = swe.linear.form_function_u(
-    #     mesh, gravity, coriolis, u, h, v, t)
+    Ku = swe.linear.form_function_u(
+        mesh, gravity, coriolis, u, h, v, t)
 
     Kh = swe.linear.form_function_h(
         mesh, H, u, h, q, t)
@@ -142,11 +142,21 @@ class AuxHybridPC(fd.AuxiliaryOperatorPC):
 
 
 # solver parameters for the implicit solve
-lu_params = {
-    # 'ksp_type': 'preonly',
-    'pc_type': 'lu',
-    'pc_factor_mat_solver_type': 'mumps',
+factorisation_params = {
+    'ksp_type': 'preonly',
+    'pc_factor_mat_ordering_type': 'rcm',
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
 }
+
+lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
+lu_params.update(factorisation_params)
+
+ilu_params = {'pc_type': 'ilu'}
+ilu_params.update(factorisation_params)
+
+icc_params = {'pc_type': 'icc'}
+icc_params.update(factorisation_params)
 
 patch_parameters = {
     'pc_patch': {
@@ -189,11 +199,29 @@ mg_sparams = {
     'mg': mg_parameters
 }
 
+gamg_sparams = {
+    'ksp_type': 'preonly',
+    'pc_type': 'gamg',
+    'pc_gamg_sym_graph': None,
+    'pc_mg_type': 'multiplicative',
+    'pc_mg_cycle_type': 'w',
+    'mg': {
+        'levels': {
+            'ksp_type': 'cg',
+            'ksp_max_it': 1,
+            'pc_type': 'bjacobi',
+            'sub': icc_params,
+        },
+        'coarse': lu_params
+    }
+}
+
 hybridization_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": "firedrake.HybridizationPC",
-    "hybridization": lu_params
+    # "hybridization": lu_params
+    "hybridization": gamg_sparams
 }
 
 aux_sparams = {
@@ -201,6 +229,7 @@ aux_sparams = {
     "pc_type": "python",
     "pc_python_type": f"{__name__}.AuxHybridPC",
     # "aux": lu_params
+    # "aux": mg_sparams
     "aux": hybridization_sparams
 }
 
@@ -214,7 +243,10 @@ sparameters = {
         'atol': atol,
         'ksp_ew': None,
         'ksp_ew_version': 1,
-        'ksp_ew_threshold': 1e-3,
+        'ksp_ew_threshold': 1e-5,
+        'ksp_ew_rtol0': 1e-3,
+        'lag_preconditioner': -2,
+        'lag_preconditioner_persists': None,
     },
     'ksp_type': 'fgmres',
     'ksp': {
@@ -222,7 +254,6 @@ sparameters = {
         'converged_rate': None,
         'atol': atol,
         'rtol': 1e-5,
-        'view_eigenvalues': None,
     },
 }
 
@@ -230,6 +261,10 @@ sparameters = {
 # sparameters.update(mg_sparams)
 # sparameters.update(hybridization_sparams)
 sparameters.update(aux_sparams)
+
+from json import dumps as dump_json
+PETSc.Sys.Print("sparameters =")
+PETSc.Sys.Print(dump_json(sparameters, indent=4))
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta,
