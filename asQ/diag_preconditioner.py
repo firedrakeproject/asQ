@@ -37,7 +37,6 @@ class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
     def form(self, pc, v, u):
         appctx = self.get_appctx(pc)
 
-        blockid = appctx['blockid']
         cpx = appctx['cpx']
 
         u0 = appctx['u0']
@@ -49,8 +48,11 @@ class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
         d1 = appctx['d1']
         d2 = appctx['d2']
 
-        aux_d1 = appctx.get(f'aux_{blockid}_d1', d1)
-        aux_d2 = appctx.get(f'aux_{blockid}_d2', d2)
+        blockid = appctx.get('blockid', None)
+        blockid_str = f'{blockid}_' if blockid is not None else ''
+
+        aux_d1 = appctx.get(f'aux_{blockid_str}d1', d1)
+        aux_d2 = appctx.get(f'aux_{blockid_str}d2', d2)
 
         form_mass = appctx['form_mass']
         form_function = appctx['form_function']

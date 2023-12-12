@@ -139,7 +139,6 @@ sparams = {
 
 appctx = {
     'cpx': cpx,
-    'blockid': 0,
     'u0': w,
     't0': None,
     'd1': D1pc,
