@@ -61,4 +61,9 @@ jobs:
           . /home/firedrake/firedrake/bin/activate
           python --version
           python -m pytest --version
-          python -m pytest -v -n 6 --durations=40 --timeout=600 --cov=asQ --cov-report=term tests/
+          python -m pytest \
+            -n 6 --dist=worksteal
+            --durations=40 \
+            --timeout=600 \
+            --cov=asQ --cov-report=term \
+            -v tests/
