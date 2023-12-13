@@ -62,8 +62,8 @@ jobs:
           python --version
           python -m pytest --version
           python -m pytest \
-            -n 6 --dist=worksteal
             --durations=40 \
             --timeout=600 \
             --cov=asQ --cov-report=term \
+            -n 6 --dist=worksteal
             -v tests/
