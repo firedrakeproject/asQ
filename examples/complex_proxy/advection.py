@@ -122,19 +122,12 @@ sparams = {
         'monitor': None,
         'converged_reason': None,
         'rtol': rtol,
-        # 'view': None,
     },
     'ksp_type': 'gmres',
     'pc_type': 'python',
     'pc_python_type': 'asQ.AuxiliaryBlockPC',
     'aux': {
         'pc_type': 'ilu'
-        # 'pc_type': 'ksp',
-        # 'ksp': {
-        #     'ksp_rtol': rtol,
-        #     'ksp_type': 'gmres',
-        #     'pc_type': 'ilu',
-        # }
     }
 }
 
@@ -146,7 +139,6 @@ sparams = {
 
 appctx = {
     'cpx': cpx,
-    'blockid': 0,
     'u0': w,
     't0': None,
     'd1': D1pc,
