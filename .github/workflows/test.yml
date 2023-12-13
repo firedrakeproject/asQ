@@ -65,5 +65,5 @@ jobs:
             --durations=40 \
             --timeout=600 \
             --cov=asQ --cov-report=term \
-            -n 6 --dist=worksteal
+            -n 6 --dist=worksteal \
             -v tests/
