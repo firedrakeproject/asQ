@@ -135,11 +135,27 @@ mg_sparams = {
     'mg': mg_parameters
 }
 
+gamg_sparams = {
+    'ksp_type': 'gmres',
+    'ksp_rtol': 1e-12,
+    'ksp_converged_rate': None,
+    'pc_type': 'gamg',
+    'pc_mg_cycle_type': 'v',
+    'pc_mg_type': 'full',
+    'mg_levels': {
+        'ksp_type': 'chebyshev',
+        'ksp_max_it': 2,
+        'pc_type': 'bjacobi',
+        'sub_pc_type': 'ilu',
+    }
+}
+
 hybridization_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": "firedrake.HybridizationPC",
-    "hybridization": lu_params
+    # "hybridization": lu_params
+    "hybridization": gamg_sparams
 }
 
 aux_sparams = {
