@@ -77,29 +77,13 @@ H = function_mean(h_initial)
 
 # shallow water equation forms
 def form_function(u, h, v, q, t):
-    return swe.nonlinear.form_function(mesh,
-                                       gravity,
-                                       topography,
-                                       coriolis,
+    return swe.nonlinear.form_function(mesh, gravity,
+                                       topography, coriolis,
                                        u, h, v, q, t)
 
 
 def form_mass(u, h, v, q):
     return swe.nonlinear.form_mass(mesh, u, h, v, q)
-
-
-def form_depth_hybrid(mesh, u, h, q, t):
-    n = fd.FacetNormal(mesh)
-    uup = 0.5 * (fd.dot(u, n) + abs(fd.dot(u, n)))  # noqa: F841
-
-    Fhybr = (  # noqa: F841
-        + fd.inner(q, fd.div(u*h))*fd.dx
-        # + fd.inner(q, fd.div(u))*H*fd.dx
-        # + fd.jump(q)*(uup('+')*h('+') - uup('-')*h('-'))*fd.dS
-        # - fd.jump(q*u*h, n)*fd.dS
-    )
-
-    return Fhybr
 
 
 def aux_form_function(u, h, v, q, t):
@@ -178,14 +162,15 @@ mg_sparams = {
 
 gamg_sparams = {
     'ksp_type': 'preonly',
+    # 'ksp_rtol': 1e-4,
     'pc_type': 'gamg',
     'pc_gamg_sym_graph': None,
-    'pc_mg_type': 'multiplicative',
+    'pc_mg_type': 'full',
     'pc_mg_cycle_type': 'v',
     'mg': {
         'levels': {
             'ksp_type': 'cg',
-            'ksp_max_it': 3,
+            'ksp_max_it': 2,
             'pc_type': 'bjacobi',
             'sub': icc_params,
         },
