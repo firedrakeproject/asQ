@@ -53,10 +53,6 @@ def _complex_components(z):
     Return zr and zi for z if z is either complex or ComplexTuple
     """
     def is_complex_tuple(z):
-        # is_pair = isinstance(z, tuple) and len(z) == 2
-        # constant_components = all(isinstance(cmpnt, Constant) for cmpnt in z)
-        # return is_pair and constant_components
-
         return (isinstance(z, tuple)
                 and len(z) == 2
                 and all(isinstance(cmpnt, Constant) for cmpnt in z))
