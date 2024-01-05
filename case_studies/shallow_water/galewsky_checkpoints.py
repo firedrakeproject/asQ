@@ -51,12 +51,15 @@ dt = args.dt*units.hour
 
 # shallow water equation function spaces (velocity and depth)
 W = swe.default_function_space(mesh, degree=args.degree)
+Vu, Vh = W.subfunctions
 
 # parameters
 gravity = earth.Gravity
 
-topography = galewsky.topography_expression(*x)
-coriolis = swe.earth_coriolis_expression(*x)
+topography_expr = galewsky.topography_expression(*x)
+coriolis_expr = swe.earth_coriolis_expression(*x)
+topography = fd.Function(Vh, name="topography").project(topography_expr)
+coriolis = fd.Function(Vh, name="coriolis").project(coriolis_expr)
 
 # initial conditions
 w_initial = fd.Function(W)
@@ -141,6 +144,7 @@ aux_sparams = {
     "pc_type": "python",
     "pc_python_type": "utils.serial.AuxiliarySerialPC",
     "aux": hybridization_sparams
+    # "aux": lu_params
 }
 
 
@@ -189,9 +193,11 @@ def preproc(app, step, t):
     PETSc.Sys.Print(f'=== --- Timestep {step} --- ===')
 
 
-wout = fd.Function(W, name="galewsky").assign(w_initial)
+wout = fd.Function(W, name="swe").assign(w_initial)
 checkpoint = fd.CheckpointFile(f"{args.filename}.h5", 'w')
 checkpoint.save_mesh(mesh)
+checkpoint.save_function(topography)
+checkpoint.save_function(coriolis)
 idx = 0
 checkpoint.save_function(wout, idx=idx)
 idx += 1
