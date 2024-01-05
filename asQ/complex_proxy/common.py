@@ -1,16 +1,34 @@
 
 from enum import IntEnum
+from collections import namedtuple
+from numbers import Number
+from firedrake import Constant
+
+api_names = ["FiniteElement", "FunctionSpace",
+             "ComplexConstant", "DirichletBC",
+             "split", "subfunctions",
+             "get_real", "get_imag", "set_real", "set_imag",
+             "LinearForm", "BilinearForm", "derivative",
+             "Part", "re", "im"]
 
 # flags for real and imaginary parts
 Part = IntEnum("Part", (("Real", 0), ("Imag", 1)))
 re = Part.Real
 im = Part.Imag
 
-api_names = ["FiniteElement", "FunctionSpace", "DirichletBC",
-             "split", "subfunctions",
-             "get_real", "get_imag", "set_real", "set_imag",
-             "LinearForm", "BilinearForm", "derivative",
-             "Part", "re", "im"]
+ComplexConstantImpl = namedtuple('ComplexConstant', ['real', 'imag'])
+
+
+def ComplexConstant(z, zi=None):
+    """
+    A namedtuple of 2 firedrake.Constant representing a complex number.
+    """
+    if zi is None:
+        zr = z.real
+        zi = z.imag
+    else:
+        zr = z
+    return ComplexConstantImpl(Constant(zr), Constant(zi))
 
 
 def _flatten_tree(root, is_leaf, get_children, container=tuple):
@@ -30,6 +48,34 @@ def _flatten_tree(root, is_leaf, get_children, container=tuple):
                           for leaf in _flatten_tree(child, is_leaf, get_children)))
 
 
+def _complex_components(z):
+    """
+    Return zr and zi for z if z is either complex or ComplexTuple
+    """
+    def is_complex_tuple(z):
+        # is_pair = isinstance(z, tuple) and len(z) == 2
+        # constant_components = all(isinstance(cmpnt, Constant) for cmpnt in z)
+        # return is_pair and constant_components
+
+        return (isinstance(z, tuple)
+                and len(z) == 2
+                and all(isinstance(cmpnt, Constant) for cmpnt in z))
+
+    if isinstance(z, Number):
+        zr = Constant(z.real)
+        zi = Constant(z.imag)
+
+    elif is_complex_tuple(z):
+        zr = z[0]
+        zi = z[1]
+
+    else:
+        msg = "coefficient z should be `complex` or a 2-tuple of `firedrake.Constant`"
+        raise ValueError(msg)
+
+    return zr, zi
+
+
 def _build_twoform(W, z, A, u, split, return_z):
     """
     Return a bilinear Form on the complex FunctionSpace W equal to a complex multiple of a bilinear Form on the real FunctionSpace.
@@ -43,12 +89,12 @@ def _build_twoform(W, z, A, u, split, return_z):
             | zi*A    zr*A | | ui | = | bi |
 
     :arg W: the complex-proxy FunctionSpace
-    :arg z: a complex number.
+    :arg z: a complex number or a 2-tuple of firedrake.Constant
     :arg A: a generator function for a bilinear Form on the real FunctionSpace, callable as A(*u, *v) where u and v are TrialFunctions and TestFunctions on the real FunctionSpace.
     :arg u: a Function or TrialFunction on the complex space
     :arg return_z: If true, return Constants for the real/imaginary parts of z used in the BilinearForm.
     """
-    from firedrake import TestFunction, Constant
+    from firedrake import TestFunction
 
     v = TestFunction(W)
 
@@ -58,8 +104,7 @@ def _build_twoform(W, z, A, u, split, return_z):
     vr = split(v, Part.Real)
     vi = split(v, Part.Imag)
 
-    zr = Constant(z.real)
-    zi = Constant(z.imag)
+    zr, zi = _complex_components(z)
 
     A11 = zr*A(*ur, *vr)
     A12 = -zi*A(*ui, *vr)
@@ -80,18 +125,17 @@ def _build_oneform(W, z, f, split, return_z):
     <zr*vr,f> + i<zi*vi,f>
 
     :arg W: the complex-proxy FunctionSpace.
-    :arg z: a complex number.
+    :arg z: a complex number or a 2-tuple of firedrake.Constant
     :arg f: a generator function for a linear Form on the real FunctionSpace, callable as f(*v) where v are TestFunctions on the real FunctionSpace.
     :arg return_z: If true, return Constants for the real/imaginary parts of z used in the LinearForm.
     """
-    from firedrake import TestFunction, Constant
+    from firedrake import TestFunction
 
     v = TestFunction(W)
     vr = split(v, Part.Real)
     vi = split(v, Part.Imag)
 
-    zr = Constant(z.real)
-    zi = Constant(z.imag)
+    zr, zi = _complex_components(z)
 
     fr = zr*f(*vr)
     fi = zi*f(*vi)

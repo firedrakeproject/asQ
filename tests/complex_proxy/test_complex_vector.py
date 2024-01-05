@@ -31,6 +31,11 @@ elements = scalar_elements + vector_elements + tensor_elements
 
 complex_numbers = [2+0j, 0+3j, 3+2j]
 
+constant_z = [
+    pytest.param(False, id="complex_z"),
+    pytest.param(True, id="Constant_z"),
+]
+
 
 @pytest.fixture
 def nx():
@@ -249,13 +254,17 @@ def test_mixed_set_get_part(mesh):
 
 @pytest.mark.parametrize("elem", scalar_elements[:1])
 @pytest.mark.parametrize("z", complex_numbers)
-def test_linear_form(mesh, elem, z):
+@pytest.mark.parametrize("z_is_constant", constant_z)
+def test_linear_form(mesh, elem, z, z_is_constant):
     """
     Test that the linear Form is constructed correctly
 
     TODO: add tests for tensor_elements
     """
     eps = 1e-12
+
+    if z_is_constant:
+        z = cpx.ComplexConstant(z)
 
     V = fd.FunctionSpace(mesh, elem)
     W = cpx.FunctionSpace(V)
@@ -291,7 +300,8 @@ def test_linear_form(mesh, elem, z):
 
 
 @pytest.mark.parametrize("elem", scalar_elements[:1])
-def test_bilinear_form(mesh, elem):
+@pytest.mark.parametrize("z_is_constant", constant_z)
+def test_bilinear_form(mesh, elem, z_is_constant):
     """
     Test that the bilinear form is constructed correctly
 
@@ -339,6 +349,8 @@ def test_bilinear_form(mesh, elem):
 
     # non-zero only on diagonal blocks: real and imag parts independent
     zr = 3+0j
+    if z_is_constant:
+        zr = cpx.ComplexConstant(zr)
 
     K = cpx.BilinearForm(W, zr, form_function)
     wr = assemble(fd.action(K, g))
@@ -351,6 +363,8 @@ def test_bilinear_form(mesh, elem):
 
     # non-zero only on off-diagonal blocks: real and imag parts independent
     zi = 0+4j
+    if z_is_constant:
+        zi = cpx.ComplexConstant(zi)
 
     K = cpx.BilinearForm(W, zi, form_function)
     wi = assemble(fd.action(K, g))
@@ -362,7 +376,10 @@ def test_bilinear_form(mesh, elem):
     assert fd.errornorm(4*1*b, bi) < 1e-12
 
     # non-zero in all blocks:
-    z = zr + zi
+    if not z_is_constant:
+        z = zr + zi
+    else:
+        z = cpx.ComplexConstant(zr.real, zi.imag)
 
     K = cpx.BilinearForm(W, z, form_function)
     wz = assemble(fd.action(K, g))
