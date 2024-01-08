@@ -84,7 +84,7 @@ block_appctx = {
 # parameters for the implicit diagonal solve in step-(b)
 factorisation_params = {
     'ksp_type': 'preonly',
-    'pc_factor_mat_ordering_type': 'rcm',
+    # 'pc_factor_mat_ordering_type': 'rcm',
     'pc_factor_reuse_ordering': None,
     'pc_factor_reuse_fill': None,
 }
@@ -158,7 +158,7 @@ aux_pc = {
 
 block_sparams = {
     'mat_type': 'matfree',
-    'ksp_type': 'gmres',
+    'ksp_type': 'fgmres',
     'ksp': {
         'atol': block_atol,
         'rtol': block_rtol,
@@ -176,7 +176,7 @@ atol = 1e4
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
-        # 'monitor': None,
+        'monitor': None,
         'converged_reason': None,
         'atol': atol,
         'rtol': 1e-10,
@@ -188,7 +188,7 @@ sparameters_diag = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        #'monitor': None,
+        'monitor': None,
         'converged_rate': None,
         'rtol': 1e-5,
         'atol': atol,
