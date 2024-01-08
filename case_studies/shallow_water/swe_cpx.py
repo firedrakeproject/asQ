@@ -13,6 +13,45 @@ from scipy.fft import fft, fftfreq
 PETSc.Sys.popErrorHandler()
 Print = PETSc.Sys.Print
 
+
+def read_checkpoint(checkpoint_name, funcname, index, ref_level=0):
+    with fd.CheckpointFile(f"{checkpoint_name}.h5", "r") as checkpoint:
+        mesh = checkpoint.load_mesh()
+        coriolis = checkpoint.load_function(mesh, "coriolis")
+        topography = checkpoint.load_function(mesh, "topography")
+
+        if index < 0:
+            u = checkpoint.load_function(mesh, funcname)
+        else:
+            u = checkpoint.load_function(mesh, funcname, idx=index)
+
+    if ref_level == 0:
+        return mesh, u, coriolis, topography
+    else:
+        mesh_new = swe.create_mg_globe_mesh(base_level=1,
+                                            ref_level=ref_level,
+                                            coords_degree=1)
+
+        V = fd.FunctionSpace(mesh_new, u.function_space().ufl_element())
+        Vu, Vh = V.subfunctions
+
+        unew = fd.Function(V)
+        coriolis_new = fd.Function(Vh)
+        topography_new = fd.Function(Vh)
+
+        pairs = (
+            zip(u.dat, unew.dat),
+            zip(coriolis.dat, coriolis_new.dat),
+            zip(topography.dat, topography_new.dat)
+        )
+
+        for pair in pairs:
+            for src, dst in pair:
+                dst.data[:] = src.data[:]
+
+        return mesh_new, unew, coriolis_new, topography_new
+
+
 # get command arguments
 import argparse
 parser = argparse.ArgumentParser(
@@ -30,6 +69,7 @@ parser.add_argument('--nrhs', type=int, default=1, help='Number of random right 
 parser.add_argument('--checkpoint', type=str, default='swe_series', help='Name of checkpoint file.')
 parser.add_argument('--funcname', type=str, default='swe', help='Name of the Function in the checkpoint file.')
 parser.add_argument('--index', type=int, default=0, help='Index of Function in checkpoint file.')
+parser.add_argument('--ref_level', type=int, default=0, help='Icosahedral sphere mesh refinement level with mesh hierarchy. 0 for no mesh hierarchy.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -38,15 +78,8 @@ args = args[0]
 if args.show_args:
     Print(args)
 
-with fd.CheckpointFile(f"{args.checkpoint}.h5", "r") as checkpoint:
-    mesh = checkpoint.load_mesh()
-    coriolis = checkpoint.load_function(mesh, "coriolis")
-    topography = checkpoint.load_function(mesh, "topography")
-
-    if args.index < 0:
-        u = checkpoint.load_function(mesh, args.funcname)
-    else:
-        u = checkpoint.load_function(mesh, args.funcname, idx=args.index)
+mesh, u, coriolis, topography = read_checkpoint(args.checkpoint, args.funcname,
+                                                args.index, args.ref_level)
 
 x = fd.SpatialCoordinate(mesh)
 
@@ -129,8 +162,8 @@ L = fd.Cofunction(W.dual())
 factorisation_params = {
     'ksp_type': 'preonly',
     # 'pc_factor_mat_ordering_type': 'rcm',
-    # 'pc_factor_reuse_ordering': None,
-    # 'pc_factor_reuse_fill': None,
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
 }
 
 lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
@@ -175,8 +208,8 @@ mg_parameters = {
 mg_sparams = {
     "mat_type": "matfree",
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'multiplicative',
+    'pc_mg_cycle_type': 'v',
+    'pc_mg_type': 'full',
     'mg': mg_parameters
 }
 
@@ -187,7 +220,7 @@ aux_sparams = {
     "aux": lu_params
 }
 
-rtol = 1e-2
+rtol = 1e-5
 sparams = {
     'ksp': {
         # 'monitor': None,
@@ -198,6 +231,7 @@ sparams = {
     'ksp_type': 'fgmres',
 }
 sparams.update(aux_sparams)
+# sparams.update(mg_sparams)
 
 appctx = {
     'cpx': cpx,
@@ -222,7 +256,7 @@ for dat in L.dat:
     dat.data[:] = np.random.rand(*(dat.data.shape))
 
 Print("")
-for i in range(args.nt):
+for i in range(args.nt//2+1):
     wout.assign(0)
     freq = freqs[i]
     d1 = D1[i]
@@ -235,18 +269,12 @@ for i in range(args.nt):
     d2r.assign(d2.real)
     d2i.assign(d2.imag)
 
-    Print(f"=== Eigenvalue {i} ===")
-    Print(f"freq = {np.round(freq, 5)}")
-    Print(f"d1 = {np.round(d1, 5)}")
-    Print(f"d2 = {np.round(d2, 5)}")
-    Print(f"(d1/d2)/(theta*dt) = {dhat}")
-    Print(f"abs((d1/d2)/(theta*dt)) = {abs(dhat)}")
-    Print("")
+    # Print(f"=== Eigenvalue {i} ===")
+    # Print(f"freq = {np.round(freq, 5)}")
+    # Print(f"d1 = {np.round(d1, 5)}")
+    # Print(f"d2 = {np.round(d2, 5)}")
+    # Print(f"(d1/d2)/(theta*dt) = {dhat}")
+    # Print(f"abs((d1/d2)/(theta*dt)) = {abs(dhat)}")
+    # Print("")
     solver.solve()
-    Print("")
-
-# for i in range(args.nrhs):
-#     wout.assign(0)
-#     for dat in L.dat:
-#         dat.data[:] = np.random.rand(*(dat.data.shape))
-#     solver.solve()
+    # Print("")

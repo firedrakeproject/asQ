@@ -143,8 +143,8 @@ aux_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": "utils.serial.AuxiliarySerialPC",
-    "aux": hybridization_sparams
-    # "aux": lu_params
+    # "aux": hybridization_sparams
+    "aux": lu_params
 }
 
 
