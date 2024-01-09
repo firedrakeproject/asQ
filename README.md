@@ -39,3 +39,13 @@ Abdalaziz Hamdan (Imperial College London)
 Joshua Hope-Collins (Imperial College London)
 
 Lawrence Mitchell (Nvidia)
+
+## Funding
+
+Development of asQ has been supported by the following funders and grants: 
+
+EPSRC (EP/W015439/1 & EP/R029628/1)
+
+NERC (NE/R008795/1)
+
+ExCALIBUR & UK Met Office (SPF EX20-8 Exposing Parallelism: Parallel-in-Time)
