@@ -715,6 +715,47 @@ def test_global_vec(aaof):
 
 
 @pytest.mark.parallel(nprocs=nprocs)
+def test_global_vec_state(aaof):
+    """
+    test state of the global Vec is consistent with the number of data modifications
+    """
+    # The global vec just views the vec of the local time-slice, so if the local
+    # time-slice vec is modified then the data of the global vec is modified, even
+    # if the global vec hasn't been touched directly. This means that the state variable
+    # of the global vec is inconsistent unless we update it ourselves.
+
+    # get state outside of context manager
+    # should we avoid this? Does this rely too much on impl?
+    peek_at_state = lambda: aaof._vec.stateGet()
+
+    initial_state = peek_at_state()
+
+    # how many times have we modified the underlying data?
+    nincrements = 0
+    expected_state = lambda: initial_state + nincrements
+
+    # vec_wo should not increase state if vec isn't modified explicitly
+    with aaof.global_vec_wo() as vec:
+        new_state = vec.stateGet()
+        assert new_state == expected_state()
+    assert peek_at_state() == expected_state()
+
+    # vec_ro should increase state at context manager entry but not exit
+    with aaof.global_vec_ro() as vec:
+        nincrements += 1
+        new_state = vec.stateGet()
+        assert new_state == expected_state()
+    assert peek_at_state() == expected_state()
+
+    # vec should increase state at context manager entry but not exit
+    with aaof.global_vec() as vec:
+        nincrements += 1
+        new_state = vec.stateGet()
+        assert new_state == expected_state()
+    assert peek_at_state() == expected_state()
+
+
+@pytest.mark.parallel(nprocs=nprocs)
 def test_update_time_halos(aaof):
     """
     test updating the time halo functions
