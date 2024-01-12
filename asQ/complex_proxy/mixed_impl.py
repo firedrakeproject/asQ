@@ -24,7 +24,7 @@ def FiniteElement(elem):
     """
     flat_elems = _flatten_tree(elem,
                                is_leaf=lambda e: type(e) is not fd.MixedElement,
-                               get_children=lambda e: e.sub_elements())
+                               get_children=lambda e: e.sub_elements)
 
     return fd.MixedElement([e for ee in zip(flat_elems, flat_elems) for e in ee])
 

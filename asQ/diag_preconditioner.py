@@ -12,7 +12,61 @@ from asQ.parallel_arrays import SharedArray
 
 from functools import partial
 
-__all__ = ['DiagFFTPC']
+__all__ = ['DiagFFTPC', 'AuxiliaryBlockPC']
+
+
+class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
+    """
+    A preconditioner for the complex blocks that builds a PC using a specified form.
+
+    This preconditioner is analogous to firedrake.AuxiliaryOperatorPC. Given
+    `form_mass` and `form_function` functions on the real function space (with the
+    usual call-signatures), it constructs an AuxiliaryOperatorPC on the complex
+    block function space.
+
+    By default, the circulant eigenvalues and the form_mass and form_function of the
+    circulant preconditioner are used (i.e. exactly the same operator as the block).
+
+    User-defined `form_mass` and `form_function` functions and complex coeffiecients
+    can be passed through the block_appctx using the following keys:
+        'aux_form_mass': function used to build the mass matrix.
+        'aux_form_function': function used to build the stiffness matrix.
+        'aux_%d_d1': complex coefficient on the mass matrix of the %d'th block.
+        'aux_%d_d2': complex coefficient on the stiffness matrix of the %d'th block.
+    """
+    def form(self, pc, v, u):
+        appctx = self.get_appctx(pc)
+
+        cpx = appctx['cpx']
+
+        u0 = appctx['u0']
+        assert u0.function_space() == v.function_space()
+
+        bcs = appctx['bcs']
+        t0 = appctx['t0']
+
+        d1 = appctx['d1']
+        d2 = appctx['d2']
+
+        blockid = appctx.get('blockid', None)
+        blockid_str = f'{blockid}_' if blockid is not None else ''
+
+        aux_d1 = appctx.get(f'aux_{blockid_str}d1', d1)
+        aux_d2 = appctx.get(f'aux_{blockid_str}d2', d2)
+
+        form_mass = appctx['form_mass']
+        form_function = appctx['form_function']
+
+        aux_form_mass = appctx.get('aux_form_mass', form_mass)
+        aux_form_function = appctx.get('aux_form_function', form_function)
+
+        Vc = v.function_space()
+        M = cpx.BilinearForm(Vc, aux_d1, aux_form_mass)
+        K = cpx.derivative(aux_d2, partial(aux_form_function, t=t0), u0)
+
+        A = M + K
+
+        return (A, bcs)
 
 
 class DiagFFTPC(TimePartitionMixin):
@@ -68,6 +122,19 @@ class DiagFFTPC(TimePartitionMixin):
             as a 2-component VectorFunctionSpace
         'mixed': the real-imag components of the complex function space are implemented
             as a 2-component MixedFunctionSpace
+
+    If the AllAtOnceSolver's appctx contains a 'block_appctx' dictionary, this is
+    added to the appctx of each block solver.  The appctx of each block solver also
+    contains the following:
+        'blockid': index of the block.
+        'd1': circulant eigenvalue of the mass matrix.
+        'd2': circulant eigenvalue of the stiffness matrix.
+        'cpx': complex-proxy module implementation set with 'diagfft_complex_proxy'.
+        'u0': state around which the blocks are linearised.
+        't0': time at which the blocks are linearised.
+        'bcs': block boundary conditions.
+        'form_mass': function used to build the block mass matrix.
+        'form_function': function used to build the block stiffness matrix.
     """
     prefix = "diagfft_"
     default_alpha = 1e-3
@@ -177,10 +244,10 @@ class DiagFFTPC(TimePartitionMixin):
         self.CblockV = cpx.FunctionSpace(self.blockV)
 
         # set the boundary conditions to zero for the residual
-        self.CblockV_bcs = tuple((cb
-                                  for bc in self.aaoform.field_bcs
-                                  for cb in cpx.DirichletBC(self.CblockV, self.blockV,
-                                                            bc, 0*bc.function_arg)))
+        self.block_bcs = tuple((cb
+                                for bc in self.aaoform.field_bcs
+                                for cb in cpx.DirichletBC(self.CblockV, self.blockV,
+                                                          bc, 0*bc.function_arg)))
 
         # function to do global reduction into for average block jacobian
         if jac_state in ('window', 'slice'):
@@ -188,8 +255,10 @@ class DiagFFTPC(TimePartitionMixin):
             self.uwrk = fd.Function(self.blockV)
 
         # input and output functions to the block solve
-        self.Jprob_in = fd.Function(self.CblockV)
-        self.Jprob_out = fd.Function(self.CblockV)
+        self.block_sol = fd.Function(self.CblockV)
+        self.block_rhs = fd.Cofunction(self.CblockV.dual())
+        # input for the cofunc rhs map
+        self.xtemp = fd.Function(self.CblockV)
 
         # A place to store the real/imag components of the all-at-once residual after fft
         self.xfi = aaofunc.copy()
@@ -211,49 +280,6 @@ class DiagFFTPC(TimePartitionMixin):
         self.a1 = np.zeros(self.p1.subshape, complex)
         self.transfer = self.p0.transfer(self.p1, complex)
 
-        # setting up the Riesz map
-        default_riesz_method = {
-            'ksp_type': 'preonly',
-            'pc_type': 'lu',
-            'pc_factor_mat_solver_type': 'mumps',
-            'mat_type': 'aij'
-        }
-
-        # mixed mass matrices are decoupled so solve seperately
-        if isinstance(self.blockV.ufl_element(), fd.MixedElement):
-            default_riesz_parameters = {
-                'ksp_type': 'preonly',
-                'mat_type': 'nest',
-                'pc_type': 'fieldsplit',
-                'pc_field_split_type': 'additive',
-                'fieldsplit': default_riesz_method
-            }
-        else:
-            default_riesz_parameters = default_riesz_method
-
-        # we need to pass the mat_types to assemble directly because
-        # it won't pick them up from Options
-
-        riesz_mat_type = PETSc.Options().getString(
-            f"{prefix}mass_mat_type",
-            default=default_riesz_parameters['mat_type'])
-
-        riesz_sub_mat_type = PETSc.Options().getString(
-            f"{prefix}mass_fieldsplit_mat_type",
-            default=default_riesz_method['mat_type'])
-
-        # input for the Riesz map
-        self.xtemp = fd.Function(self.CblockV)
-        v = fd.TestFunction(self.CblockV)
-        u = fd.TrialFunction(self.CblockV)
-
-        a = fd.assemble(fd.inner(u, v)*fd.dx,
-                        mat_type=riesz_mat_type,
-                        sub_mat_type=riesz_sub_mat_type)
-
-        self.Proj = fd.LinearSolver(a, solver_parameters=default_riesz_parameters,
-                                    options_prefix=f"{prefix}mass_")
-
         # building the Jacobian of the nonlinear term
         # what we want is a block diagonal matrix in the 2x2 system
         # coupling the real and imaginary parts.
@@ -263,7 +289,7 @@ class DiagFFTPC(TimePartitionMixin):
         # This is constructed by cpx.derivative
 
         #  Building the nonlinear operator
-        self.Jsolvers = []
+        self.block_solvers = []
 
         # which form to linearise around
         valid_linearisations = ['consistent', 'user']
@@ -292,6 +318,9 @@ class DiagFFTPC(TimePartitionMixin):
         # Now need to build the block solver
         self.u0 = fd.Function(self.CblockV)  # time average to linearise around
 
+        # user appctx for the blocks
+        block_appctx = appctx.get('block_appctx', {})
+
         # building the block problem solvers
         for i in range(self.nlocal_timesteps):
             ii = aaofunc.transform_index(i, from_range='slice', to_range='window')
@@ -305,20 +334,22 @@ class DiagFFTPC(TimePartitionMixin):
 
             # The rhs
             v = fd.TestFunction(self.CblockV)
-            L = fd.inner(v, self.Jprob_in)*fd.dx
+            L = self.block_rhs
 
-            # pass sigma into PC:
-            sigma = self.D1[ii]**2/self.D2[ii]
-            sigma_inv = self.D2[ii]**2/self.D1[ii]
-            appctx_h = {}
-            appctx_h["sr"] = fd.Constant(np.real(sigma))
-            appctx_h["si"] = fd.Constant(np.imag(sigma))
-            appctx_h["sinvr"] = fd.Constant(np.real(sigma_inv))
-            appctx_h["sinvi"] = fd.Constant(np.imag(sigma_inv))
-            appctx_h["D2r"] = D2r
-            appctx_h["D2i"] = D2i
-            appctx_h["D1r"] = D1r
-            appctx_h["D1i"] = D1i
+            # pass parameters into PC:
+            appctx_h = {
+                "blockid": i,
+                "d1": d1,
+                "d2": d2,
+                "cpx": cpx,
+                "u0": self.u0,
+                "t0": self.t_average,
+                "bcs": self.block_bcs,
+                "form_mass": self.form_mass,
+                "form_function": self.form_function,
+            }
+
+            appctx_h.update(block_appctx)
 
             # Options with prefix 'diagfft_block_' apply to all blocks by default
             # If any options with prefix 'diagfft_block_{i}' exist, where i is the
@@ -330,22 +361,22 @@ class DiagFFTPC(TimePartitionMixin):
                     block_prefix = f"{block_prefix}{str(ii)}_"
                     break
 
-            jprob = fd.LinearVariationalProblem(A, L, self.Jprob_out,
-                                                bcs=self.CblockV_bcs)
-            Jsolver = fd.LinearVariationalSolver(jprob,
-                                                 appctx=appctx_h,
-                                                 options_prefix=block_prefix)
+            block_problem = fd.LinearVariationalProblem(A, L, self.block_sol,
+                                                        bcs=self.block_bcs)
+            block_solver = fd.LinearVariationalSolver(block_problem,
+                                                      appctx=appctx_h,
+                                                      options_prefix=block_prefix)
             # multigrid transfer manager
             if f'{self.prefix}transfer_managers' in appctx:
-                # Jsolver.set_transfer_manager(jacobian.appctx['diagfft_transfer_managers'][ii])
+                # block_solver.set_transfer_manager(jacobian.appctx['diagfft_transfer_managers'][ii])
                 tm = appctx[f'{self.prefix}transfer_managers'][i]
-                Jsolver.set_transfer_manager(tm)
-                tm_set = (Jsolver._ctx.transfer_manager is tm)
+                block_solver.set_transfer_manager(tm)
+                tm_set = (block_solver._ctx.transfer_manager is tm)
 
                 if tm_set is False:
-                    print(f"transfer manager not set on Jsolvers[{ii}]")
+                    print(f"transfer manager not set on block_solvers[{ii}]")
 
-            self.Jsolvers.append(Jsolver)
+            self.block_solvers.append(block_solver)
 
         self.block_iterations = SharedArray(self.time_partition,
                                             dtype=int,
@@ -360,7 +391,7 @@ class DiagFFTPC(TimePartitionMixin):
         Must be called exactly once at the end of each apply().
         """
         for i in range(self.nlocal_timesteps):
-            its = self.Jsolvers[i].snes.getLinearSolveIterations()
+            its = self.block_solvers[i].snes.getLinearSolveIterations()
             self.block_iterations.dlocal[i] += its
 
     @profiler()
@@ -450,22 +481,19 @@ class DiagFFTPC(TimePartitionMixin):
         with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.block_solves"):
             for i in range(self.nlocal_timesteps):
                 # copy the data into solver input
-                self.xtemp.assign(0.)
-
                 cpx.set_real(self.xtemp, self.xfr[i])
                 cpx.set_imag(self.xtemp, self.xfi[i])
 
-                # Do a project for Riesz map, to be superceded
-                # when we get Cofunction
-                self.Proj.solve(self.Jprob_in, self.xtemp)
+                for cdat, xdat in zip(self.block_rhs.dat, self.xtemp.dat):
+                    cdat.data[:] = xdat.data[:]
 
                 # solve the block system
-                self.Jprob_out.assign(0.)
-                self.Jsolvers[i].solve()
+                self.block_sol.zero()
+                self.block_solvers[i].solve()
 
                 # copy the data from solver output
-                cpx.get_real(self.Jprob_out, self.xfr[i])
-                cpx.get_imag(self.Jprob_out, self.xfi[i])
+                cpx.get_real(self.block_sol, self.xfr[i])
+                cpx.get_imag(self.block_sol, self.xfi[i])
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy

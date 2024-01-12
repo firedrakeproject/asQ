@@ -54,9 +54,9 @@ def test_finite_element(elem):
     """
     celem = cpx.FiniteElement(elem)
 
-    assert celem.num_sub_elements() == 2
+    assert celem.num_sub_elements == 2
 
-    for ce in celem.sub_elements():
+    for ce in celem.sub_elements:
         assert ce == elem
 
 
@@ -67,12 +67,12 @@ def test_vector_element(elem):
     """
     celem = cpx.FiniteElement(elem)
 
-    assert celem.num_sub_elements() == 2*elem.num_sub_elements()
+    assert celem.num_sub_elements == 2*elem.num_sub_elements
 
-    assert celem._shape == (2, elem.num_sub_elements())
+    assert celem._shape == (2, elem.num_sub_elements)
 
-    for ce in celem.sub_elements():
-        assert ce == elem.sub_elements()[0]
+    for ce in celem.sub_elements:
+        assert ce == elem.sub_elements[0]
 
 
 @pytest.mark.parametrize("elem", tensor_elements)
@@ -82,12 +82,12 @@ def test_tensor_element(elem):
     """
     celem = cpx.FiniteElement(elem)
 
-    assert celem.num_sub_elements() == 2*elem.num_sub_elements()
+    assert celem.num_sub_elements == 2*elem.num_sub_elements
 
     assert celem._shape == (2,) + elem._shape
 
-    for ce in celem.sub_elements():
-        assert ce == elem.sub_elements()[0]
+    for ce in celem.sub_elements:
+        assert ce == elem.sub_elements[0]
 
 
 def test_mixed_element(mixed_element):
@@ -97,9 +97,9 @@ def test_mixed_element(mixed_element):
 
     celem = cpx.FiniteElement(mixed_element)
 
-    assert celem.num_sub_elements() == mixed_element.num_sub_elements()
+    assert celem.num_sub_elements == mixed_element.num_sub_elements
 
-    for csub, msub in zip(celem.sub_elements(), mixed_element.sub_elements()):
+    for csub, msub in zip(celem.sub_elements, mixed_element.sub_elements):
         assert csub == cpx.FiniteElement(msub)
 
 
@@ -140,8 +140,8 @@ def test_set_get_part(mesh, elem, split_tuple):
 
     x, y = fd.SpatialCoordinate(mesh)
 
-    if elem.reference_value_shape() != ():
-        dim = elem.reference_value_shape()[0]
+    if elem.reference_value_shape != ():
+        dim = elem.reference_value_shape[0]
         expr0 = fd.as_vector([x*i for i in range(dim)])
         expr1 = fd.as_vector([-y*i for i in range(dim)])
     else:
@@ -262,9 +262,9 @@ def test_linear_form(mesh, elem, z):
 
     x, y = fd.SpatialCoordinate(mesh)
 
-    if elem.reference_value_shape() != ():
+    if elem.reference_value_shape != ():
         vec_expr = [x*x-y, y+x, -y-0.5*x]
-        dim = elem.reference_value_shape()[0]
+        dim = elem.reference_value_shape[0]
         f = fd.as_vector(vec_expr[:dim])
     else:
         f = x*x-y
@@ -304,9 +304,9 @@ def test_bilinear_form(mesh, elem):
 
     x, y = fd.SpatialCoordinate(mesh)
 
-    if elem.reference_value_shape() != ():
+    if elem.reference_value_shape != ():
         vec_expr = [x*x-y, y+x, -y-0.5*x]
-        dim = elem.reference_value_shape()[0]
+        dim = elem.reference_value_shape[0]
         expr = fd.as_vector(vec_expr[:dim])
     else:
         expr = x*x-y

@@ -1,138 +1,51 @@
 
 import firedrake as fd
-from ufl.domain import extract_unique_domain as ufl_domain
 
 
 # transfer between mesh levels on a manifold
 # by first ensuring meshes are nested
-class ManifoldTransfer(object):
-    def __init__(self):
-        '''
-        Object to manage transfer operators for MG
-        where we pull back to a piecewise flat mesh
-        before doing transfers
-        '''
-
-        # list of flags to say if we've set up before
-        self.ready = {}
-        self.Ftransfer = fd.TransferManager()  # is this the firedrake warning?
-
+class ManifoldTransferManager(fd.TransferManager):
+    '''
+    Object to manage transfer operators for MG
+    where we pull back to a piecewise flat mesh
+    before doing transfers.
+    '''
     def prolong(self, coarse, fine):
-        Vfine = fd.FunctionSpace(ufl_domain(fine),
-                                 fine.function_space().ufl_element())
-        key = Vfine.dim()
-
-        firsttime = self.ready.get(key, None) is None
-        if firsttime:
-            self.ready[key] = True
-
-            coarse_mesh = ufl_domain(coarse)
-            fine_mesh = ufl_domain(fine)
-            if not hasattr(coarse_mesh, "coordinates_bk"):
-                coordinates_bk_c = fd.Function(coarse_mesh.coordinates)
-                coarse_mesh.coordinates_bk = coordinates_bk_c
-            if not hasattr(fine_mesh, "coordinates_bk"):
-                coordinates_bk_f = fd.Function(fine_mesh.coordinates)
-                fine_mesh.coordinates_bk = coordinates_bk_f
-
-        # change to the transfer coordinates for prolongation
-        ufl_domain(coarse).coordinates.assign(
-            ufl_domain(coarse).transfer_coordinates)
-        ufl_domain(fine).coordinates.assign(
-            ufl_domain(fine).transfer_coordinates)
-
-        # standard transfer preserves divergence-free subspaces
-        self.Ftransfer.prolong(coarse, fine)
-
-        # change back to deformed mesh
-        ufl_domain(coarse).coordinates.assign(
-            ufl_domain(coarse).coordinates_bk)
-        ufl_domain(fine).coordinates.assign(
-            ufl_domain(fine).coordinates_bk)
+        self._transfer(coarse, fine, super().prolong)
 
     def restrict(self, fine, coarse):
-        Vfine = fd.FunctionSpace(ufl_domain(fine),
-                                 fine.function_space().ufl_element())
-        key = Vfine.dim()
-
-        firsttime = self.ready.get(key, None) is None
-        if firsttime:
-            self.ready[key] = True
-
-            coarse_mesh = ufl_domain(coarse)
-            fine_mesh = ufl_domain(fine)
-            if not hasattr(coarse_mesh, "coordinates_bk"):
-                coordinates_bk_c = fd.Function(coarse_mesh.coordinates)
-                coarse_mesh.coordinates_bk = coordinates_bk_c
-            if not hasattr(fine_mesh, "coordinates_bk"):
-                coordinates_bk_f = fd.Function(fine_mesh.coordinates)
-                fine_mesh.coordinates_bk = coordinates_bk_f
-
-        # change to the transfer coordinates for prolongation
-        ufl_domain(coarse).coordinates.assign(
-            ufl_domain(coarse).transfer_coordinates)
-        ufl_domain(fine).coordinates.assign(
-            ufl_domain(fine).transfer_coordinates)
-
-        # standard transfer preserves divergence-free subspaces
-        self.Ftransfer.restrict(fine, coarse)
-
-        # change back to deformed mesh
-        ufl_domain(coarse).coordinates.assign(
-            ufl_domain(coarse).coordinates_bk)
-        ufl_domain(fine).coordinates.assign(
-            ufl_domain(fine).coordinates_bk)
+        self._transfer(fine, coarse, super().restrict)
 
     def inject(self, fine, coarse):
-        Vfine = fd.FunctionSpace(ufl_domain(fine),
-                                 fine.function_space().ufl_element())
-        key = Vfine.dim()
+        self._transfer(fine, coarse, super().inject)
 
-        firsttime = self.ready.get(key, None) is None
-        if firsttime:
-            self.ready[key] = True
+    def _transfer(self, f0, f1, transfer_op):
+        mesh0 = f0.function_space().mesh()
+        mesh1 = f1.function_space().mesh()
 
-            coarse_mesh = ufl_domain(coarse)
-            fine_mesh = ufl_domain(fine)
-            if not hasattr(coarse_mesh, "coordinates_bk"):
-                coordinates_bk_c = fd.Function(coarse_mesh.coordinates)
-                coarse_mesh.coordinates_bk = coordinates_bk_c
-            if not hasattr(fine_mesh, "coordinates_bk"):
-                coordinates_bk_f = fd.Function(fine_mesh.coordinates)
-                fine_mesh.coordinates_bk = coordinates_bk_f
+        # backup the original coordinates the first time we see a mesh
+        self._register_mesh(mesh0)
+        self._register_mesh(mesh1)
 
-        # change to the transfer coordinates for prolongation
-        ufl_domain(coarse).coordinates.assign(
-            ufl_domain(coarse).transfer_coordinates)
-        ufl_domain(fine).coordinates.assign(
-            ufl_domain(fine).transfer_coordinates)
+        # change to the transfer coordinates for transfer operations
+        mesh0.coordinates.assign(mesh0.transfer_coordinates)
+        mesh1.coordinates.assign(mesh1.transfer_coordinates)
 
         # standard transfer preserves divergence-free subspaces
-        self.Ftransfer.inject(fine, coarse)
+        transfer_op(f0, f1)
 
-        # change back to deformed mesh
-        ufl_domain(coarse).coordinates.assign(
-            ufl_domain(coarse).coordinates_bk)
-        ufl_domain(fine).coordinates.assign(
-            ufl_domain(fine).coordinates_bk)
+        # change back to original mesh
+        mesh0.coordinates.assign(mesh0.original_coordinates)
+        mesh1.coordinates.assign(mesh1.original_coordinates)
 
-
-def manifold_transfer_manager(W):
-    '''
-    Return a multigrid transfer manager for manifold meshes
-
-    Uses the ManifoldTransfer operations to manage the
-    prolongation, restriction and injection
-    arg: W: a MixedFunctionSpace over the manifold mesh
-    '''
-
-    Vs = W.subfunctions
-    vtransfer = ManifoldTransfer()
-    transfers = {}
-    for V in Vs:
-        transfers[V.ufl_element()] = (vtransfer.prolong, vtransfer.restrict,
-                                      vtransfer.inject)
-    return fd.TransferManager(native_transfers=transfers)
+    def _register_mesh(self, mesh):
+        if not hasattr(mesh, "transfer_coordinates"):
+            msg = "ManifoldTransferManager requires mesh to have " \
+                  + "`transfer_coordinates` stashed on each member" \
+                  + " of heirarchy."
+            raise AttributeError(msg)
+        if not hasattr(mesh, "original_coordinates"):
+            mesh.original_coordinates = fd.Function(mesh.coordinates)
 
 
 # set up mesh levels for multigrid scheme
