@@ -397,17 +397,17 @@ def test_axpy(aaof):
     aaof.assign(orig)
 
     # x is aaofunc and update ics
-    a = 3.5
-    aaof.axpy(a, aaof1, update_ics=True)
-    faxpy(function(expected), a, function(aaof1), function(orig))
     if hasattr(aaof, "initial_condition"):
+        a = 3.5
+        aaof.axpy(a, aaof1, update_ics=True)
+        faxpy(function(expected), a, function(aaof1), function(orig))
         faxpy(expected.initial_condition, a,
               aaof1.initial_condition, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is PETSc.Vec
     a = 4.2
@@ -443,20 +443,20 @@ def test_axpy(aaof):
     aaof.assign(orig)
 
     # x is a single timestep and update ics
-    a = 6.1
-    random_func(xfunc)
-
-    aaof.axpy(a, xfunc, update_ics=True)
-    for i in range(aaof.nlocal_timesteps):
-        faxpy(expected[i], a, xfunc, orig[i])
     if hasattr(aaof, "initial_condition"):
+        a = 6.1
+        random_func(xfunc)
+
+        aaof.axpy(a, xfunc, update_ics=True)
+        for i in range(aaof.nlocal_timesteps):
+            faxpy(expected[i], a, xfunc, orig[i])
         faxpy(expected.initial_condition, a,
               xfunc, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is a timeseries function
     a = 7.9
@@ -510,17 +510,17 @@ def test_aypx(aaof):
     aaof.assign(orig)
 
     # x is aaofunc and update ics
-    a = 3.5
-    aaof.aypx(a, aaof1, update_ics=True)
-    faypx(function(expected), a, function(aaof1), function(orig))
     if hasattr(aaof, "initial_condition"):
+        a = 3.5
+        aaof.aypx(a, aaof1, update_ics=True)
+        faypx(function(expected), a, function(aaof1), function(orig))
         faypx(expected.initial_condition, a,
               aaof1.initial_condition, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is PETSc.Vec
     a = 4.2
@@ -556,20 +556,20 @@ def test_aypx(aaof):
     aaof.assign(orig)
 
     # x is a single timestep and update ics
-    a = 6.1
-    random_func(xfunc)
-
-    aaof.aypx(a, xfunc, update_ics=True)
-    for i in range(aaof.nlocal_timesteps):
-        faypx(expected[i], a, xfunc, orig[i])
     if hasattr(aaof, "initial_condition"):
+        a = 6.1
+        random_func(xfunc)
+
+        aaof.aypx(a, xfunc, update_ics=True)
+        for i in range(aaof.nlocal_timesteps):
+            faypx(expected[i], a, xfunc, orig[i])
         faypx(expected.initial_condition, a,
               xfunc, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is a timeseries function
     a = 7.9
@@ -624,18 +624,18 @@ def test_axpby(aaof):
     aaof.assign(orig)
 
     # x is aaofunc and update ics
-    a = 3.5
-    b = 12.1
-    aaof.axpby(a, b, aaof1, update_ics=True)
-    faxpby(function(expected), a, b, function(aaof1), function(orig))
     if hasattr(aaof, "initial_condition"):
+        a = 3.5
+        b = 12.1
+        aaof.axpby(a, b, aaof1, update_ics=True)
+        faxpby(function(expected), a, b, function(aaof1), function(orig))
         faxpby(expected.initial_condition, a, b,
                aaof1.initial_condition, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is PETSc.Vec
     a = 4.2
@@ -673,21 +673,21 @@ def test_axpby(aaof):
     aaof.assign(orig)
 
     # x is a single timestep and update ics
-    a = 6.1
-    b = 15.3
-    random_func(xfunc)
-
-    aaof.axpby(a, b, xfunc, update_ics=True)
-    for i in range(aaof.nlocal_timesteps):
-        faxpby(expected[i], a, b, xfunc, orig[i])
     if hasattr(aaof, "initial_condition"):
+        a = 6.1
+        b = 15.3
+        random_func(xfunc)
+
+        aaof.axpby(a, b, xfunc, update_ics=True)
+        for i in range(aaof.nlocal_timesteps):
+            faxpby(expected[i], a, b, xfunc, orig[i])
         faxpby(expected.initial_condition, a, b,
                xfunc, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is a timeseries function
     a = 7.9

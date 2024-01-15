@@ -302,12 +302,10 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
             whether blocking communication is used. A list of MPI Requests is returned
             if non-blocking communication is used.
         """
-        alpha = fd.Constant(a)
-
-        self._fbuf.assign(alpha*self._fbuf)
+        self._fbuf.assign(a*self._fbuf)
 
         if update_ics and hasattr(self, 'initial_condition'):
-            self.initial_condition.assign(alpha*self.initial_condition)
+            self.initial_condition.assign(a*self.initial_condition)
 
         if update_halos:
             return self.update_time_halos(blocking=blocking)
@@ -333,10 +331,8 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
             whether blocking communication is used. A list of MPI Requests is returned
             if non-blocking communication is used.
         """
-        alpha = fd.Constant(a)
-
         def func_axpy(x, y):
-            return y.assign(alpha*x + y)
+            return y.assign(a*x + y)
 
         def vec_axpy(x, y):
             y.axpy(a, x)
@@ -367,10 +363,8 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
             whether blocking communication is used. A list of MPI Requests is returned
             if non-blocking communication is used.
         """
-        alpha = fd.Constant(a)
-
         def func_aypx(x, y):
-            return y.assign(x + alpha*y)
+            return y.assign(x + a*y)
 
         def vec_aypx(x, y):
             y.aypx(a, x)
@@ -402,11 +396,8 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
             whether blocking communication is used. A list of MPI Requests is returned
             if non-blocking communication is used.
         """
-        alpha = fd.Constant(a)
-        beta = fd.Constant(b)
-
         def func_axpby(x, y):
-            return y.assign(alpha*x + beta*y)
+            return y.assign(a*x + b*y)
 
         def vec_axpby(x, y):
             y.axpby(a, b, x)
