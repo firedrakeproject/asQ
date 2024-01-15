@@ -92,11 +92,6 @@ class DiagFFTPC(TimePartitionMixin):
         'initial': the initial condition of the AllAtOnceFunction is used for all timesteps.
         'reference': use the reference state of the AllAtOnceJacobian for all timesteps.
 
-    'diagfft_mass': <LinearSolver options>
-        The solver options for the Riesz map into the complex space.
-        Use 'diagfft_mass_fieldsplit' if the single-timestep function space is mixed.
-        Default is {'pc_type': 'lu'}
-
     'diagfft_block_%d': <LinearVariationalSolver options>
         The solver options for the %d'th block, enumerated globally.
         Use 'diagfft_block' to set options for all blocks.
@@ -439,7 +434,6 @@ class DiagFFTPC(TimePartitionMixin):
         cpx = self.cpx
 
         # copy petsc vec into Function
-        # hopefully this works
         with self.xf.dat.vec_wo as v:
             x.copy(v)
 
