@@ -4,6 +4,7 @@ from pyop2 import MixedDat
 from functools import reduce
 from operator import mul
 import contextlib
+from ufl.duals import is_primal, is_dual
 from asQ.profiling import profiler
 from asQ.allatonce.mixin import TimePartitionMixin
 
@@ -519,8 +520,8 @@ class AllAtOnceFunction(AllAtOnceFunctionBase):
             ensemble rank.
         :arg function_space: a FunctionSpace for the solution at a single timestep.
         """
-        if isinstance(function_space, fd.functionspaceimpl.FiredrakeDualSpace):
-            raise TypeError("Cannot make an AllAtOnceFunction from a DualSpace")
+        if not is_primal(function_space):
+            raise TypeError("Cannot only make AllAtOnceFunction from a FunctionSpace")
         super().__init__(ensemble, time_partition, function_space)
         self.function = self._fbuf
         self.initial_condition = fd.Function(self.field_function_space)
@@ -540,7 +541,7 @@ class AllAtOnceCofunction(AllAtOnceFunctionBase):
             ensemble rank.
         :arg function_space: a FunctionSpace for the solution at a single timestep.
         """
-        if not isinstance(function_space, fd.functionspaceimpl.FiredrakeDualSpace):
+        if not is_dual(function_space):
             raise TypeError("Can only make an AllAtOnceCofunction from a DualSpace")
         super().__init__(ensemble, time_partition, function_space)
         self.cofunction = self._fbuf
