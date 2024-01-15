@@ -74,10 +74,15 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
 
         # Functions to view each timestep
         def field_function(i):
-            dats = (self._fbuf.subfunctions[j].dat
-                    for j in self._component_indices(i))
+            if self.ncomponents == 1:
+                j = self._component_indices(i)[0]
+                dat = self._fbuf.subfunctions[j].dat
+            else:
+                dat = MixedDat((self._fbuf.subfunctions[j].dat
+                                for j in self._component_indices(i)))
+
             return fd.Function(self.field_function_space,
-                               val=MixedDat(dats))
+                               val=dat)
 
         self._fields = tuple(field_function(i)
                              for i in range(self.nlocal_timesteps))
@@ -621,5 +626,5 @@ class AllAtOnceCofunction(AllAtOnceFunctionBase):
             whether blocking communication is used. A list of MPI Requests is returned
             if non-blocking communication is used.
         """
-        return super().axpbx(a, b, x, update_halos=update_halos, blocking=blocking,
+        return super().axpby(a, b, x, update_halos=update_halos, blocking=blocking,
                              update_ics=False)
