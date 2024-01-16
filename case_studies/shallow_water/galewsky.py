@@ -112,45 +112,23 @@ sparameters_diag = {
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
+        'converged_rate': None,
         'rtol': 1e-5,
         'atol': 1e-0,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_alpha': args.alpha,
-    'diagfft_state': 'window',
-    'aaos_jacobian_state': 'current'
+    'pc_python_type': 'asQ.JacobiPC',
 }
 
+pc_name = 'aaojacobi'
+
 for i in range(window_length):
-    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
+    sparameters_diag[f'{pc_name}_block_'+str(i)+'_'] = sparameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
     ref_level=args.ref_level,
     coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
-
-# check convergence of each timestep
-
-
-def post_function_callback(aaosolver, X, F):
-    residuals = asQ.SharedArray(time_partition,
-                                comm=aaosolver.ensemble.ensemble_comm)
-    # all-at-once residual
-    res = aaosolver.aaoform.F
-    for i in range(res.nlocal_timesteps):
-        w = res[i]
-        # residuals.dlocal[i] = fd.norm(w)
-        with w.dat.vec_ro as vec:
-            residuals.dlocal[i] = vec.norm()
-    residuals.synchronise()
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print('Field residuals:')
-    fr = [f"{r:.4e}" for r in residuals.data()]
-    PETSc.Sys.Print(fr)
-    PETSc.Sys.Print('')
-
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
@@ -165,14 +143,10 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename,
-                                  post_function_callback=post_function_callback,
                                   record_diagnostics={'cfl': True, 'file': False})
 
-ics = miniapp.aaofunc.initial_condition
-reference_state = miniapp.solver.jacobian.reference_state
-reference_state.assign(ics)
-reference_state.subfunctions[0].assign(0)
-reference_state.subfunctions[1].assign(galewsky.H0)
+
+fround = lambda x: round(float(x), 2)
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -187,9 +161,9 @@ def window_postproc(swe_app, pdg, wndw):
         time = nt*pdg.aaoform.dt
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)
-        PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
-        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
+        PETSc.Sys.Print(f'Maximum CFL = {fround(swe_app.cfl_series[wndw])}', comm=comm)
+        PETSc.Sys.Print(f'Hours = {fround(time/units.hour)}', comm=comm)
+        PETSc.Sys.Print(f'Days = {fround(time/earth.day)}', comm=comm)
         PETSc.Sys.Print('', comm=comm)
 
 
