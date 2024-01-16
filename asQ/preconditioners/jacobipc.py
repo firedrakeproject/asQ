@@ -103,13 +103,8 @@ class JacobiPC(AllAtOnceBlockPCBase):
         dt1 = fd.Constant(1/self.dt)
         tht = fd.Constant(self.theta)
 
-        self.block_sol = aaofunc.copy(copy_values=False)
-
         # building the block problem solvers
         for i in range(self.nlocal_timesteps):
-
-            # The block rhs is timestep i of the AllAtOnceCofunction
-            L = self.x[i]
 
             # the reference states
             u0 = self.state_func[i]
@@ -150,7 +145,9 @@ class JacobiPC(AllAtOnceBlockPCBase):
                     block_prefix = f"{block_prefix}{str(ii)}_"
                     break
 
-            block_problem = fd.LinearVariationalProblem(A, L, self.block_sol[i],
+            # The block rhs/solution are the timestep i of the
+            # input/output AllAtOnceCofunction/Function
+            block_problem = fd.LinearVariationalProblem(A, self.x[i], self.y[i],
                                                         bcs=self.block_bcs)
             block_solver = fd.LinearVariationalSolver(block_problem,
                                                       appctx=appctx_h,
@@ -201,17 +198,10 @@ class JacobiPC(AllAtOnceBlockPCBase):
 
     @profiler()
     def apply_impl(self, pc, x, y):
-
-        # x is already rhs of block solvers
-        self.block_sol.zero()
+        # x and y are already the rhs and solution of the blocks
+        self.y.zero()
         for i in range(self.nlocal_timesteps):
             self.block_solvers[i].solve()
-
-        # block_sol is aaofunc but y is aaocofunc so
-        # we have to manually copy Vecs
-        with self.block_sol.global_vec_ro as bvec:
-            with y.global_vec_wo() as yvec:
-                bvec.copy(yvec)
 
     @profiler()
     def applyTranspose(self, pc, x, y):

@@ -3,7 +3,7 @@ from firedrake.petsc import PETSc
 from asQ.profiling import profiler
 from asQ.common import get_option_from_list
 from asQ.allatonce.mixin import TimePartitionMixin
-from asQ.allatonce import AllAtOnceCofunction
+from asQ.allatonce import AllAtOnceFunction, AllAtOnceCofunction
 
 
 class AllAtOncePCBase(TimePartitionMixin):
@@ -53,8 +53,8 @@ class AllAtOncePCBase(TimePartitionMixin):
         self.x = AllAtOnceCofunction(self.ensemble, self.time_partition,
                                      aaofunc.field_function_space.dual())
 
-        self.y = AllAtOnceCofunction(self.ensemble, self.time_partition,
-                                     aaofunc.field_function_space.dual())
+        self.y = AllAtOnceFunction(self.ensemble, self.time_partition,
+                                   aaofunc.field_function_space.dual())
 
         self.initialized = final_initialize
 

@@ -234,38 +234,34 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
             whether blocking communication is used. A list of MPI Requests is returned
             if non-blocking communication is used.
         """
-        if isinstance(src, type(self)):
-            dst_funcs = [self._fbuf]
-            src_funcs = [src._fbuf]
-            if hasattr(self, 'initial_condition'):
-                dst_funcs.append(self.initial_condition)
-                src_funcs.append(src.initial_condition)
-            # these buffers just will be overwritten if the halos are updated
-            if not update_halos:
-                dst_funcs.extend([self.uprev, self.unext])
-                src_funcs.extend([src.uprev, src.unext])
-            for dst, src in zip(dst_funcs, src_funcs):
-                dst.assign(src)
+        def func_assign(x, y):
+            return y.assign(x)
 
+        def vec_assign(x, y):
+            x.copy(y)
+
+        if isinstance(src, type(self)):
+            return self._vs_op(src, func_assign, vec_assign,
+                               update_ics=True,
+                               update_halos=update_halos,
+                               blocking=blocking)
+
+        # TODO: We should be able to use _vs_op here too but
+        #       test_allatoncesolver:::test_solve_heat_equation
+        #       fails if we do. The only difference is that
+        #       _vs_op accesses the global vec with read/write
+        #       access instead of write only.
+        #       It isn't clear why this makes a difference (it
+        #       shouldn't).
         elif isinstance(src, PETSc.Vec):
             with self.global_vec_wo() as gvec:
                 src.copy(gvec)
 
         elif isinstance(src, type(self._fbuf)):
-            if src.function_space() == self.field_function_space:
-                for i in range(self.nlocal_timesteps):
-                    self[i].assign(src)
-                if hasattr(self, 'initial_condition'):
-                    self.initial_condition.assign(src)
-                if not update_halos:
-                    self.uprev.assign(src)
-                    self.unext.assign(src)
-            elif src.function_space() == self.function_space:
-                self._fbuf.assign(src)
-            else:
-                raise ValueError(f"src must be be in the `function_space` {self.function_space}"
-                                 + " or `field_function_space` {self.field_function_space} of the"
-                                 + " the AllAtOnceFunction, not in {src.function_space}")
+            return self._vs_op(src, func_assign, vec_assign,
+                               update_ics=True,
+                               update_halos=update_halos,
+                               blocking=blocking)
 
         else:
             raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec or field Function, not {type(src)}")
@@ -471,6 +467,7 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         # manager to make sure that the data gets copied to/from the
         # Function.dat storage and _vec.
         with self._fbuf.dat.vec:
+            self._vec.stateIncrease()
             yield self._vec
 
     @contextlib.contextmanager
@@ -485,6 +482,7 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         # manager to make sure that the data gets copied into _vec from
         # the Function.dat storage.
         with self._fbuf.dat.vec_ro:
+            self._vec.stateIncrease()
             yield self._vec
 
     @contextlib.contextmanager
