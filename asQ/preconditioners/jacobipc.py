@@ -1,12 +1,14 @@
 import firedrake as fd
+from firedrake.petsc import PETSc
 from asQ.profiling import profiler
-from asQ.common import get_option_from_list
-from asQ.allatonce.mixin import TimePartitionMixin
+from asQ.parallel_arrays import SharedArray
+from asQ.allatonce import time_average
+from asQ.preconditioners.base import AllAtOnceBlockPCBase
 
-__all__ = ['JacobiPC', 'SliceJacobiPC']
+__all__ = ['JacobiPC']
 
 
-class JacobiPC(TimePartitionMixin):
+class JacobiPC(AllAtOnceBlockPCBase):
     """
     PETSc options:
 
@@ -56,6 +58,9 @@ class JacobiPC(TimePartitionMixin):
     """
     prefix = "aaojacobi_"
 
+    valid_jacobian_states = tuple(('current', 'window', 'slice', 'linear',
+                                   'initial', 'reference', 'user'))
+
     @profiler()
     def __init__(self):
         r"""A block diagonal Jacobi preconditioner for all-at-once systems.
@@ -71,96 +76,40 @@ class JacobiPC(TimePartitionMixin):
 
     @profiler()
     def initialize(self, pc):
-        if pc.getType() != "python":
-            raise ValueError("Expecting PC type python")
+        super().initialize(pc, final_initialize=False)
 
-        prefix = pc.getOptionsPrefix()
-        prefix = prefix + self.prefix
+        aaofunc = self.aaofunc
 
-        A, _ = pc.getOperators()
-        jacobian = A.getPythonContext()
-        self.jacobian = jacobian
-        self._time_partition_setup(jacobian.ensemble, jacobian.time_partition)
-
-        jacobian.pc = self
-        aaofunc = jacobian.current_state
-        self.aaofunc = aaofunc
-        self.aaoform = jacobian.aaoform
+        # all-at-once reference state
         self.state_func = aaofunc.copy()
 
-        appctx = jacobian.appctx
-
-        # option for whether to use slice or window average for block jacobian
-        valid_jacobian_states = tuple(('current', 'window', 'slice', 'linear',
-                                       'initial', 'reference', 'user'))
-        jac_option = f"{prefix}state"
-
-        self.jacobian_state = partial(get_option_from_list,
-                                      state_option, valid_jacobian_states,
-                                      default_index=0)
-        jac_state = self.jac_state()
-
-        if jac_state == 'reference' and jacobian.reference_state is None:
-            raise ValueError("AllAtOnceJacobian must be provided a reference state to use \'reference\' for diagfft_state.")
-
-        # basic model function space
+        # single timestep function space
         self.blockV = aaofunc.field_function_space
 
-        # Input/Output wrapper Functions for all-at-once residual being acted on
-        self.xf = aaofunc.copy(copy_values=False)  # input
-        self.yf = aaofunc.copy(copy_values=False)  # output
-
-        # diagonalisation options
-        self.dt = PETSc.Options().getReal(
-            f"{prefix}dt", default=self.aaoform.dt)
-        dt = self.dt
-
-        self.theta = PETSc.Options().getReal(
-            f"{prefix}theta", default=self.aaoform.theta)
-        theta = self.theta
-
-        nt = self.ntimesteps
-        self.time = tuple(fd.Constant(0) for _ in range(aaofunc.nlocal_timesteps))
-
-        self.block_rhs = fd.Cofunction(self.CblockV.dual())
+        self.time = tuple(fd.Constant(0)
+                          for _ in range(self.nlocal_timesteps))
 
         # Building the nonlinear operator
         self.block_solvers = []
 
-        # which form to linearise around
-        valid_linearisations = ['consistent', 'user']
-        linearisation_option = f"{prefix}linearisation"
-
-        linearisation = get_option_from_list(linearisation_option,
-                                             valid_linearisations,
-                                             default_index=0)
-
-        if linearisation == 'consistent':
-            form_mass = self.aaoform.form_mass
-            form_function = self.aaoform.form_function
-        elif linearisation == 'user':
-            try:
-                form_mass = appctx['pc_form_mass']
-                form_function = appctx['pc_form_function']
-            except KeyError as err:
-                err_msg = "appctx must contain 'pc_form_mass' and 'pc_form_function' if " \
-                          + f"{linearisation_option} = 'user'"
-                raise type(err)(err_msg) from err
-
-        self.form_mass = form_mass
-        self.form_function = form_function
+        # zero out bc dofs
+        self.block_bcs = tuple(
+            fd.DirichletBC(self.blockV, 0*bc.function_arg, bc.sub_domain)
+            for bc in self.aaoform.field_bcs)
 
         # user appctx for the blocks
-        block_appctx = appctx.get('block_appctx', {})
+        block_appctx = self.appctx.get('block_appctx', {})
 
-        dt1 = fd.Constant(1/dt)
-        tht = fd.Constant(theta)
+        dt1 = fd.Constant(1/self.dt)
+        tht = fd.Constant(self.theta)
+
+        self.block_sol = aaofunc.copy(copy_values=False)
 
         # building the block problem solvers
-        for i in range(nlocal_timesteps)
+        for i in range(self.nlocal_timesteps):
 
-            # The rhs
-            L = self.block_rhs
+            # The block rhs is timestep i of the AllAtOnceCofunction
+            L = self.x[i]
 
             # the reference states
             u0 = self.state_func[i]
@@ -169,8 +118,8 @@ class JacobiPC(TimePartitionMixin):
             # the form
             vs = fd.TestFunctions(self.blockV)
             us = fd.split(u0)
-            M = form_mass(*us, *vs)
-            K = form_function(*us, *vs, t0)
+            M = self.form_mass(*us, *vs)
+            K = self.form_function(*us, *vs, t0)
 
             F = dt1*M + tht*K
             A = fd.derivative(F, u0)
@@ -178,8 +127,8 @@ class JacobiPC(TimePartitionMixin):
             # pass parameters into PC:
             appctx_h = {
                 "blockid": i,
-                "dt": dt,
-                "theta": theta,
+                "dt": self.dt,
+                "theta": self.theta,
                 "t0": t0,
                 "u0": u0,
                 "bcs": self.block_bcs,
@@ -195,26 +144,21 @@ class JacobiPC(TimePartitionMixin):
 
             ii = aaofunc.transform_index(i, from_range='slice', to_range='window')
 
-            block_prefix = f"{prefix}block_"
+            block_prefix = f"{self.full_prefix}block_"
             for k, v in PETSc.Options().getAll().items():
                 if k.startswith(f"{block_prefix}{str(ii)}_"):
                     block_prefix = f"{block_prefix}{str(ii)}_"
                     break
 
-            block_problem = fd.LinearVariationalProblem(A, L, self.yf[i],
+            block_problem = fd.LinearVariationalProblem(A, L, self.block_sol[i],
                                                         bcs=self.block_bcs)
             block_solver = fd.LinearVariationalSolver(block_problem,
                                                       appctx=appctx_h,
                                                       options_prefix=block_prefix)
             # multigrid transfer manager
-            if f'{self.prefix}transfer_managers' in appctx:
-                # block_solver.set_transfer_manager(jacobian.appctx['diagfft_transfer_managers'][ii])
-                tm = appctx[f'{self.prefix}transfer_managers'][i]
+            if f'{self.full_prefix}transfer_managers' in self.appctx:
+                tm = self.appctx[f'{self.prefix}transfer_managers'][i]
                 block_solver.set_transfer_manager(tm)
-                tm_set = (block_solver._ctx.transfer_manager is tm)
-
-                if tm_set is False:
-                    print(f"transfer manager not set on block_solvers[{ii}]")
 
             self.block_solvers.append(block_solver)
 
@@ -256,40 +200,18 @@ class JacobiPC(TimePartitionMixin):
         return
 
     @profiler()
-    def apply(self, pc, x, y):
+    def apply_impl(self, pc, x, y):
 
-        # copy petsc vec into Function
-        self.xf.assign(x)
-        self.yf.zero()
-
+        # x is already rhs of block solvers
+        self.block_sol.zero()
         for i in range(self.nlocal_timesteps):
             self.block_solvers[i].solve()
 
-        # copy result into petsc vec
-        with self.yf.global_vec_ro() as v:
-            v.copy(y)
-
-    @profiler()
-    def applyTranspose(self, pc, x, y):
-        raise NotImplementedError
-
-
-class SliceJacobiPC(TimePartitionMixin):
-    @profiler()
-    def __init__(self):
-        raise NotImplementedError
-
-    @profiler()
-    def setUp(self, pc):
-        raise NotImplementedError
-
-    @profiler()
-    def initialize(self, pc):
-        raise NotImplementedError
-
-    @profiler()
-    def apply(self, pc, x, y):
-        raise NotImplementedError
+        # block_sol is aaofunc but y is aaocofunc so
+        # we have to manually copy Vecs
+        with self.block_sol.global_vec_ro as bvec:
+            with y.global_vec_wo() as yvec:
+                bvec.copy(yvec)
 
     @profiler()
     def applyTranspose(self, pc, x, y):

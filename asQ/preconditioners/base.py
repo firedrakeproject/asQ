@@ -1,6 +1,9 @@
 import firedrake as fd
+from firedrake.petsc import PETSc
 from asQ.profiling import profiler
+from asQ.common import get_option_from_list
 from asQ.allatonce.mixin import TimePartitionMixin
+from asQ.allatonce import AllAtOnceCofunction
 
 
 class AllAtOncePCBase(TimePartitionMixin):
@@ -32,7 +35,7 @@ class AllAtOncePCBase(TimePartitionMixin):
 
         # grab aao objects off petsc mat python context
         prefix = pc.getOptionsPrefix()
-        prefix = prefix + self.prefix
+        self.full_prefix = prefix + self.prefix
 
         A, _ = pc.getOperators()
         jacobian = A.getPythonContext()
@@ -44,11 +47,14 @@ class AllAtOncePCBase(TimePartitionMixin):
         self.aaofunc = aaofunc
         self.aaoform = jacobian.aaoform
 
-        appctx = jacobian.appctx
+        self.appctx = jacobian.appctx
 
         # Input/Output wrapper Functions for all-at-once residual being acted on
-        self.xf = aaofunc.copy(copy_values=False)  # input
-        self.yf = aaofunc.copy(copy_values=False)  # output
+        self.x = AllAtOnceCofunction(self.ensemble, self.time_partition,
+                                     aaofunc.field_function_space.dual())
+
+        self.y = AllAtOnceCofunction(self.ensemble, self.time_partition,
+                                     aaofunc.field_function_space.dual())
 
         self.initialized = final_initialize
 
@@ -56,13 +62,13 @@ class AllAtOncePCBase(TimePartitionMixin):
     def apply(self, pc, x, y):
 
         # copy petsc vec into AllAtOnceCofunction
-        with self.xf.global_vec_wo() as v:
+        with self.x.global_vec_wo() as v:
             x.copy(v)
 
-        self.apply_impl(pc, self.xf, self.yf)
+        self.apply_impl(pc, self.x, self.y)
 
         # copy result into petsc vec
-        with self.yf.global_vec_ro() as v:
+        with self.y.global_vec_ro() as v:
             v.copy(y)
 
     @profiler()
@@ -132,29 +138,27 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
         super().initialize(pc, final_initialize=False)
 
         # option for what state to linearise PC around
-        jac_option = f"{prefix}state"
+        jac_option = f"{self.full_prefix}state"
 
         self.jacobian_state = get_option_from_list(
-            state_option, self.valid_jacobian_states, default_index=0)
+            jac_option, self.valid_jacobian_states, default_index=0)
 
-        if jac_state == 'reference' and jacobian.reference_state is None:
-            msg = f"AllAtOnceJacobian must be provided a reference state to use \'reference\' for {prefix}state."
+        if self.jacobian_state == 'reference' and self.jacobian.reference_state is None:
+            msg = f"AllAtOnceJacobian must be provided a reference state to use \'reference\' for {self.full_prefix}state."
             raise ValueError(msg)
 
         # Problem parameter options
         self.dt = PETSc.Options().getReal(
-            f"{prefix}dt", default=self.aaoform.dt)
-        dt = self.dt
+            f"{self.full_prefix}dt", default=self.aaoform.dt)
 
         self.theta = PETSc.Options().getReal(
-            f"{prefix}theta", default=self.aaoform.theta)
-        theta = self.theta
+            f"{self.full_prefix}theta", default=self.aaoform.theta)
 
-        self.time = tuple(fd.Constant(0) for _ in range(aaofunc.nlocal_timesteps))
+        self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
 
         # which form to linearise around
         valid_linearisations = ['consistent', 'user']
-        linearisation_option = f"{prefix}linearisation"
+        linearisation_option = f"{self.full_prefix}linearisation"
 
         linearisation = get_option_from_list(linearisation_option,
                                              valid_linearisations,
@@ -165,8 +169,8 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
             form_function = self.aaoform.form_function
         elif linearisation == 'user':
             try:
-                form_mass = appctx['pc_form_mass']
-                form_function = appctx['pc_form_function']
+                form_mass = self.appctx['pc_form_mass']
+                form_function = self.appctx['pc_form_function']
             except KeyError as err:
                 err_msg = "appctx must contain 'pc_form_mass' and 'pc_form_function' if " \
                           + f"{linearisation_option} = 'user'"
@@ -176,19 +180,3 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
         self.form_function = form_function
 
         self.initialized = final_initialize
-
-    @profiler()
-    def apply(self, pc, x, y):
-
-        # copy petsc vec into Function
-        self.xf.assign(x)
-
-        self.apply_impl(self.xf, self.yf)
-
-        # copy result into petsc vec
-        with self.yf.global_vec_ro() as v:
-            v.copy(y)
-
-    @profiler()
-    def applyTranspose(self, pc, x, y):
-        raise NotImplementedError
