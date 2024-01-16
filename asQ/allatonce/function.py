@@ -467,6 +467,7 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         # manager to make sure that the data gets copied to/from the
         # Function.dat storage and _vec.
         with self._fbuf.dat.vec:
+            self._vec.stateIncrease()
             yield self._vec
 
     @contextlib.contextmanager
@@ -481,6 +482,7 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         # manager to make sure that the data gets copied into _vec from
         # the Function.dat storage.
         with self._fbuf.dat.vec_ro:
+            self._vec.stateIncrease()
             yield self._vec
 
     @contextlib.contextmanager
