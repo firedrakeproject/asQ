@@ -218,7 +218,8 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         return new
 
     @profiler()
-    def assign(self, src, update_halos=True, blocking=True):
+    def assign(self, src, update_ics=True,
+               update_halos=True, blocking=True):
         """
         Set value of AllAtOnceFunction from another object.
 
@@ -229,49 +230,23 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
                 assign timesteps from src.
             - firedrake.Function in self.field_function_space:
                 assign initial condition and all timesteps from src.
+        :arg update_ics: if True then the initial conditions will be scaled
+            as well as the timestep values (if possible).
         :arg update_halos: if True then the time-halos will be updated.
         :arg blocking: if update_halos is True, then this argument determines
             whether blocking communication is used. A list of MPI Requests is returned
             if non-blocking communication is used.
         """
-        if isinstance(src, type(self)):
-            dst_funcs = [self._fbuf]
-            src_funcs = [src._fbuf]
-            if hasattr(self, 'initial_condition'):
-                dst_funcs.append(self.initial_condition)
-                src_funcs.append(src.initial_condition)
-            # these buffers just will be overwritten if the halos are updated
-            if not update_halos:
-                dst_funcs.extend([self.uprev, self.unext])
-                src_funcs.extend([src.uprev, src.unext])
-            for dst, src in zip(dst_funcs, src_funcs):
-                dst.assign(src)
+        def func_assign(x, y):
+            return y.assign(x)
 
-        elif isinstance(src, PETSc.Vec):
-            with self.global_vec_wo() as gvec:
-                src.copy(gvec)
+        def vec_assign(x, y):
+            x.copy(y)
 
-        elif isinstance(src, type(self._fbuf)):
-            if src.function_space() == self.field_function_space:
-                for i in range(self.nlocal_timesteps):
-                    self[i].assign(src)
-                if hasattr(self, 'initial_condition'):
-                    self.initial_condition.assign(src)
-                if not update_halos:
-                    self.uprev.assign(src)
-                    self.unext.assign(src)
-            elif src.function_space() == self.function_space:
-                self._fbuf.assign(src)
-            else:
-                raise ValueError(f"src must be be in the `function_space` {self.function_space}"
-                                 + " or `field_function_space` {self.field_function_space} of the"
-                                 + " the AllAtOnceFunction, not in {src.function_space}")
-
-        else:
-            raise TypeError(f"src value must be AllAtOnceFunction or PETSc.Vec or field Function, not {type(src)}")
-
-        if update_halos:
-            return self.update_time_halos(blocking=blocking)
+        return self._vs_op(src, func_assign, vec_assign,
+                           update_ics=update_ics,
+                           update_halos=update_halos,
+                           blocking=blocking)
 
     @profiler()
     def zero(self, subset=None):
@@ -541,6 +516,27 @@ class AllAtOnceCofunction(AllAtOnceFunctionBase):
             raise TypeError("Can only make an AllAtOnceCofunction from a DualSpace")
         super().__init__(ensemble, time_partition, function_space)
         self.cofunction = self._fbuf
+
+    @profiler()
+    def assign(self, src,
+               update_halos=True, blocking=True):
+        """
+        Set value of AllAtOnceFunction from another object.
+
+        :arg src: object to set value from. Can be one of:
+            - AllAtOnceFunction: assign all values from src.
+            - PETSc Vec: assign self.function from src via self.global_vec.
+            - firedrake.Function in self.function_space:
+                assign timesteps from src.
+            - firedrake.Function in self.field_function_space:
+                assign initial condition and all timesteps from src.
+        :arg update_halos: if True then the time-halos will be updated.
+        :arg blocking: if update_halos is True, then this argument determines
+            whether blocking communication is used. A list of MPI Requests is returned
+            if non-blocking communication is used.
+        """
+        return super().assign(src, update_halos=update_halos, blocking=blocking,
+                              update_ics=False)
 
     @profiler()
     def scale(self, a, update_halos=False, blocking=True):
