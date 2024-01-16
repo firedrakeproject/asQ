@@ -4,6 +4,7 @@ import pytest
 import numpy as np
 from functools import reduce
 from operator import mul
+from ufl.duals import is_primal, is_dual
 
 
 def random_func(f):
@@ -12,9 +13,39 @@ def random_func(f):
 
 
 def random_aaof(aaof):
-    random_func(aaof.initial_condition)
-    random_func(aaof.function)
+    if hasattr(aaof, "initial_condition"):
+        random_func(aaof.initial_condition)
+    random_func(function(aaof))
     aaof.update_time_halos()
+
+
+def function(aaof):
+    if isinstance(aaof, asQ.AllAtOnceFunction):
+        return aaof.function
+    elif isinstance(aaof, asQ.AllAtOnceCofunction):
+        return aaof.cofunction
+    else:
+        raise TypeError("This is only meant to be used with AllAtOnce{Function,Cofunction}")
+
+
+def errornorm(u, uh):
+    # horrible hack just to check if two cofunctions have the same values
+    if is_primal(u):
+        return fd.errornorm(u, uh)
+    elif is_dual(u):
+        v = fd.Function(u.function_space().dual(), val=u.dat)
+        vh = fd.Function(uh.function_space().dual(), val=uh.dat)
+        return fd.errornorm(v, vh)
+
+
+def assign(u, number):
+    # only use this to assign a numeric value
+    if is_primal(u):
+        return u.assign(number)
+    elif is_dual(u):
+        for dat in u.dat:
+            dat.data[:] = number
+        return u
 
 
 nprocs = 4
@@ -22,6 +53,7 @@ nprocs = 4
 
 max_ncpts = 3
 ncpts = [pytest.param(i, id=f"{i}component") for i in range(1, max_ncpts+1)]
+function_type = ["AllAtOnceFunction", "AllAtOnceCofunction"]
 
 
 @pytest.fixture
@@ -80,11 +112,17 @@ def W(request, V):
     return reduce(mul, [V for _ in range(request.param)])
 
 
-@pytest.fixture()
-def aaof(ensemble, time_partition, W):
+@pytest.fixture(params=function_type)
+def aaof(request, ensemble, time_partition, W):
     if fd.COMM_WORLD.size == 1:
         return
-    return asQ.AllAtOnceFunction(ensemble, time_partition, W)
+    function_type = request.param
+    if function_type == "AllAtOnceFunction":
+        return asQ.AllAtOnceFunction(ensemble, time_partition, W)
+    elif function_type == "AllAtOnceCofunction":
+        return asQ.AllAtOnceCofunction(ensemble, time_partition, W.dual())
+    else:
+        raise ValueError("Unrecognised all-at-once function type")
 
 
 @pytest.mark.parallel(nprocs=nprocs)
@@ -185,8 +223,8 @@ def test_subfunctions(aaof):
         aaof[i].assign(u)
 
         for c in range(aaof.ncomponents):
-            err = fd.errornorm(u.subfunctions[c],
-                               aaof.function.subfunctions[cpt_idx])
+            err = errornorm(u.subfunctions[c],
+                            function(aaof).subfunctions[cpt_idx])
             assert (err < 1e-12)
             cpt_idx += 1
 
@@ -195,19 +233,16 @@ def test_subfunctions(aaof):
     cpt_idx = 0
     for i in range(aaof.nlocal_timesteps):
 
-        norm = fd.norm(aaof[i])
-        assert (norm < 1e-12)
-
         for c in range(aaof.ncomponents):
-            aaof.function.subfunctions[cpt_idx].assign(cpt_idx)
+            function(aaof).subfunctions[cpt_idx].dat.data_wo[:] = cpt_idx
 
-            err = fd.errornorm(aaof[i].subfunctions[c],
-                               aaof.function.subfunctions[cpt_idx])
+            err = errornorm(aaof[i].subfunctions[c],
+                            function(aaof).subfunctions[cpt_idx])
             assert (err < 1e-12)
             cpt_idx += 1
 
         if aaof.ncomponents == 1:
-            err = fd.errornorm(aaof[i], aaof.function.subfunctions[i])
+            err = errornorm(aaof[i], function(aaof).subfunctions[i])
             assert (err < 1e-12)
 
 
@@ -222,14 +257,14 @@ def test_bcast_field(aaof):
     # solution at timestep i is i
     for slice_index in range(aaof.nlocal_timesteps):
         window_index = aaof.transform_index(slice_index, from_range='slice', to_range='window')
-        v.assign(window_index)
+        assign(v, window_index)
         aaof[slice_index].assign(v)
 
     for i in range(aaof.ntimesteps):
-        v.assign(-1)
-        u.assign(i)
+        assign(v, -1)
+        assign(u, i)
         aaof.bcast_field(i, v)
-        assert (fd.errornorm(v, u) < 1e-12)
+        assert (errornorm(v, u) < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=nprocs)
@@ -253,13 +288,14 @@ def test_copy(aaof):
     assert aaof.function_space == aaof1.function_space
 
     for step in range(aaof.nlocal_timesteps):
-        err = fd.errornorm(aaof[step], aaof1[step])
+        err = errornorm(aaof[step], aaof1[step])
         assert (err < 1e-12)
 
-    err = fd.errornorm(aaof.initial_condition, aaof1.initial_condition)
+    if hasattr(aaof, "initial_condition"):
+        err = errornorm(aaof.initial_condition, aaof1.initial_condition)
     assert (err < 1e-12)
 
-    err = fd.errornorm(aaof.uprev, aaof1.uprev)
+    err = errornorm(aaof.uprev, aaof1.uprev)
     assert (err < 1e-12)
 
 
@@ -280,14 +316,15 @@ def test_assign(aaof):
     aaof1.assign(aaof)
 
     for step in range(aaof.nlocal_timesteps):
-        err = fd.errornorm(aaof[step], aaof1[step])
+        err = errornorm(aaof[step], aaof1[step])
         assert (err < 1e-12)
 
-    err = fd.errornorm(aaof.initial_condition,
-                       aaof1.initial_condition)
+    if hasattr(aaof, "initial_condition"):
+        err = errornorm(aaof.initial_condition,
+                        aaof1.initial_condition)
     assert (err < 1e-12)
 
-    err = fd.errornorm(aaof.uprev, aaof1.uprev)
+    err = errornorm(aaof.uprev, aaof1.uprev)
     assert (err < 1e-12)
 
     # set from PETSc Vec
@@ -296,10 +333,10 @@ def test_assign(aaof):
         aaof1.assign(gvec0)
 
     for step in range(aaof.nlocal_timesteps):
-        err = fd.errornorm(aaof[step], aaof1[step])
+        err = errornorm(aaof[step], aaof1[step])
         assert (err < 1e-12)
 
-    err = fd.errornorm(aaof.uprev, aaof1.uprev)
+    err = errornorm(aaof.uprev, aaof1.uprev)
     assert (err < 1e-12)
 
     # set from field function
@@ -309,15 +346,15 @@ def test_assign(aaof):
     aaof.assign(v0)
 
     for step in range(aaof.nlocal_timesteps):
-        err = fd.errornorm(v0, aaof[step])
+        err = errornorm(v0, aaof[step])
         assert (err < 1e-12)
 
     # set from allatonce.function
     random_aaof(aaof1)
-    aaof.assign(aaof1.function)
+    aaof.assign(function(aaof1))
 
     for step in range(aaof.nlocal_timesteps):
-        err = fd.errornorm(aaof[step], aaof1[step])
+        err = errornorm(aaof[step], aaof1[step])
         assert (err < 1e-12)
 
 
@@ -332,9 +369,10 @@ def test_axpy(aaof):
     aaof1 = aaof.copy(copy_values=False)
 
     def check_close(x, y):
-        err = fd.errornorm(x.function, y.function)
+        err = errornorm(function(x), function(y))
         assert (err < 1e-12)
-        err = fd.errornorm(x.initial_condition, y.initial_condition)
+        if hasattr(aaof, "initial_condition"):
+            err = errornorm(x.initial_condition, y.initial_condition)
         assert (err < 1e-12)
 
     def faxpy(result, a, x, y):
@@ -349,8 +387,9 @@ def test_axpy(aaof):
     # x is aaofunc
     a = 2
     aaof.axpy(a, aaof1)
-    faxpy(expected.function, a, aaof1.function, orig.function)
-    expected.initial_condition.assign(orig.initial_condition)
+    faxpy(function(expected), a, function(aaof1), function(orig))
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -358,16 +397,17 @@ def test_axpy(aaof):
     aaof.assign(orig)
 
     # x is aaofunc and update ics
-    a = 3.5
-    aaof.axpy(a, aaof1, update_ics=True)
-    faxpy(expected.function, a, aaof1.function, orig.function)
-    faxpy(expected.initial_condition, a,
-          aaof1.initial_condition, orig.initial_condition)
+    if hasattr(aaof, "initial_condition"):
+        a = 3.5
+        aaof.axpy(a, aaof1, update_ics=True)
+        faxpy(function(expected), a, function(aaof1), function(orig))
+        faxpy(expected.initial_condition, a,
+              aaof1.initial_condition, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is PETSc.Vec
     a = 4.2
@@ -377,8 +417,9 @@ def test_axpy(aaof):
 
     aaof.axpy(a, xvec)
 
-    faxpy(expected.function, a, aaof1.function, orig.function)
-    expected.initial_condition.assign(orig.initial_condition)
+    faxpy(function(expected), a, function(aaof1), function(orig))
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -393,7 +434,8 @@ def test_axpy(aaof):
     aaof.axpy(a, xfunc)
     for i in range(aaof.nlocal_timesteps):
         faxpy(expected[i], a, xfunc, orig[i])
-    expected.initial_condition.assign(orig.initial_condition)
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -401,19 +443,20 @@ def test_axpy(aaof):
     aaof.assign(orig)
 
     # x is a single timestep and update ics
-    a = 6.1
-    random_func(xfunc)
+    if hasattr(aaof, "initial_condition"):
+        a = 6.1
+        random_func(xfunc)
 
-    aaof.axpy(a, xfunc, update_ics=True)
-    for i in range(aaof.nlocal_timesteps):
-        faxpy(expected[i], a, xfunc, orig[i])
-    faxpy(expected.initial_condition, a,
-          xfunc, orig.initial_condition)
+        aaof.axpy(a, xfunc, update_ics=True)
+        for i in range(aaof.nlocal_timesteps):
+            faxpy(expected[i], a, xfunc, orig[i])
+        faxpy(expected.initial_condition, a,
+              xfunc, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is a timeseries function
     a = 7.9
@@ -421,8 +464,9 @@ def test_axpy(aaof):
     random_func(tsfunc)
 
     aaof.axpy(a, tsfunc)
-    faxpy(expected.function, a, tsfunc, orig.function)
-    expected.initial_condition.assign(orig.initial_condition)
+    faxpy(function(expected), a, tsfunc, function(orig))
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -438,10 +482,11 @@ def test_aypx(aaof):
     aaof1 = aaof.copy(copy_values=False)
 
     def check_close(x, y):
-        err = fd.errornorm(x.function, y.function)
+        err = errornorm(function(x), function(y))
         assert (err < 1e-12)
-        err = fd.errornorm(x.initial_condition, y.initial_condition)
-        assert (err < 1e-12)
+        if hasattr(aaof, "initial_condition"):
+            err = errornorm(x.initial_condition, y.initial_condition)
+            assert (err < 1e-12)
 
     def faypx(result, a, x, y):
         result.assign(x + a*y)
@@ -455,8 +500,9 @@ def test_aypx(aaof):
     # x is aaofunc
     a = 2
     aaof.aypx(a, aaof1)
-    faypx(expected.function, a, aaof1.function, orig.function)
-    expected.initial_condition.assign(orig.initial_condition)
+    faypx(function(expected), a, function(aaof1), function(orig))
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -464,16 +510,17 @@ def test_aypx(aaof):
     aaof.assign(orig)
 
     # x is aaofunc and update ics
-    a = 3.5
-    aaof.aypx(a, aaof1, update_ics=True)
-    faypx(expected.function, a, aaof1.function, orig.function)
-    faypx(expected.initial_condition, a,
-          aaof1.initial_condition, orig.initial_condition)
+    if hasattr(aaof, "initial_condition"):
+        a = 3.5
+        aaof.aypx(a, aaof1, update_ics=True)
+        faypx(function(expected), a, function(aaof1), function(orig))
+        faypx(expected.initial_condition, a,
+              aaof1.initial_condition, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is PETSc.Vec
     a = 4.2
@@ -483,8 +530,9 @@ def test_aypx(aaof):
 
     aaof.aypx(a, xvec)
 
-    faypx(expected.function, a, aaof1.function, orig.function)
-    expected.initial_condition.assign(orig.initial_condition)
+    faypx(function(expected), a, function(aaof1), function(orig))
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -499,7 +547,8 @@ def test_aypx(aaof):
     aaof.aypx(a, xfunc)
     for i in range(aaof.nlocal_timesteps):
         faypx(expected[i], a, xfunc, orig[i])
-    expected.initial_condition.assign(orig.initial_condition)
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -507,19 +556,20 @@ def test_aypx(aaof):
     aaof.assign(orig)
 
     # x is a single timestep and update ics
-    a = 6.1
-    random_func(xfunc)
+    if hasattr(aaof, "initial_condition"):
+        a = 6.1
+        random_func(xfunc)
 
-    aaof.aypx(a, xfunc, update_ics=True)
-    for i in range(aaof.nlocal_timesteps):
-        faypx(expected[i], a, xfunc, orig[i])
-    faypx(expected.initial_condition, a,
-          xfunc, orig.initial_condition)
+        aaof.aypx(a, xfunc, update_ics=True)
+        for i in range(aaof.nlocal_timesteps):
+            faypx(expected[i], a, xfunc, orig[i])
+        faypx(expected.initial_condition, a,
+              xfunc, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is a timeseries function
     a = 7.9
@@ -527,8 +577,9 @@ def test_aypx(aaof):
     random_func(tsfunc)
 
     aaof.aypx(a, tsfunc)
-    faypx(expected.function, a, tsfunc, orig.function)
-    expected.initial_condition.assign(orig.initial_condition)
+    faypx(function(expected), a, tsfunc, function(orig))
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -544,10 +595,11 @@ def test_axpby(aaof):
     aaof1 = aaof.copy(copy_values=False)
 
     def check_close(x, y):
-        err = fd.errornorm(x.function, y.function)
+        err = errornorm(function(x), function(y))
         assert (err < 1e-12)
-        err = fd.errornorm(x.initial_condition, y.initial_condition)
-        assert (err < 1e-12)
+        if hasattr(aaof, "initial_condition"):
+            err = errornorm(x.initial_condition, y.initial_condition)
+            assert (err < 1e-12)
 
     def faxpby(result, a, b, x, y):
         result.assign(a*x + b*y)
@@ -562,8 +614,9 @@ def test_axpby(aaof):
     a = 2
     b = 11.4
     aaof.axpby(a, b, aaof1)
-    faxpby(expected.function, a, b, aaof1.function, orig.function)
-    expected.initial_condition.assign(orig.initial_condition)
+    faxpby(function(expected), a, b, function(aaof1), function(orig))
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -571,17 +624,18 @@ def test_axpby(aaof):
     aaof.assign(orig)
 
     # x is aaofunc and update ics
-    a = 3.5
-    b = 12.1
-    aaof.axpby(a, b, aaof1, update_ics=True)
-    faxpby(expected.function, a, b, aaof1.function, orig.function)
-    faxpby(expected.initial_condition, a, b,
-           aaof1.initial_condition, orig.initial_condition)
+    if hasattr(aaof, "initial_condition"):
+        a = 3.5
+        b = 12.1
+        aaof.axpby(a, b, aaof1, update_ics=True)
+        faxpby(function(expected), a, b, function(aaof1), function(orig))
+        faxpby(expected.initial_condition, a, b,
+               aaof1.initial_condition, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is PETSc.Vec
     a = 4.2
@@ -592,8 +646,9 @@ def test_axpby(aaof):
 
     aaof.axpby(a, b, xvec)
 
-    faxpby(expected.function, a, b, aaof1.function, orig.function)
-    expected.initial_condition.assign(orig.initial_condition)
+    faxpby(function(expected), a, b, function(aaof1), function(orig))
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -609,7 +664,8 @@ def test_axpby(aaof):
     aaof.axpby(a, b, xfunc)
     for i in range(aaof.nlocal_timesteps):
         faxpby(expected[i], a, b, xfunc, orig[i])
-    expected.initial_condition.assign(orig.initial_condition)
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -617,20 +673,21 @@ def test_axpby(aaof):
     aaof.assign(orig)
 
     # x is a single timestep and update ics
-    a = 6.1
-    b = 15.3
-    random_func(xfunc)
+    if hasattr(aaof, "initial_condition"):
+        a = 6.1
+        b = 15.3
+        random_func(xfunc)
 
-    aaof.axpby(a, b, xfunc, update_ics=True)
-    for i in range(aaof.nlocal_timesteps):
-        faxpby(expected[i], a, b, xfunc, orig[i])
-    faxpby(expected.initial_condition, a, b,
-           xfunc, orig.initial_condition)
+        aaof.axpby(a, b, xfunc, update_ics=True)
+        for i in range(aaof.nlocal_timesteps):
+            faxpby(expected[i], a, b, xfunc, orig[i])
+        faxpby(expected.initial_condition, a, b,
+               xfunc, orig.initial_condition)
 
-    check_close(aaof, expected)
+        check_close(aaof, expected)
 
-    # reset
-    aaof.assign(orig)
+        # reset
+        aaof.assign(orig)
 
     # x is a timeseries function
     a = 7.9
@@ -639,8 +696,9 @@ def test_axpby(aaof):
     random_func(tsfunc)
 
     aaof.axpby(a, b, tsfunc)
-    faxpby(expected.function, a, b, tsfunc, orig.function)
-    expected.initial_condition.assign(orig.initial_condition)
+    faxpby(function(expected), a, b, tsfunc, function(orig))
+    if hasattr(aaof, "initial_condition"):
+        expected.initial_condition.assign(orig.initial_condition)
 
     check_close(aaof, expected)
 
@@ -657,18 +715,19 @@ def test_zero(aaof):
     random_aaof(aaof)
     aaof.zero()
 
-    norm = fd.norm(aaof.initial_condition)
-    assert (norm < 1e-12)
+    if hasattr(aaof, "initial_condition"):
+        norm = fd.norm(aaof.initial_condition)
+        assert (norm < 1e-12)
 
-    norm = fd.norm(aaof.uprev)
-    assert (norm < 1e-12)
+    for dat in aaof.uprev.dat:
+        assert np.allclose(dat.data, 0)
 
-    norm = fd.norm(aaof.unext)
-    assert (norm < 1e-12)
+    for dat in aaof.unext.dat:
+        assert np.allclose(dat.data, 0)
 
     for step in range(aaof.nlocal_timesteps):
-        norm = fd.norm(aaof[step])
-        assert (norm < 1e-12)
+        for dat in aaof[step].dat:
+            assert np.allclose(dat.data, 0)
 
 
 @pytest.mark.parallel(nprocs=nprocs)
@@ -676,17 +735,21 @@ def test_global_vec(aaof):
     """
     test synchronising the global Vec with the local Functions
     """
-    v = fd.Function(aaof.field_function_space, name="v")
+    vcheck = fd.Function(aaof.field_function_space, name="v")
+
+    u = fd.Function(aaof.field_function_space, name="u")
 
     def all_equal(func, val):
-        v.assign(val)
+        assign(vcheck, val)
         for step in range(func.nlocal_timesteps):
-            err = fd.errornorm(v, func[step])
+            err = errornorm(vcheck, func[step])
             assert (err < 1e-12)
 
     # read only
-    aaof.initial_condition.assign(10)
-    aaof.assign(aaof.initial_condition)
+    assign(u, 10)
+    if hasattr(aaof, "initial_condition"):
+        aaof.initial_condition.assign(u)
+    aaof.assign(u)
 
     with aaof.global_vec_ro() as rvec:
         assert np.allclose(rvec.array, 10)
@@ -695,8 +758,10 @@ def test_global_vec(aaof):
     all_equal(aaof, 10)
 
     # write only
-    aaof.initial_condition.assign(30)
-    aaof.assign(aaof.initial_condition)
+    assign(u, 30)
+    if hasattr(aaof, "initial_condition"):
+        aaof.initial_condition.assign(u)
+    aaof.assign(u)
 
     with aaof.global_vec_wo() as wvec:
         assert np.allclose(wvec.array, 20)
@@ -704,8 +769,10 @@ def test_global_vec(aaof):
 
     all_equal(aaof, 40)
 
-    aaof.initial_condition.assign(50)
-    aaof.assign(aaof.initial_condition)
+    assign(u, 50)
+    if hasattr(aaof, "initial_condition"):
+        aaof.initial_condition.assign(u)
+    aaof.assign(u)
 
     with aaof.global_vec() as vec:
         assert np.allclose(vec.array, 50)
@@ -729,13 +796,13 @@ def test_update_time_halos(aaof):
     size = aaof.ensemble.ensemble_comm.size
 
     # solution on this slice
-    v0.assign(rank)
+    assign(v0, rank)
     # solution on previous slice
-    v1.assign((rank - 1) % size)
+    assign(v1, (rank - 1) % size)
 
     # set last field from each slice
     aaof[-1].assign(v0)
 
     aaof.update_time_halos()
 
-    assert (fd.errornorm(aaof.uprev, v1) < 1e-12)
+    assert (errornorm(aaof.uprev, v1) < 1e-12)
