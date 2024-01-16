@@ -86,9 +86,6 @@ class JacobiPC(AllAtOnceBlockPCBase):
         # single timestep function space
         self.blockV = aaofunc.field_function_space
 
-        self.time = tuple(fd.Constant(0)
-                          for _ in range(self.nlocal_timesteps))
-
         # Building the nonlinear operator
         self.block_solvers = []
 
@@ -172,7 +169,7 @@ class JacobiPC(AllAtOnceBlockPCBase):
 
         aaofunc = self.aaofunc
         state_func = self.state_func
-        jacobian_state = self.jacobian_state()
+        jacobian_state = self.jacobian_state
 
         if jacobian_state == 'linear':
             pass
