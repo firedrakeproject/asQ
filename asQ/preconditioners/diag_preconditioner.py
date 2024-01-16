@@ -10,8 +10,7 @@ from asQ.common import get_option_from_list
 from asQ.parallel_arrays import SharedArray
 
 from asQ.allatonce.function import time_average as time_average_function
-from asQ.allatonce.mixin import TimePartitionMixin
-from asQ.preconditioners.base import AllAtOncePCBase
+from asQ.preconditioners.base import AllAtOnceBlockPCBase
 
 from functools import partial
 
@@ -72,7 +71,7 @@ class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
         return (A, bcs)
 
 
-class DiagFFTPC(AllAtOncePCBase):
+class DiagFFTPC(AllAtOnceBlockPCBase):
     """
     PETSc options:
 
@@ -135,6 +134,8 @@ class DiagFFTPC(AllAtOncePCBase):
         'form_function': function used to build the block stiffness matrix.
     """
     prefix = "diagfft_"
+    valid_jacobian_states = tuple(('window', 'slice', 'linear', 'initial', 'reference'))
+
     default_alpha = 1e-3
 
     @profiler()
@@ -157,34 +158,14 @@ class DiagFFTPC(AllAtOncePCBase):
 
         # these were setup by super
         prefix = self.full_prefix
-        jacobian = self.jacobian
         aaofunc = self.aaofunc
-        aaoform = self.aaoform
         appctx = self.appctx
-
-        # option for whether to use slice or window average for block jacobian
-        valid_jac_state = ['window', 'slice', 'linear', 'initial', 'reference']
-        jac_option = f"{prefix}state"
-
-        self.jac_state = partial(get_option_from_list,
-                                 jac_option, valid_jac_state, default_index=0)
-        jac_state = self.jac_state()
-
-        if jac_state == 'reference' and jacobian.reference_state is None:
-            raise ValueError("AllAtOnceJacobian must be provided a reference state to use \'reference\' for diagfft_state.")
 
         # basic model function space
         self.blockV = aaofunc.field_function_space
 
         # Input/Output wrapper Functions for all-at-once residual being acted on
         self.yf = fd.Function(aaofunc.function_space)  # output
-
-        # diagonalisation options
-        self.dt = PETSc.Options().getReal(
-            f"{prefix}dt", default=self.aaoform.dt)
-
-        self.theta = PETSc.Options().getReal(
-            f"{prefix}theta", default=self.aaoform.theta)
 
         self.alpha = PETSc.Options().getReal(
             f"{prefix}alpha", default=self.default_alpha)
@@ -238,7 +219,7 @@ class DiagFFTPC(AllAtOncePCBase):
                                                           bc, 0*bc.function_arg)))
 
         # function to do global reduction into for average block jacobian
-        if jac_state in ('window', 'slice'):
+        if self.jacobian_state in ('window', 'slice'):
             self.ureduce = fd.Function(self.blockV)
             self.uwrk = fd.Function(self.blockV)
 
@@ -280,28 +261,8 @@ class DiagFFTPC(AllAtOncePCBase):
         self.block_solvers = []
 
         # which form to linearise around
-        valid_linearisations = ['consistent', 'user']
-        linearisation_option = f"{prefix}linearisation"
-
-        linearisation = get_option_from_list(linearisation_option,
-                                             valid_linearisations,
-                                             default_index=0)
-
-        if linearisation == 'consistent':
-            form_mass = self.aaoform.form_mass
-            form_function = self.aaoform.form_function
-        elif linearisation == 'user':
-            try:
-                form_mass = appctx['pc_form_mass']
-                form_function = appctx['pc_form_function']
-            except KeyError as err:
-                err_msg = "appctx must contain 'pc_form_mass' and 'pc_form_function' if " \
-                          + f"{linearisation_option} = 'user'"
-                raise type(err)(err_msg) from err
-
-        self.form_mass = form_mass
-        self.form_function = form_function
-        form_function = partial(form_function, t=self.t_average)
+        form_mass = self.form_mass
+        form_function = partial(self.form_function, t=self.t_average)
 
         # Now need to build the block solver
         self.u0 = fd.Function(self.CblockV)  # time average to linearise around
@@ -396,23 +357,23 @@ class DiagFFTPC(AllAtOncePCBase):
         # default to time at centre of window
         self.t_average.assign(self.aaoform.t0 + self.dt*(self.ntimesteps + 1)/2)
 
-        jac_state = self.jac_state()
-        if jac_state == 'linear':
+        jacobian_state = self.jacobian_state
+        if jacobian_state == 'linear':
             return
 
-        elif jac_state == 'initial':
+        elif jacobian_state == 'initial':
             ustate = self.aaofunc.initial_condition
             self.t_average.assign(self.aaoform.t0)
 
-        elif jac_state == 'reference':
+        elif jacobian_state == 'reference':
             ustate = self.jacobian.reference_state
 
-        elif jac_state in ('window', 'slice'):
+        elif jacobian_state in ('window', 'slice'):
             time_average_function(self.aaofunc, self.ureduce,
-                                  self.uwrk, average=jac_state)
+                                  self.uwrk, average=jacobian_state)
             ustate = self.ureduce
 
-            if jac_state == 'slice':
+            if jacobian_state == 'slice':
                 i1 = self.aaofunc.transform_index(0, from_range='slice',
                                                   to_range='window')
                 t1 = self.aaoform.t0 + i1*self.dt
