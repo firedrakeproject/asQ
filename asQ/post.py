@@ -213,8 +213,9 @@ def write_paradiag_setup(pdg, directory=""):
                 f"time_partition = {pdg.time_partition}\n" + \
                 f"comm.size = {pdg.ensemble.comm.size}\n" + \
                 f"ensemble_comm.size = {pdg.ensemble.ensemble_comm.size}\n" + \
-                f"global_comm.size = {pdg.ensemble.global_comm.size}\n" + \
-                f"alpha = {pdg.solver.jacobian.pc.alpha}"
+                f"global_comm.size = {pdg.ensemble.global_comm.size}\n"
+            if hasattr(pdg.solver.jacobian.pc, "alpha"):
+                info += f"alpha = {pdg.solver.jacobian.pc.alpha}"
             f.write(info)
     return
 
@@ -264,6 +265,13 @@ def write_block_solve_metrics(pdg, directory=""):
     :arg pdg: paradiag object
     :arg directory: the directory to write the files into
     """
+    from asQ import DiagFFTPC
+    jacobian = pdg.solver.jacobian
+    if not hasattr(jacobian, "pc"):
+        return
+    elif not isinstance(jacobian.pc, DiagFFTPC):
+        return
+
     from numpy import real, imag, abs
     from numpy import angle as arg
 
@@ -282,8 +290,16 @@ def write_block_solve_metrics(pdg, directory=""):
         with open(file_name, "w") as f:
             lits = pdg.linear_iterations
             blits = pdg.block_iterations._data/lits
-            l1 = pdg.solver.jacobian.pc.D1
-            l2 = pdg.solver.jacobian.pc.D2
+            if hasattr(pdg.solver.jacobian, "pc"):
+                if hasattr(pdg.solver.jacobian.pc, "D1"):
+                    l1 = pdg.solver.jacobian.pc.D1
+                    l2 = pdg.solver.jacobian.pc.D2
+                else:
+                    l1 = float(1/pdg.solver.aaoform.dt)
+                    l2 = float(1/pdg.solver.aaoform.theta)
+            else:
+                l1 = 0
+                l2 = 0
             l12 = l1/l2
 
             # header

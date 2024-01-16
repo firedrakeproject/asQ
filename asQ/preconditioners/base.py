@@ -1,7 +1,10 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
+
 from asQ.profiling import profiler
 from asQ.common import get_option_from_list
+from asQ.parallel_arrays import SharedArray
+
 from asQ.allatonce.mixin import TimePartitionMixin
 from asQ.allatonce import AllAtOnceFunction, AllAtOnceCofunction
 
@@ -59,6 +62,15 @@ class AllAtOncePCBase(TimePartitionMixin):
         self.initialized = final_initialize
 
     @profiler()
+    def _record_diagnostics(self):
+        """
+        Update diagnostic information from block linear solvers.
+
+        Must be called exactly once at the end of each apply().
+        """
+        pass
+
+    @profiler()
     def apply(self, pc, x, y):
 
         # copy petsc vec into AllAtOnceCofunction
@@ -70,6 +82,8 @@ class AllAtOncePCBase(TimePartitionMixin):
         # copy result into petsc vec
         with self.y.global_vec_ro() as v:
             v.copy(y)
+
+        self._record_diagnostics()
 
     @profiler()
     def applyTranspose(self, pc, x, y):
@@ -179,4 +193,20 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
         self.form_mass = form_mass
         self.form_function = form_function
 
+        self.block_iterations = SharedArray(self.time_partition,
+                                            dtype=int,
+                                            comm=self.ensemble.ensemble_comm)
+
         self.initialized = final_initialize
+
+    @profiler()
+    def _record_diagnostics(self):
+        """
+        Update diagnostic information from block linear solvers.
+
+        Must be called exactly once at the end of each apply().
+        """
+        super()._record_diagnostics()
+        for i in range(self.nlocal_timesteps):
+            its = self.block_solvers[i].snes.getLinearSolveIterations()
+            self.block_iterations.dlocal[i] += its

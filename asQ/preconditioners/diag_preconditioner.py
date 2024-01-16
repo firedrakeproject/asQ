@@ -7,7 +7,6 @@ from scipy.fft import fft, ifft
 from asQ.pencil import Pencil, Subcomm
 from asQ.profiling import profiler
 from asQ.common import get_option_from_list
-from asQ.parallel_arrays import SharedArray
 
 from asQ.allatonce.function import time_average as time_average_function
 from asQ.preconditioners.base import AllAtOnceBlockPCBase
@@ -327,9 +326,6 @@ class DiagFFTPC(AllAtOnceBlockPCBase):
 
             self.block_solvers.append(block_solver)
 
-        self.block_iterations = SharedArray(self.time_partition,
-                                            dtype=int,
-                                            comm=self.ensemble.ensemble_comm)
         self.initialized = True
 
     @profiler()
@@ -469,8 +465,6 @@ class DiagFFTPC(AllAtOnceBlockPCBase):
         with y.global_vec_wo() as yvec:
             yvec.array[:] = parray.reshape(-1).real
         ################
-
-        self._record_diagnostics()
 
     @profiler()
     def applyTranspose(self, pc, x, y):
