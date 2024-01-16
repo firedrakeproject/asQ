@@ -1,14 +1,17 @@
-import numpy as np
 import firedrake as fd
-from scipy.fft import fft, ifft
 from firedrake.petsc import PETSc
-# from mpi4py_fft.pencil import Pencil, Subcomm
+
+import numpy as np
+from scipy.fft import fft, ifft
+
 from asQ.pencil import Pencil, Subcomm
 from asQ.profiling import profiler
 from asQ.common import get_option_from_list
+from asQ.parallel_arrays import SharedArray
+
 from asQ.allatonce.function import time_average as time_average_function
 from asQ.allatonce.mixin import TimePartitionMixin
-from asQ.parallel_arrays import SharedArray
+from asQ.preconditioners.base import AllAtOncePCBase
 
 from functools import partial
 
@@ -69,7 +72,7 @@ class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
         return (A, bcs)
 
 
-class DiagFFTPC(TimePartitionMixin):
+class DiagFFTPC(AllAtOncePCBase):
     """
     PETSc options:
 
@@ -150,23 +153,14 @@ class DiagFFTPC(TimePartitionMixin):
 
     @profiler()
     def initialize(self, pc):
-        if pc.getType() != "python":
-            raise ValueError("Expecting PC type python")
+        super().initialize(pc, final_initialize=False)
 
-        prefix = pc.getOptionsPrefix()
-        prefix = prefix + self.prefix
-
-        A, _ = pc.getOperators()
-        jacobian = A.getPythonContext()
-        self.jacobian = jacobian
-        self._time_partition_setup(jacobian.ensemble, jacobian.time_partition)
-
-        jacobian.pc = self
-        aaofunc = jacobian.current_state
-        self.aaofunc = aaofunc
-        self.aaoform = jacobian.aaoform
-
-        appctx = jacobian.appctx
+        # these were setup by super
+        prefix = self.full_prefix
+        jacobian = self.jacobian
+        aaofunc = self.aaofunc
+        aaoform = self.aaoform
+        appctx = self.appctx
 
         # option for whether to use slice or window average for block jacobian
         valid_jac_state = ['window', 'slice', 'linear', 'initial', 'reference']
@@ -183,7 +177,6 @@ class DiagFFTPC(TimePartitionMixin):
         self.blockV = aaofunc.field_function_space
 
         # Input/Output wrapper Functions for all-at-once residual being acted on
-        self.xf = fd.Function(aaofunc.function_space)  # input
         self.yf = fd.Function(aaofunc.function_space)  # output
 
         # diagonalisation options
@@ -430,17 +423,13 @@ class DiagFFTPC(TimePartitionMixin):
         return
 
     @profiler()
-    def apply(self, pc, x, y):
+    def apply_impl(self, pc, x, y):
         cpx = self.cpx
 
-        # copy petsc vec into Function
-        with self.xf.dat.vec_wo as v:
-            x.copy(v)
-
         # get array of basis coefficients
-        with self.xf.dat.vec_ro as v:
-            parray = v.array_r.reshape((self.nlocal_timesteps,
-                                        self.blockV.node_set.size))
+        with x.global_vec_ro() as xvec:
+            parray = xvec.array_r.reshape((self.nlocal_timesteps,
+                                           self.blockV.node_set.size))
         # This produces an array whose rows are time slices
         # and columns are finite element basis coefficients
 
@@ -515,10 +504,9 @@ class DiagFFTPC(TimePartitionMixin):
         # scale
         parray = ((1.0/self.Gam_slice)*parray.T).T
         # Copy into xfi, xfr
-        with self.yf.dat.vec_wo as v:
-            v.array[:] = parray.reshape(-1).real
-        with self.yf.dat.vec_ro as v:
-            v.copy(y)
+
+        with y.global_vec_wo() as yvec:
+            yvec.array[:] = parray.reshape(-1).real
         ################
 
         self._record_diagnostics()

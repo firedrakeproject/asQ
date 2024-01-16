@@ -54,7 +54,7 @@ class AllAtOncePCBase(TimePartitionMixin):
                                      aaofunc.field_function_space.dual())
 
         self.y = AllAtOnceFunction(self.ensemble, self.time_partition,
-                                   aaofunc.field_function_space.dual())
+                                   aaofunc.field_function_space)
 
         self.initialized = final_initialize
 
