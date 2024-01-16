@@ -134,7 +134,7 @@ mg_pc = {
 
 block_rtol = 1e-5
 block_atol = 1e-100
-block_max_it = 60
+block_max_it = 25
 
 ksp_pc = {
     'pc_type': 'ksp',
@@ -158,11 +158,12 @@ aux_pc = {
 
 block_sparams = {
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'gmres',
     'ksp': {
         'atol': block_atol,
         'rtol': block_rtol,
         'max_it': block_max_it,
+        'converged_maxits': None,
         # 'monitor': None,
         # 'converged_rate': None,
     },

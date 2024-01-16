@@ -36,8 +36,8 @@ with fd.CheckpointFile(f"{args.ifilename}.h5", "r") as checkpoint:
         msg = "--ofuncnames should contain one name for every component of the Function in the CheckpointFile"
         raise ValueError(msg)
 
-    outputfuncs = tuple(fd.Function(f.function_space(), name=fname).assign(f)
-                        for f, fname in zip(func.subfunctions, args.ofuncnames))
+    outputfuncs = tuple(fd.Function(fsub.function_space(), name=fname).assign(fsub)
+                        for fsub, fname in zip(func.subfunctions, args.ofuncnames))
     if is_series:
         pfile.write(*outputfuncs, t=idx)
     else:

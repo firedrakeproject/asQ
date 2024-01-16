@@ -66,6 +66,7 @@ parser.add_argument('--alpha', type=float, default=1e-3, help='Circulant paramet
 parser.add_argument('--eigenvalue', type=int, default=0, help='Index of the circulant eigenvalues to use for the complex coefficients.')
 parser.add_argument('--seed', type=int, default=12345, help='Seed for the random right hand side.')
 parser.add_argument('--nrhs', type=int, default=1, help='Number of random right hand sides to solve for.')
+parser.add_argument('--foutname', type=str, default='iterations', help='Name of output file to write iteration counts.')
 parser.add_argument('--checkpoint', type=str, default='swe_series', help='Name of checkpoint file.')
 parser.add_argument('--funcname', type=str, default='swe', help='Name of the Function in the checkpoint file.')
 parser.add_argument('--index', type=int, default=0, help='Index of Function in checkpoint file.')
@@ -220,11 +221,11 @@ aux_sparams = {
     "aux": lu_params
 }
 
-rtol = 1e-5
+rtol = 1e-4
 sparams = {
     'ksp': {
-        # 'monitor': None,
-        'converged_rate': None,
+        # 'monitor_true_residual': None,
+        # 'converged_rate': None,
         'rtol': rtol,
         # 'view': None
     },
@@ -255,9 +256,9 @@ np.random.seed(args.seed)
 for dat in L.dat:
     dat.data[:] = np.random.rand(*(dat.data.shape))
 
-Print("")
-for i in range(args.nt//2+1):
-    wout.assign(0)
+neigs = args.nt//2+1
+nits = np.zeros((neigs, args.nrhs), dtype=int)
+for i in range(neigs):
     freq = freqs[i]
     d1 = D1[i]
     d2 = D2[i]
@@ -269,12 +270,31 @@ for i in range(args.nt//2+1):
     d2r.assign(d2.real)
     d2i.assign(d2.imag)
 
-    # Print(f"=== Eigenvalue {i} ===")
-    # Print(f"freq = {np.round(freq, 5)}")
-    # Print(f"d1 = {np.round(d1, 5)}")
-    # Print(f"d2 = {np.round(d2, 5)}")
-    # Print(f"(d1/d2)/(theta*dt) = {dhat}")
-    # Print(f"abs((d1/d2)/(theta*dt)) = {abs(dhat)}")
-    # Print("")
-    solver.solve()
-    # Print("")
+    np.random.seed(args.seed)
+    for j in range(args.nrhs):
+        wout.assign(0)
+
+        np.random.seed(int(1e6*np.random.rand()))
+        for dat in L.dat:
+            dat.data[:] = np.random.rand(*(dat.data.shape))
+        solver.solve()
+        nits[i, j] = solver.snes.getLinearSolveIterations()
+
+meanit = np.mean(nits, axis=1)
+maxit = np.max(nits, axis=1)
+minit = np.min(nits, axis=1)
+stdit = np.std(nits, axis=1)
+
+fstr = lambda x, n: str(round(x, n)).rjust(3+n)
+for i in range(neigs):
+    PETSc.Sys.Print(f"Eigenvalue {str(i).rjust(2)} iterations: mean = {fstr(meanit[i], 1)} | max = {str(maxit[i]).rjust(2)} | min = {str(minit[i]).rjust(2)} | std = {fstr(stdit[i], 2)}")
+
+PETSc.Sys.Print(f"max iterations: {round(max(meanit), 3)}, min iterations: {round(min(meanit), 3)}")
+PETSc.Sys.Print([round(it, 3) for it in np.mean(nits, axis=1)])
+
+if fd.COMM_WORLD.rank == 0:
+    with open(f"{args.foutname}.dat", "w") as f:
+        f.write("# " + "   ".join(["index", "freq", "mean", "max", "min", "std"]) + "\n")
+        for i in range(neigs):
+            f.write("   ".join(map(str, [i, freqs[i], meanit[i], maxit[i], minit[i], stdit[i]])))
+            f.write("\n")
