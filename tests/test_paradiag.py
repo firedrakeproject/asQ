@@ -43,7 +43,7 @@ def test_Nitsche_BCs():
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.CirculantPC',
     }
 
     M = [2, 2]
@@ -147,7 +147,7 @@ def test_Nitsche_heat_timeseries():
             'converged_reason': None,
         },
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.CirculantPC',
     }
 
     for i in range(sum(time_partition)):
@@ -333,7 +333,7 @@ def test_galewsky_timeseries():
             'converged_reason': None,
         },
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.CirculantPC',
         'diagfft_alpha': 1e-3,
     }
 
@@ -427,7 +427,7 @@ def test_steady_swe_miniapp():
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.CirculantPC',
         'aaos_jacobian_state': 'initial',
         'diagfft_state': 'initial',
         'diagfft_alpha': 1e-3,
@@ -536,7 +536,7 @@ def test_solve_para_form(bc_opt, extruded):
         'ksp_type': 'gmres',
         'ksp_monitor': None,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.CirculantPC',
     }
 
     for i in range(ntimesteps):
@@ -621,7 +621,7 @@ def test_diagnostics():
         'ksp_converged_reason': None,
         'ksp_type': 'preonly',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.CirculantPC',
         'diagfft_alpha': 1e-3,
     }
 

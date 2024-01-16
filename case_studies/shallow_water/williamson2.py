@@ -166,7 +166,7 @@ sparameters_diag = {
         'atol': atol,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
+    'pc_python_type': 'asQ.CirculantPC',
     'diagfft_alpha': args.alpha,
     'diagfft_state': 'window',
     'diagfft_linearisation': 'consistent',

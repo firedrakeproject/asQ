@@ -139,7 +139,7 @@ def test_solve_heat_equation_serial():
             'stol': 1.0e-100,
         },
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.CirculantPC',
     }
 
     aaosolver = asQ.AllAtOnceSolver(aaoform, aaofunc,
@@ -260,7 +260,7 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
             'converged_reason': None,
         },
         'pc_type': 'python',
-        'pc_python_type': 'asQ.DiagFFTPC',
+        'pc_python_type': 'asQ.CirculantPC',
         'diagfft_alpha': 1e-3,
         'diagfft_complex_proxy': cpx_type
     }

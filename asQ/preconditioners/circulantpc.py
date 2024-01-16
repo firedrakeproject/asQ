@@ -13,7 +13,7 @@ from asQ.preconditioners.base import AllAtOnceBlockPCBase
 
 from functools import partial
 
-__all__ = ['DiagFFTPC', 'AuxiliaryBlockPC']
+__all__ = ['CirculantPC', 'AuxiliaryBlockPC']
 
 
 class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
@@ -70,7 +70,7 @@ class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
         return (A, bcs)
 
 
-class DiagFFTPC(AllAtOnceBlockPCBase):
+class CirculantPC(AllAtOnceBlockPCBase):
     """
     PETSc options:
 
@@ -397,15 +397,15 @@ class DiagFFTPC(AllAtOnceBlockPCBase):
         parray = (1.0+0.j)*(self.Gam_slice*parray.T).T*np.sqrt(self.ntimesteps)
         # transfer forward
         self.a0[:] = parray[:]
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+        with PETSc.Log.Event("asQ.diag_preconditioner.CirculantPC.apply.transfer"):
             self.transfer.forward(self.a0, self.a1)
 
         # FFT
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+        with PETSc.Log.Event("asQ.diag_preconditioner.CirculantPC.apply.fft"):
             self.a1[:] = fft(self.a1, axis=0)
 
         # transfer backward
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+        with PETSc.Log.Event("asQ.diag_preconditioner.CirculantPC.apply.transfer"):
             self.transfer.backward(self.a1, self.a0)
 
         # Copy into xfi, xfr
@@ -418,7 +418,7 @@ class DiagFFTPC(AllAtOnceBlockPCBase):
 
         # Do the block solves
 
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.block_solves"):
+        with PETSc.Log.Event("asQ.diag_preconditioner.CirculantPC.apply.block_solves"):
             for i in range(self.nlocal_timesteps):
                 # copy the data into solver input
                 cpx.set_real(self.xtemp, self.xfr[i])
@@ -446,15 +446,15 @@ class DiagFFTPC(AllAtOnceBlockPCBase):
                                          self.blockV.node_set.size))
         # transfer forward
         self.a0[:] = parray[:]
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+        with PETSc.Log.Event("asQ.diag_preconditioner.CirculantPC.apply.transfer"):
             self.transfer.forward(self.a0, self.a1)
 
         # IFFT
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.fft"):
+        with PETSc.Log.Event("asQ.diag_preconditioner.CirculantPC.apply.fft"):
             self.a1[:] = ifft(self.a1, axis=0)
 
         # transfer backward
-        with PETSc.Log.Event("asQ.diag_preconditioner.DiagFFTPC.apply.transfer"):
+        with PETSc.Log.Event("asQ.diag_preconditioner.CirculantPC.apply.transfer"):
             self.transfer.backward(self.a1, self.a0)
         parray[:] = self.a0[:]
 

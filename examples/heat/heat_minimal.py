@@ -1,7 +1,7 @@
 from firedrake import *
 import asQ
 
-time_partition = [2, 2]
+time_partition = [4, 4]
 ensemble = asQ.create_ensemble(time_partition)
 
 mesh = SquareMesh(nx=8, ny=8, L=1,
@@ -32,7 +32,7 @@ solver_parameters = {
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     'pc_type': 'python',
-    # 'pc_python_type': 'asQ.DiagFFTPC',
+    # 'pc_python_type': 'asQ.CirculantPC',
     # 'diagfft_block': block_parameters,
     # 'diagfft_state': 'linear',
     'pc_python_type': 'asQ.JacobiPC',
@@ -44,7 +44,7 @@ paradiag = asQ.Paradiag(
     ensemble=ensemble,
     form_mass=form_mass,
     form_function=form_function,
-    ics=uinitial, dt=0.5, theta=1.0,
+    ics=uinitial, dt=0.1, theta=0.5,
     time_partition=time_partition,
     solver_parameters=solver_parameters)
 

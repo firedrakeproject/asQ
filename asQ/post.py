@@ -265,11 +265,11 @@ def write_block_solve_metrics(pdg, directory=""):
     :arg pdg: paradiag object
     :arg directory: the directory to write the files into
     """
-    from asQ import DiagFFTPC
+    from asQ import CirculantPC
     jacobian = pdg.solver.jacobian
     if not hasattr(jacobian, "pc"):
         return
-    elif not isinstance(jacobian.pc, DiagFFTPC):
+    elif not isinstance(jacobian.pc, CirculantPC):
         return
 
     from numpy import real, imag, abs
