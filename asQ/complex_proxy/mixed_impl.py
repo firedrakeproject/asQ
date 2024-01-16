@@ -2,8 +2,9 @@
 import firedrake as fd
 
 from asQ.complex_proxy.common import (Part, re, im, api_names,  # noqa:F401
+                                      ComplexConstant,  # noqa: F401
                                       _flatten_tree,
-                                      _build_oneform, _build_twoform)  # noqa: F401
+                                      _build_oneform, _build_twoform)
 
 from asQ.profiling import profiler
 
