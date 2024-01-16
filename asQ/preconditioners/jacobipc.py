@@ -84,14 +84,16 @@ class JacobiPC(AllAtOnceBlockPCBase):
         self.state_func = aaofunc.copy()
 
         # single timestep function space
-        self.blockV = aaofunc.field_function_space
+        field_function_space = aaofunc.field_function_space
 
         # Building the nonlinear operator
         self.block_solvers = []
 
         # zero out bc dofs
         self.block_bcs = tuple(
-            fd.DirichletBC(self.blockV, 0*bc.function_arg, bc.sub_domain)
+            fd.DirichletBC(field_function_space,
+                           0*bc.function_arg,
+                           bc.sub_domain)
             for bc in self.aaoform.field_bcs)
 
         # user appctx for the blocks
@@ -108,7 +110,7 @@ class JacobiPC(AllAtOnceBlockPCBase):
             t0 = self.time[i]
 
             # the form
-            vs = fd.TestFunctions(self.blockV)
+            vs = fd.TestFunctions(field_function_space)
             us = fd.split(u0)
             M = self.form_mass(*us, *vs)
             K = self.form_function(*us, *vs, t0)
@@ -168,8 +170,12 @@ class JacobiPC(AllAtOnceBlockPCBase):
         """
 
         aaofunc = self.aaofunc
+        aaoform = self.aaoform
         state_func = self.state_func
         jacobian_state = self.jacobian_state
+
+        for st, ft in zip(self.time, aaoform.time):
+            st.assign(ft)
 
         if jacobian_state == 'linear':
             pass
@@ -182,8 +188,19 @@ class JacobiPC(AllAtOnceBlockPCBase):
                          state_func.uprev, average=jacobian_state)
             state_func.assign(state_func.initial_condition)
 
+            for t in self.time:
+                if jacobian_state == 'window':
+                    t.assign(aaoform.t0 + self.dt*(self.ntimesteps + 1)/2)
+                elif jacobian_state == 'slice':
+                    i1 = aaofunc.transform_index(0, from_range='slice',
+                                                 to_range='window')
+                    t1 = aaoform.t0 + i1*self.dt
+                    t.assign(t1 + self.dt*(self.nlocal_timesteps + 1)/2)
+
         elif jacobian_state == 'initial':
             state_func.assign(aaofunc.initial_condition)
+            for t in self.time:
+                t.assign(self.aaoform.t0)
 
         elif jacobian_state == 'reference':
             aaofunc.assign(self.jacobian.reference_state)
