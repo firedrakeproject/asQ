@@ -138,20 +138,6 @@ class CirculantPC(AllAtOnceBlockPCBase):
     default_alpha = 1e-3
 
     @profiler()
-    def __init__(self):
-        r"""A preconditioner for all-at-once systems with alpha-circulant
-        block diagonal structure, using FFT.
-        """
-        self.initialized = False
-
-    @profiler()
-    def setUp(self, pc):
-        """Setup method called by PETSc."""
-        if not self.initialized:
-            self.initialize(pc)
-        self.update(pc)
-
-    @profiler()
     def initialize(self, pc):
         super().initialize(pc, final_initialize=False)
 

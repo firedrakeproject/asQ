@@ -62,19 +62,6 @@ class JacobiPC(AllAtOnceBlockPCBase):
                                    'initial', 'reference', 'user'))
 
     @profiler()
-    def __init__(self):
-        r"""A block diagonal Jacobi preconditioner for all-at-once systems.
-        """
-        self.initialized = False
-
-    @profiler()
-    def setUp(self, pc):
-        """Setup method called by PETSc."""
-        if not self.initialized:
-            self.initialize(pc)
-        self.update(pc)
-
-    @profiler()
     def initialize(self, pc):
         super().initialize(pc, final_initialize=False)
 
