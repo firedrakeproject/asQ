@@ -4,6 +4,7 @@ from firedrake.petsc import PETSc
 
 from utils import units
 from utils import mg
+from utils.misc import function_mean
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
@@ -70,6 +71,10 @@ w0 = fd.Function(W).assign(w_initial)
 w1 = fd.Function(W).assign(w_initial)
 
 
+# mean height
+H = function_mean(h_initial)
+
+
 # shallow water equation forms
 def form_function(u, h, v, q, t):
     return swe.nonlinear.form_function(mesh,
@@ -83,62 +88,168 @@ def form_mass(u, h, v, q):
     return swe.nonlinear.form_mass(mesh, u, h, v, q)
 
 
+def form_depth_hybrid(mesh, u, h, q, t):
+    n = fd.FacetNormal(mesh)
+    uup = 0.5 * (fd.dot(u, n) + abs(fd.dot(u, n)))  # noqa: F841
+
+    Fhybr = (  # noqa: F841
+        + fd.inner(q, fd.div(u*h))*fd.dx
+        # + fd.inner(q, fd.div(u))*H*fd.dx
+        # + fd.jump(q)*(uup('+')*h('+') - uup('-')*h('-'))*fd.dS
+        # - fd.jump(q*u*h, n)*fd.dS
+    )
+
+    return Fhybr
+
+
+def aux_form_function(u, h, v, q, t):
+    # Ku = swe.nonlinear.form_function_velocity(
+    #     mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
+
+    Ku = swe.linear.form_function_u(
+        mesh, gravity, coriolis, u, h, v, t)
+
+    Kh = swe.linear.form_function_h(
+        mesh, H, u, h, q, t)
+
+    return Ku + Kh
+
+
+appctx = {'aux_form_function': aux_form_function}
+
+
 # solver parameters for the implicit solve
+factorisation_params = {
+    'ksp_type': 'preonly',
+    'pc_factor_mat_ordering_type': 'rcm',
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
+}
+
+lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
+lu_params.update(factorisation_params)
+
+ilu_params = {'pc_type': 'ilu'}
+ilu_params.update(factorisation_params)
+
+icc_params = {'pc_type': 'icc'}
+icc_params.update(factorisation_params)
+
+patch_parameters = {
+    'pc_patch': {
+        'save_operators': True,
+        'partition_of_unity': True,
+        'sub_mat_type': 'seqdense',
+        'construct_dim': 0,
+        'construct_type': 'vanka',
+        'local_type': 'additive',
+        'precompute_element_tensors': True,
+        'symmetrise_sweep': False
+    },
+    'sub': {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
+    }
+}
+
+mg_parameters = {
+    'levels': {
+        'ksp_type': 'gmres',
+        'ksp_max_it': 5,
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.PatchPC',
+        'patch': patch_parameters
+    },
+    'coarse': {
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.AssembledPC',
+        'assembled': lu_params
+    },
+}
+
+mg_sparams = {
+    "mat_type": "matfree",
+    'pc_type': 'mg',
+    'pc_mg_cycle_type': 'w',
+    'pc_mg_type': 'multiplicative',
+    'mg': mg_parameters
+}
+
+gamg_sparams = {
+    'ksp_type': 'preonly',
+    'pc_type': 'gamg',
+    'pc_gamg_sym_graph': None,
+    'pc_mg_type': 'multiplicative',
+    'pc_mg_cycle_type': 'v',
+    'mg': {
+        'levels': {
+            'ksp_type': 'cg',
+            'ksp_max_it': 3,
+            'pc_type': 'bjacobi',
+            'sub': icc_params,
+        },
+        'coarse': lu_params
+    }
+}
+
+hybridization_sparams = {
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": "firedrake.HybridizationPC",
+    # "hybridization": lu_params
+    "hybridization": gamg_sparams
+}
+
+aux_sparams = {
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": "utils.serial.AuxiliarySerialPC",
+    # "aux": lu_params
+    # "aux": mg_sparams
+    "aux": hybridization_sparams
+}
+
+
+atol = 1e2
 sparameters = {
     'snes': {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-12,
-        'atol': 1e-0,
+        'atol': atol,
         'ksp_ew': None,
         'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-5,
+        'ksp_ew_rtol0': 1e-3,
+        'lag_preconditioner': -2,
+        'lag_preconditioner_persists': None,
     },
-    'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
-        'atol': 1e-5,
+        'converged_rate': None,
+        'atol': atol,
         'rtol': 1e-5,
     },
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'multiplicative',
-    'mg': {
-        'levels': {
-            'ksp_type': 'gmres',
-            'ksp_max_it': 5,
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.PatchPC',
-            'patch': {
-                'pc_patch_save_operators': True,
-                'pc_patch_partition_of_unity': True,
-                'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_dim': 0,
-                'pc_patch_construct_type': 'vanka',
-                'pc_patch_local_type': 'additive',
-                'pc_patch_precompute_element_tensors': True,
-                'pc_patch_symmetrise_sweep': False,
-                'sub_ksp_type': 'preonly',
-                'sub_pc_type': 'lu',
-                'sub_pc_factor_shift_type': 'nonzero',
-            },
-        },
-        'coarse': {
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.AssembledPC',
-            'assembled_pc_type': 'lu',
-            'assembled_pc_factor_mat_solver_type': 'mumps',
-        },
-    }
 }
+
+# sparameters.update(lu_params)
+# sparameters.update(mg_sparams)
+# sparameters.update(hybridization_sparams)
+sparameters.update(aux_sparams)
+
+# from json import dumps as dump_json
+# PETSc.Sys.Print("sparameters =")
+# PETSc.Sys.Print(dump_json(sparameters, indent=4))
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta,
                         w_initial,
                         form_mass,
                         form_function,
-                        sparameters)
+                        sparameters,
+                        appctx=appctx)
 
 miniapp.nlsolver.set_transfer_manager(
     mg.ManifoldTransferManager())
@@ -181,6 +292,7 @@ miniapp.solve(args.nt,
               preproc=preproc,
               postproc=postproc)
 
+PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 

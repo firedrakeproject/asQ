@@ -110,9 +110,10 @@ sparameters_diag = {
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
+        'converged_rate': None,
         'rtol': rtol,
         'atol': atol,
+        'view_eigenvalues': None,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
