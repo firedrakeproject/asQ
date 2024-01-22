@@ -1,7 +1,7 @@
 from firedrake.petsc import PETSc
 
 import asQ
-import firedrake as fd  # noqa: F401
+import firedrake as fd
 from utils import units
 from utils.misc import function_mean
 from utils.planets import earth
@@ -84,13 +84,13 @@ block_appctx = {
 # parameters for the implicit diagonal solve in step-(b)
 factorisation_params = {
     'ksp_type': 'preonly',
-    'pc_factor_mat_ordering_type': 'rcm',
+    # 'pc_factor_mat_ordering_type': 'rcm',
     'pc_factor_reuse_ordering': None,
     'pc_factor_reuse_fill': None,
 }
 
-lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
-lu_params.update(factorisation_params)
+lu_pc = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
+lu_pc.update(factorisation_params)
 
 patch_parameters = {
     'pc_patch': {
@@ -121,7 +121,7 @@ mg_parameters = {
     'coarse': {
         'pc_type': 'python',
         'pc_python_type': 'firedrake.AssembledPC',
-        'assembled': lu_params
+        'assembled': lu_pc,
     }
 }
 
@@ -132,25 +132,44 @@ mg_pc = {
     'mg': mg_parameters
 }
 
+block_rtol = 1e-5
+block_atol = 1e-100
+block_max_it = 25
+
+ksp_pc = {
+    'pc_type': 'ksp',
+    'ksp': {
+        'ksp_atol': block_atol,
+        'ksp_rtol': block_rtol,
+        'ksp_max_it': block_max_it,
+    }
+}
+ksp_pc['ksp'].update(lu_pc)
+
 aux_pc = {
     'snes_lag_preconditioner': -2,
     'snes_lag_preconditioner_persists': None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.AuxiliaryBlockPC',
-    'aux': lu_params,
+    'aux': lu_pc,
+    # 'aux': mg_pc,
+    # 'aux': ksp_pc,
 }
 
 block_sparams = {
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     'ksp': {
-        'atol': 1e-100,
-        'rtol': 1e-5,
-        'max_it': 60,
+        'atol': block_atol,
+        'rtol': block_rtol,
+        'max_it': block_max_it,
+        'converged_maxits': None,
+        # 'monitor': None,
+        # 'converged_rate': None,
     },
 }
 
-# block_sparams = lu_params
+# block_sparams = lu_pc
 # block_sparams.update(mg_pc)
 block_sparams.update(aux_pc)
 
@@ -158,7 +177,7 @@ atol = 1e4
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
-        # 'monitor': None,
+        'monitor': None,
         'converged_reason': None,
         'atol': atol,
         'rtol': 1e-10,
@@ -170,8 +189,8 @@ sparameters_diag = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        # 'monitor': None,
-        # 'converged_rate': None,
+        'monitor': None,
+        'converged_rate': None,
         'rtol': 1e-5,
         'atol': atol,
     },
