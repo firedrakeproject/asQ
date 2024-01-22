@@ -1,5 +1,6 @@
 from firedrake.petsc import PETSc
 
+from utils.timing import SolverTimer
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
@@ -144,14 +145,18 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
 
 paradiag = miniapp.paradiag
 
+timer = SolverTimer()
+
 
 def window_preproc(swe_app, pdg, wndw):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
+    timer.start_timing()
 
 
 def window_postproc(swe_app, pdg, wndw):
+    timer.stop_timing()
     if pdg.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
         time = nt*pdg.aaoform.dt
@@ -190,4 +195,10 @@ PETSc.Sys.Print('')
 
 PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
 PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+PETSc.Sys.Print('')
+
+if timer.nsolves() > 1:
+    timer.solve_times[0] = timer.solve_times[1]
+
+PETSc.Sys.Print(timer.string(timesteps_per_solve=window_length, ndigits=5))
 PETSc.Sys.Print('')
