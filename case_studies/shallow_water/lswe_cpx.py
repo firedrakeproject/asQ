@@ -101,13 +101,13 @@ def form_mass_tr(u, h, tr, v, q, s):
     return swe.linear.form_mass(mesh, u, h, v, q)
 
 
-def form_function_tr(u, h, tr, v, q, s, t=None):
+def form_function_tr(u, h, tr, v, q, dtr, t=None):
     K = swe.linear.form_function(mesh, g, H, f,
                                  u, h, v, q, t)
     n = fd.FacetNormal(mesh)
     Khybr = (
         g*fd.jump(v, n)*tr('+')
-        + fd.jump(u, n)*s('+')
+        + fd.jump(u, n)*dtr('+')
     )*fd.dS
 
     return K + Khybr
@@ -117,8 +117,10 @@ V = swe.default_function_space(mesh)
 W = cpx.FunctionSpace(V)
 
 Vu, Vh = V.subfunctions
+Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
 Tr = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
-Vtr = Vu*Vh*Tr
+Vtr = Vub*Vh*Tr
+
 Wtr = cpx.FunctionSpace(Vtr)
 
 # random rhs
@@ -151,26 +153,19 @@ sparams_tr = {
         # 'view': None
     },
     'mat_type': 'matfree',
-    'ksp_type': 'gmres',
+    'ksp_type': 'preonly',
     'pc_type': 'python',
     'pc_python_type': 'firedrake.SCPC',
     'pc_sc_eliminate_fields': '0, 1',
     'condensed_field': lu_params,
-    # 'condensed_field_ksp': {
-    #     'monitor': None,
-    #     'converged_reason': None,
-    # }
 }
 
 # trace component should have zero rhs
 np.random.seed(args.seed)
 L.assign(0)
 Ltr.assign(0)
-for dat in L.dat:
+for dat in (*L.dat, *Ltr.dat):
     dat.data[:] = np.random.rand(*(dat.data.shape))
-
-Ltr.subfunctions[0].assign(L.subfunctions[0])
-Ltr.subfunctions[1].assign(L.subfunctions[1])
 
 w, solver = make_solver(W, form_mass, form_function,
                         d1c, d2c, L, sparams)

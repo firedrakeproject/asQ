@@ -95,11 +95,12 @@ def form_function_tr(u, h, tr, v, q, s, t=None):
     return K + Khybr
 
 
-V = swe.default_function_space(mesh)
+V = swe.default_function_space(mesh, degree=0)
 
 Vu, Vh = V.subfunctions
+Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
 Tr = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
-Vtr = Vu*Vh*Tr
+Vtr = Vub*Vh*Tr
 
 # random rhs
 L = fd.Cofunction(V.dual())
@@ -112,7 +113,7 @@ lu_params = {
     'pc_factor_mat_solver_type': 'mumps'
 }
 
-rtol = 1e-5
+rtol = 1e-6
 sparams = {
     'ksp': {
         'monitor': None,
@@ -142,11 +143,9 @@ sparams_tr = {
 np.random.seed(args.seed)
 L.assign(0)
 Ltr.assign(0)
-for dat in L.dat:
-    dat.data[:] = np.random.rand(*(dat.data.shape))
-
-Ltr.subfunctions[0].assign(L.subfunctions[0])
-Ltr.subfunctions[1].assign(L.subfunctions[1])
+for ldat, trdat in zip(L.dat, Ltr.dat):
+    ldat.data[:] = np.random.rand(*(ldat.data.shape))
+    trdat.data[:] = np.random.rand(*(trdat.data.shape))
 
 w, solver = make_solver(V, form_mass, form_function,
                         d1, d2, L, sparams)
