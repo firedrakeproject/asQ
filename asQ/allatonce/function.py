@@ -158,6 +158,42 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         return self._fields[j]
 
     @profiler()
+    def send_field(self, step, uout, dst_rank=None, dst_step=None, blocking=True):
+        """
+        Send the solution at given timestep `step` to Function `u` on the time_rank `to_slice`.
+
+        :arg step: window index of field to send.
+        :arg uout: fd.Function to place field into.
+        :arg dst_rank: The receiving rank will be dst_rank.
+            Only one of this and dst_step can be used.
+        :arg dst_step: The receiving rank will be the rank owning timestep dst_step.
+            Only one of this and dst_rank can be used.
+        """
+        if not (dst_rank is None) ^ (dst_step is None):
+            raise ValueError("Only one of dst_rank or dst_step can be defined")
+
+        if dst_rank is not None:
+            dst = dst_rank
+        elif dst_step is not None:
+            dst = self.layout.rank_of(dst_step)
+
+        src = self.layout.rank_of(step)
+
+        if blocking:
+            send = self.ensemble.send
+            recv = self.ensemble.recv
+        else:
+            send = self.ensemble.isend
+            recv = self.ensemble.irecv
+
+        if self.time_rank == src:
+            return send(self[step, 'window'], dst, tag=dst)
+        elif self.time_rank == dst:
+            return recv(uout, src, tag=dst)
+        else:
+            return None if blocking else []
+
+    @profiler()
     def bcast_field(self, step, u):
         """
         Broadcast solution at given timestep `step` to Function `u` on all time-ranks.
