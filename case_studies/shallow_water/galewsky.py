@@ -2,12 +2,14 @@ from firedrake.petsc import PETSc
 
 import asQ
 import firedrake as fd
+from utils.timing import SolverTimer
 from utils import units
 from utils.misc import function_mean
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
 
+from math import sqrt
 from functools import partial
 
 PETSc.Sys.popErrorHandler()
@@ -23,10 +25,18 @@ parser.add_argument('--ref_level', type=int, default=2, help='Refinement level o
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
-parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
+
+parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
+
+parser.add_argument('--block_method', type=str, default='aux', help='PC method for the blocks. aux or lu or mg.')
+parser.add_argument('--atol', type=float, default=1e0, help='Average atol of each timestep.')
+parser.add_argument('--block_rtol', type=float, default=1e-5, help='rtol for the block solves.')
+parser.add_argument('--block_max_it', type=int, default=25, help='Maximum iterations for the blocks.')
+
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
 parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
+parser.add_argument('--record_cfl', action='store_true', help='Calculate and output CFL at each window.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -57,10 +67,7 @@ def aux_form_function(u, h, v, q, t):
     gravity = earth.Gravity
     topography = galewsky.topography_expression(*coords)  # noqa: F841
     coriolis = swe.earth_coriolis_expression(*coords)
-
-    depth = fd.Function(swe.default_depth_function_space(mesh))
-    depth.assign(galewsky.depth_expression(*coords))
-    H = function_mean(depth)
+    H = galewsky.H0
 
     # Ku = swe.nonlinear.form_function_velocity(
     #     mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
@@ -132,54 +139,42 @@ mg_pc = {
     'mg': mg_parameters
 }
 
-block_rtol = 1e-5
-block_atol = 1e-100
-block_max_it = 25
-
-ksp_pc = {
-    'pc_type': 'ksp',
-    'ksp': {
-        'ksp_atol': block_atol,
-        'ksp_rtol': block_rtol,
-        'ksp_max_it': block_max_it,
-    }
-}
-ksp_pc['ksp'].update(lu_pc)
-
 aux_pc = {
     'snes_lag_preconditioner': -2,
     'snes_lag_preconditioner_persists': None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.AuxiliaryBlockPC',
     'aux': lu_pc,
-    # 'aux': mg_pc,
-    # 'aux': ksp_pc,
 }
 
 block_sparams = {
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     'ksp': {
-        'atol': block_atol,
-        'rtol': block_rtol,
-        'max_it': block_max_it,
+        'atol': 1e-100,
+        'rtol': args.block_rtol,
+        'max_it': args.block_max_it,
         'converged_maxits': None,
         # 'monitor': None,
         # 'converged_rate': None,
     },
 }
 
-# block_sparams = lu_pc
-# block_sparams.update(mg_pc)
-block_sparams.update(aux_pc)
+if args.block_method == 'lu':
+   block_sparams = lu_pc
+else:
+   block_sparams.update({
+      'mg': mg_pc,
+      'aux': aux_pc
+      }[args.block_method])
 
-atol = 1e4
+patol = sqrt(window_length)*args.atol
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': atol,
+        'atol': patol,
         'rtol': 1e-10,
         'stol': 1e-12,
         'ksp_ew': None,
@@ -192,7 +187,7 @@ sparameters_diag = {
         'monitor': None,
         'converged_rate': None,
         'rtol': 1e-5,
-        'atol': atol,
+        'atol': patol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
@@ -225,7 +220,7 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   appctx=appctx,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename,
-                                  record_diagnostics={'cfl': True, 'file': False})
+                                  record_diagnostics={'cfl': args.record_cfl, 'file': False})
 
 ics = miniapp.aaofunc.initial_condition
 reference_state = miniapp.solver.jacobian.reference_state
@@ -233,20 +228,28 @@ reference_state.assign(ics)
 reference_state.subfunctions[0].assign(0)
 reference_state.subfunctions[1].assign(galewsky.H0)
 
+timer = SolverTimer()
+
 
 def window_preproc(swe_app, pdg, wndw):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
+    timer.start_timing()
 
 
 def window_postproc(swe_app, pdg, wndw):
+    timer.stop_timing()
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'Window solution time: {timer.times[-1]}')
+    PETSc.Sys.Print('')
+
     if miniapp.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
         time = float(nt*pdg.aaoform.dt)
         comm = miniapp.ensemble.comm
-        PETSc.Sys.Print('', comm=comm)
-        PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
+        if args.record_cfl:
+            PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
         PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
         PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
         PETSc.Sys.Print('', comm=comm)
@@ -277,6 +280,22 @@ PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/
 PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
 PETSc.Sys.Print('')
 
-PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
-PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+if args.record_cfl:
+   PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
+   PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+   PETSc.Sys.Print('')
+
+mesh = miniapp.mesh
+W = miniapp.W
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}')
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size}')
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
+PETSc.Sys.Print(f'Block DoFs/rank: {2*W.dim()/mesh.comm.size}')
+PETSc.Sys.Print('')
+
+if timer.ntimes() > 1:
+    timer.times[0] = timer.times[1]
+
+PETSc.Sys.Print(timer.string(timesteps_per_solve=window_length,
+                             total_iterations=lits, ndigits=5))
 PETSc.Sys.Print('')

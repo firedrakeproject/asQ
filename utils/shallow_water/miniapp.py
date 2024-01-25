@@ -191,6 +191,8 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         :arg index_range: type of index of step: slice or window
         :arg v: velocity Function from FunctionSpace V1 or a full MixedFunction from W if None, calculate cfl of timestep step. Ignored if step is not None.
         '''
+        if not self.record_diagnostics['cfl']:
+            return -1
         if step is not None:
             u = self.velocity(step, index_range=index_range)
         elif v is not None:
@@ -246,7 +248,8 @@ class ShallowWaterMiniApp(TimePartitionMixin):
 
         Until this method is called, diagnostic information is not guaranteed to be valid.
         """
-        self.cfl_series.synchronise()
+        if self.record_diagnostics['cfl']:
+            self.cfl_series.synchronise()
 
     def solve(self,
               nwindows=1,
@@ -272,7 +275,8 @@ class ShallowWaterMiniApp(TimePartitionMixin):
             postproc(self, pdg, w)
 
         # extend cfl array
-        self.cfl_series.resize(self.paradiag.total_windows + nwindows)
+        if self.record_diagnostics['cfl']:
+            self.cfl_series.resize(self.paradiag.total_windows + nwindows)
 
         self.paradiag.solve(nwindows,
                             preproc=preprocess,
