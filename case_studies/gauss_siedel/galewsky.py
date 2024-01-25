@@ -90,7 +90,7 @@ aux_pc = {
 
 sparameters = {
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'gmres',
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
@@ -106,13 +106,13 @@ sparameters_diag = {
     'snes': {
         'monitor': None,
         # 'converged_reason': None,
-        'atol': 1e-0,
+        'atol': patol,
         'rtol': 1e-10,
         'stol': 1e-12,
         # 'ksp_ew': None,
         # 'ksp_ew_version': 1,
         # 'ksp_ew_threshold': 1e-2,
-        'max_it': 1,
+        'max_it': 2,
         'convergence_test': 'skip',
     },
     'mat_type': 'matfree',
@@ -121,7 +121,7 @@ sparameters_diag = {
         # 'monitor': None,
         # 'converged_reason': None,
         'rtol': 1e-5,
-        'atol': 1e-0,
+        'atol': patol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
