@@ -81,7 +81,7 @@ if args.show_args:
     Print(args)
 
 mesh, u, f, b = read_checkpoint(args.checkpoint, args.funcname,
-                                                args.index, args.ref_level)
+                                args.index, args.ref_level)
 
 x = fd.SpatialCoordinate(mesh)
 
@@ -105,8 +105,6 @@ def form_function(u, h, v, q, t=None):
 def aux_form_function(u, h, v, q, t):
     return swe.linear.form_function(mesh, g, H, f,
                                     u, h, v, q, t)
-
-    return Ku + Kh
 
 
 def form_mass_tr(u, h, tr, v, q, s):

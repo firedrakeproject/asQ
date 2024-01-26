@@ -5,7 +5,6 @@ from firedrake.petsc import PETSc
 from utils.timing import SolverTimer
 from utils import units
 from utils import mg
-from utils.misc import function_mean
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
@@ -76,9 +75,7 @@ h_initial.project(galewsky.depth_expression(*x))
 w0 = fd.Function(W).assign(w_initial)
 w1 = fd.Function(W).assign(w_initial)
 
-
 # mean height
-H = function_mean(h_initial)
 H = galewsky.H0
 
 
@@ -98,6 +95,99 @@ def aux_form_function(u, h, v, q, t):
 
 
 appctx = {'aux_form_function': aux_form_function}
+
+
+def form_mass_tr(u, h, tr, v, q, s):
+    return swe.linear.form_mass(mesh, u, h, v, q)
+
+
+def form_function_tr(u, h, tr, v, q, dtr, t=None):
+    K = swe.linear.form_function(mesh, g, H, f,
+                                 u, h, v, q, t)
+    n = fd.FacetNormal(mesh)
+    Khybr = (
+        g*fd.jump(v, n)*tr('+')
+        + fd.jump(u, n)*dtr('+')
+    )*fd.dS
+
+    return K + Khybr
+
+
+Vu, Vh = W.subfunctions
+Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
+Tr = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
+Wtr = Vub*Vh*Tr
+
+
+# PC forming approximate hybridisable system (without advection)
+# solve it using hybridisation and then return the DG part
+# (for use in a Schur compement setup)
+class ApproxHybridPC(fd.PCBase):
+    def initialize(self, pc):
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
+
+        appctx = self.get_appctx(pc)
+        dt = appctx['dt']
+        theta = appctx['theta']
+
+        # input and output functions
+        self.xfstar = fd.Cofunction(Vh.dual())
+        self.xf = fd.Function(Vh)  # result of riesz map of the above
+        self.yf = fd.Function(Vh)  # the preconditioned residual
+
+        ws = fd.TrialFunctions(Wtr)
+        vs = fd.TestFunctions(Wtr)
+
+        Mtr = form_mass_tr(*ws, *vs)
+        Ktr = form_function_tr(*ws, *vs)
+
+        dt1 = fd.Constant(1/dt)
+        tht = fd.Constant(theta)
+
+        Atr = dt1*Mtr + tht*Ktr
+
+        self.wtr = fd.Function(Wtr)
+        _, self.htr, _ = self.wtr.subfunctions
+        _, q, _ = vs
+
+        Ltr = fd.inner(q, self.xf)*fd.dx
+
+        condensed_params = {'ksp_type': 'preonly',
+                            'pc_type': 'lu',
+                            "pc_factor_mat_solver_type": "mumps"}
+
+        hbps = {
+            "mat_type": "matfree",
+            "ksp_type": "preonly",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.SCPC",
+            'pc_sc_eliminate_fields': '0, 1',
+            'condensed_field': condensed_params
+        }
+
+        problem = fd.LinearVariationalProblem(Atr, Ltr, self.wtr)
+        self.solver = fd.LinearVariationalSolver(
+            problem, solver_parameters=hbps)
+
+    def update(self, pc):
+        pass
+
+    def applyTranspose(self, pc, x, y):
+        raise NotImplementedError
+
+    def apply(self, pc, x, y):
+        # copy petsc vec into Function
+        with self.xfstar.dat.vec_wo as v:
+            x.copy(v)
+        self.xf.assign(self.xfstar.riesz_representation())
+        self.wtr.assign(0)
+        self.solver.solve()
+        self.yf.assign(self.htr)
+
+        # copy petsc vec into Function
+        with self.yf.dat.vec_ro as v:
+            v.copy(y)
 
 
 # solver parameters for the implicit solve
@@ -193,6 +283,21 @@ aux_sparams = {
     # "aux": hybridization_sparams
 }
 
+hybr_sparams = {
+    'pc_type': 'fieldsplit',
+    'pc_fieldsplit_type': 'schur',
+    'pc_fieldsplit_schur_fact_type': 'full',
+    'fieldsplit_0': {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps',
+    },
+    'fieldsplit_1': {
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': f'{__name__}.ApproxHybridPC',
+    },
+}
 
 sparameters = {
     'snes': {
@@ -205,7 +310,7 @@ sparameters = {
         'ksp_ew_threshold': 1e-5,
         'ksp_ew_rtol0': 1e-3,
         'lag_preconditioner': -2,
-        'lag_preconditioner_persists': None,
+        # 'lag_preconditioner_persists': None,
     },
     'ksp_type': 'fgmres',
     'ksp': {
@@ -219,7 +324,8 @@ sparameters = {
 # sparameters.update(lu_params)
 # sparameters.update(mg_sparams)
 # sparameters.update(hybridization_sparams)
-sparameters.update(aux_sparams)
+# sparameters.update(aux_sparams)
+sparameters.update(hybr_sparams)
 
 # from json import dumps as dump_json
 # PETSc.Sys.Print("sparameters =")

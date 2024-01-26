@@ -4,7 +4,6 @@ import asQ
 import firedrake as fd
 from utils.timing import SolverTimer
 from utils import units
-from utils.misc import function_mean
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
@@ -30,7 +29,7 @@ parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 
 parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
 
-parser.add_argument('--block_method', type=str, default='aux', help='PC method for the blocks. aux or lu or mg.')
+parser.add_argument('--block_method', type=str, default='aux', help='PC method for the blocks. aux or lu or mg or hybr.')
 parser.add_argument('--atol', type=float, default=1e0, help='Average atol of each timestep.')
 parser.add_argument('--block_rtol', type=float, default=1e-5, help='rtol for the block solves.')
 parser.add_argument('--block_max_it', type=int, default=25, help='Maximum iterations for the blocks.')
@@ -59,21 +58,115 @@ nsteps = args.nwindows*window_length
 dt = args.dt*units.hour
 
 # alternative operator to precondition blocks
+H = galewsky.H0
+g = earth.Gravity
 
 
 def aux_form_function(u, h, v, q, t):
     mesh = u.ufl_domain()
     coords = fd.SpatialCoordinate(mesh)
     f = swe.earth_coriolis_expression(*coords)
-    g = earth.Gravity
-    H = galewsky.H0
     return swe.linear.form_function(mesh, g, H, f,
                                     u, h, v, q, t)
 
 
-block_appctx = {
-    'aux_form_function': aux_form_function
-}
+def form_mass_tr(u, h, tr, v, q, s):
+    mesh = v.ufl_domain()
+    return swe.linear.form_mass(mesh, u, h, v, q)
+
+
+def form_function_tr(u, h, tr, v, q, dtr, t=None):
+    mesh = v.ufl_domain()
+    coords = fd.SpatialCoordinate(mesh)
+    f = swe.earth_coriolis_expression(*coords)
+    K = swe.linear.form_function(mesh, g, H, f,
+                                 u, h, v, q, t)
+    n = fd.FacetNormal(mesh)
+    Khybr = (
+        g*fd.jump(v, n)*tr('+')
+        + fd.jump(u, n)*dtr('+')
+    )*fd.dS
+
+    return K + Khybr
+
+
+# PC forming approximate hybridisable system (without advection)
+# solve it using hybridisation and then return the DG part
+# (for use in a Schur compement setup)
+class ApproxHybridPC(fd.PCBase):
+    def initialize(self, pc):
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
+
+        cpx = appctx['cpx']
+
+        u0 = appctx['u0']
+        d1 = appctx['d1']
+        d2 = appctx['d2']
+
+        mesh = u0.ufl_domain()
+
+        W = u0.function_space()
+        Wu, Wh = W.subfunctions
+
+        Wub = fd.FunctionSpace(mesh, fd.BrokenElement(Wu.ufl_element()))
+        Tr = fd.FunctionSpace(mesh, "HDivT", Wu.ufl_element().degree())
+        Wtr = Wub*Wh*Tr
+
+        # input and output functions
+        self.xfstar = fd.Cofunction(Wh.dual())
+        self.xf = fd.Function(Wh)  # result of riesz map of the above
+        self.yf = fd.Function(Wh)  # the preconditioned residual
+
+        Mtr = cpx.BilinearForm(Wtr, d1, form_mass_tr)
+        Ktr = cpx.BilinearForm(Wtr, d2, form_function_tr)
+
+        Atr = Mtr + Ktr
+
+        self.wtr = fd.Function(Wtr)
+        _, self.htr, _ = self.wtr.subfunctions
+        _, q, _ = fd.TestFunctions(Wtr)
+
+        Ltr = fd.inner(q, self.xf)*fd.dx
+
+        condensed_params = {'ksp_type': 'preonly',
+                            'pc_type': 'lu',
+                            "pc_factor_mat_solver_type": "mumps"}
+
+        hbps = {
+            "mat_type": "matfree",
+            "ksp_type": "preonly",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.SCPC",
+            'pc_sc_eliminate_fields': '0, 1',
+            'condensed_field': condensed_params
+        }
+
+        problem = fd.LinearVariationalProblem(Atr, Ltr, self.wtr)
+        self.solver = fd.LinearVariationalSolver(
+            problem, solver_parameters=hbps)
+
+    def update(self, pc):
+        pass
+
+    def applyTranspose(self, pc, x, y):
+        raise NotImplementedError
+
+    def apply(self, pc, x, y):
+        # copy petsc vec into Function
+        with self.xfstar.dat.vec_wo as v:
+            x.copy(v)
+        self.xf.assign(self.xfstar.riesz_representation())
+        self.wtr.assign(0)
+        self.solver.solve()
+        self.yf.assign(self.htr)
+
+        # copy petsc vec into Function
+        with self.yf.dat.vec_ro as v:
+            v.copy(y)
+
+
+block_appctx = {'aux_form_function': aux_form_function}
 
 # parameters for the implicit diagonal solve in step-(b)
 factorisation_params = {
@@ -134,6 +227,22 @@ aux_pc = {
     'aux': lu_pc,
 }
 
+hybr_pc = {
+    'pc_type': 'fieldsplit',
+    'pc_fieldsplit_type': 'schur',
+    'pc_fieldsplit_schur_fact_type': 'full',
+    'fieldsplit_0': {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps',
+    },
+    'fieldsplit_1': {
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': f'{__name__}.ApproxHybridPC',
+    },
+}
+
 block_sparams = {
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
@@ -152,7 +261,8 @@ if args.block_method == 'lu':
 else:
    block_sparams.update({
       'mg': mg_pc,
-      'aux': aux_pc
+      'aux': aux_pc,
+      'hybr': hybr_pc,
       }[args.block_method])
 
 patol = sqrt(window_length)*args.atol
