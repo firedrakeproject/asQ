@@ -22,9 +22,11 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid.')
 parser.add_argument('--nchunks', type=int, default=4, help='Number of chunks to solve simultaneously.')
 parser.add_argument('--nsweeps', type=int, default=4, help='Number of nonlinear sweeps.')
+parser.add_argument('--nsmooth', type=int, default=1, help='Number of nonlinear iterations per chunk at each sweep.')
+parser.add_argument('--nchecks', type=int, default=1, help='Maximum number of chunks allowed to converge after each sweep.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
-parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
+parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
 parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
@@ -87,20 +89,19 @@ aux_pc = {
     'aux': lu_params,
 }
 
-
 sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
-        'max_it': 40,
+        'max_it': 25,
         'converged_maxits': None,
     },
 }
 sparameters.update(aux_pc)
 
-atol = 1e4
+atol = 1e2
 patol = sqrt(chunk_length)*atol
 sparameters_diag = {
     'snes': {
@@ -112,7 +113,7 @@ sparameters_diag = {
         # 'ksp_ew': None,
         # 'ksp_ew_version': 1,
         # 'ksp_ew_threshold': 1e-2,
-        'max_it': 2,
+        'max_it': args.nsmooth,
         'convergence_test': 'skip',
     },
     'mat_type': 'matfree',
@@ -120,6 +121,8 @@ sparameters_diag = {
     'ksp': {
         # 'monitor': None,
         # 'converged_reason': None,
+        # 'max_it': 1,
+        # 'convergence_test': 'skip',
         'rtol': 1e-5,
         'atol': patol,
     },
@@ -209,22 +212,35 @@ for j in range(args.nsweeps):
         PETSc.Sys.Print("")
 
     # check if first chunk is converged
-    aaoform.assemble(chunks[0])
-    with aaoform.F.global_vec_ro() as rvec:
-        res = rvec.norm()
-    if res < patol:
-        PETSc.Sys.Print(">>> First chunk has converged. Rotating chunks <<<")
-        nconverged += 1
+    for i in range(args.nchecks):
+        aaoform.assemble(chunks[0])
+        with aaoform.F.global_vec_ro() as rvec:
+            res = rvec.norm()
+        if res < patol:
+            PETSc.Sys.Print(f">>> Chunk {i} has converged. Rotating chunks <<<")
+            nconverged += 1
 
-        # shuffle chunks down
-        for i in range(args.nchunks-1):
-            chunks[i].assign(chunks[i+1])
+            # shuffle chunks down
+            for i in range(args.nchunks-1):
+                chunks[i].assign(chunks[i+1])
 
-        # reset last chunk to start from end of series
-        chunks[-1].bcast_field(-1, chunks[-1].initial_condition)
-        chunks[-1].assign(chunks[-1].initial_condition)
+            # reset last chunk to start from end of series
+            chunks[-1].bcast_field(-1, chunks[-1].initial_condition)
+            chunks[-1].assign(chunks[-1].initial_condition)
 
+pc_block_its = aaosolver.jacobian.pc.block_iterations
+pc_block_its.synchronise()
+pc_block_its = pc_block_its.data(deepcopy=True)
+pc_block_its = pc_block_its/args.nchunks
+
+niterations = args.nsweeps*args.nsmooth
+
+PETSc.Sys.Print('')
 PETSc.Sys.Print(f"Number of chunks: {args.nchunks}")
 PETSc.Sys.Print(f"Number of sweeps: {args.nsweeps}")
 PETSc.Sys.Print(f"Number of chunks converged: {nconverged}")
 PETSc.Sys.Print(f"Number of chunks converged per sweep: {nconverged/args.nsweeps}")
+PETSc.Sys.Print(f"Number of sweeps per converged chunk: {args.nsweeps/nconverged if nconverged else 'n/a'}")
+PETSc.Sys.Print(f"Number of iterations per converged chunk: {niterations/nconverged if nconverged else 'n/a'}")
+PETSc.Sys.Print(f'Block iterations: {pc_block_its}')
+PETSc.Sys.Print(f'Block iterations per block solve: {pc_block_its/niterations}')
