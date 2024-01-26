@@ -449,7 +449,8 @@ def test_steady_swe_miniapp():
         create_mesh=create_mesh,
         dt=dt, theta=theta,
         time_partition=time_partition,
-        paradiag_sparameters=solver_parameters_diag)
+        paradiag_sparameters=solver_parameters_diag,
+        record_diagnostics={'cfl': True, 'file': False})
 
     miniapp.solve()
     pdg = miniapp.paradiag
