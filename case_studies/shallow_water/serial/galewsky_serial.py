@@ -4,7 +4,6 @@ from firedrake.petsc import PETSc
 
 from utils import units
 from utils import mg
-from utils.misc import function_mean
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
@@ -53,10 +52,10 @@ dt = args.dt*units.hour
 W = swe.default_function_space(mesh, degree=args.degree)
 
 # parameters
-gravity = earth.Gravity
+g = earth.Gravity
 
-topography = galewsky.topography_expression(*x)
-coriolis = swe.earth_coriolis_expression(*x)
+b = galewsky.topography_expression(*x)
+f = swe.earth_coriolis_expression(*x)
 
 # initial conditions
 w_initial = fd.Function(W)
@@ -70,15 +69,13 @@ h_initial.project(galewsky.depth_expression(*x))
 w0 = fd.Function(W).assign(w_initial)
 w1 = fd.Function(W).assign(w_initial)
 
-
 # mean height
-H = function_mean(h_initial)
+H = galewsky.H0
 
 
 # shallow water equation forms
 def form_function(u, h, v, q, t):
-    return swe.nonlinear.form_function(mesh, gravity,
-                                       topography, coriolis,
+    return swe.nonlinear.form_function(mesh, g, b, f,
                                        u, h, v, q, t)
 
 
@@ -87,19 +84,104 @@ def form_mass(u, h, v, q):
 
 
 def aux_form_function(u, h, v, q, t):
-    # Ku = swe.nonlinear.form_function_velocity(
-    #     mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
-
-    Ku = swe.linear.form_function_u(
-        mesh, gravity, coriolis, u, h, v, t)
-
-    Kh = swe.linear.form_function_h(
-        mesh, H, u, h, q, t)
-
-    return Ku + Kh
+    return swe.linear.form_function(mesh, g, H, f,
+                                    u, h, v, q, t)
 
 
 appctx = {'aux_form_function': aux_form_function}
+
+
+def form_mass_tr(u, h, tr, v, q, s):
+    return swe.linear.form_mass(mesh, u, h, v, q)
+
+
+def form_function_tr(u, h, tr, v, q, dtr, t=None):
+    K = swe.linear.form_function(mesh, g, H, f,
+                                 u, h, v, q, t)
+    n = fd.FacetNormal(mesh)
+    Khybr = (
+        g*fd.jump(v, n)*tr('+')
+        + fd.jump(u, n)*dtr('+')
+    )*fd.dS
+
+    return K + Khybr
+
+
+Vu, Vh = W.subfunctions
+Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
+Tr = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
+Wtr = Vub*Vh*Tr
+
+
+# PC forming approximate hybridisable system (without advection)
+# solve it using hybridisation and then return the DG part
+# (for use in a Schur compement setup)
+class ApproxHybridPC(fd.PCBase):
+    def initialize(self, pc):
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
+
+        appctx = self.get_appctx(pc)
+        dt = appctx['dt']
+        theta = appctx['theta']
+
+        # input and output functions
+        self.xfstar = fd.Cofunction(Vh.dual())
+        self.xf = fd.Function(Vh)  # result of riesz map of the above
+        self.yf = fd.Function(Vh)  # the preconditioned residual
+
+        ws = fd.TrialFunctions(Wtr)
+        vs = fd.TestFunctions(Wtr)
+
+        Mtr = form_mass_tr(*ws, *vs)
+        Ktr = form_function_tr(*ws, *vs)
+
+        dt1 = fd.Constant(1/dt)
+        tht = fd.Constant(theta)
+
+        Atr = dt1*Mtr + tht*Ktr
+
+        self.wtr = fd.Function(Wtr)
+        _, self.htr, _ = self.wtr.subfunctions
+        _, q, _ = vs
+
+        Ltr = fd.inner(q, self.xf)*fd.dx
+
+        condensed_params = {'ksp_type': 'preonly',
+                            'pc_type': 'lu',
+                            "pc_factor_mat_solver_type": "mumps"}
+
+        hbps = {
+            "mat_type": "matfree",
+            "ksp_type": "preonly",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.SCPC",
+            'pc_sc_eliminate_fields': '0, 1',
+            'condensed_field': condensed_params
+        }
+
+        problem = fd.LinearVariationalProblem(Atr, Ltr, self.wtr)
+        self.solver = fd.LinearVariationalSolver(
+            problem, solver_parameters=hbps)
+
+    def update(self, pc):
+        pass
+
+    def applyTranspose(self, pc, x, y):
+        raise NotImplementedError
+
+    def apply(self, pc, x, y):
+        # copy petsc vec into Function
+        with self.xfstar.dat.vec_wo as v:
+            x.copy(v)
+        self.xf.assign(self.xfstar.riesz_representation())
+        self.wtr.assign(0)
+        self.solver.solve()
+        self.yf.assign(self.htr)
+
+        # copy petsc vec into Function
+        with self.yf.dat.vec_ro as v:
+            v.copy(y)
 
 
 # solver parameters for the implicit solve
@@ -190,11 +272,26 @@ aux_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": "utils.serial.AuxiliarySerialPC",
-    # "aux": lu_params
+    "aux": lu_params
     # "aux": mg_sparams
-    "aux": hybridization_sparams
+    # "aux": hybridization_sparams
 }
 
+hybr_sparams = {
+    'pc_type': 'fieldsplit',
+    'pc_fieldsplit_type': 'schur',
+    'pc_fieldsplit_schur_fact_type': 'full',
+    'fieldsplit_0': {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps',
+    },
+    'fieldsplit_1': {
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': f'{__name__}.ApproxHybridPC',
+    },
+}
 
 atol = 1e2
 sparameters = {
@@ -208,21 +305,22 @@ sparameters = {
         'ksp_ew_threshold': 1e-5,
         'ksp_ew_rtol0': 1e-3,
         'lag_preconditioner': -2,
-        'lag_preconditioner_persists': None,
+        # 'lag_preconditioner_persists': None,
     },
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_rate': None,
         'atol': atol,
-        'rtol': 1e-5,
+        'rtol': 1e-2,
     },
 }
 
 # sparameters.update(lu_params)
 # sparameters.update(mg_sparams)
 # sparameters.update(hybridization_sparams)
-sparameters.update(aux_sparams)
+# sparameters.update(aux_sparams)
+sparameters.update(hybr_sparams)
 
 # from json import dumps as dump_json
 # PETSc.Sys.Print("sparameters =")
