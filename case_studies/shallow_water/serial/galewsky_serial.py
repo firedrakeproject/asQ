@@ -22,7 +22,8 @@ parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 
-parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid.')
+parser.add_argument('--ref_level', type=int, default=3, help='Refinement level of icosahedral grid.')
+parser.add_argument('--base_level', type=int, default=1, help='Refinement level of icosahedral grid.')
 parser.add_argument('--nt', type=int, default=10, help='Number of time steps.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--degree', type=float, default=swe.default_degree(), help='Degree of the depth function space.')
@@ -46,7 +47,9 @@ PETSc.Sys.Print('### === --- Setting up --- === ###')
 PETSc.Sys.Print('')
 
 # icosahedral mg mesh
-mesh = swe.create_mg_globe_mesh(ref_level=args.ref_level, coords_degree=1)
+mesh = swe.create_mg_globe_mesh(ref_level=args.ref_level,
+                                base_level=args.base_level,
+                                coords_degree=1)
 x = fd.SpatialCoordinate(mesh)
 
 # time step
@@ -56,10 +59,10 @@ dt = args.dt*units.hour
 W = swe.default_function_space(mesh, degree=args.degree)
 
 # parameters
-gravity = earth.Gravity
+g = earth.Gravity
 
-topography = galewsky.topography_expression(*x)
-coriolis = swe.earth_coriolis_expression(*x)
+b = galewsky.topography_expression(*x)
+f = swe.earth_coriolis_expression(*x)
 
 # initial conditions
 w_initial = fd.Function(W)
@@ -76,12 +79,12 @@ w1 = fd.Function(W).assign(w_initial)
 
 # mean height
 H = function_mean(h_initial)
+H = galewsky.H0
 
 
 # shallow water equation forms
 def form_function(u, h, v, q, t):
-    return swe.nonlinear.form_function(mesh, gravity,
-                                       topography, coriolis,
+    return swe.nonlinear.form_function(mesh, g, b, f,
                                        u, h, v, q, t)
 
 
@@ -90,16 +93,8 @@ def form_mass(u, h, v, q):
 
 
 def aux_form_function(u, h, v, q, t):
-    # Ku = swe.nonlinear.form_function_velocity(
-    #     mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
-
-    Ku = swe.linear.form_function_u(
-        mesh, gravity, coriolis, u, h, v, t)
-
-    Kh = swe.linear.form_function_h(
-        mesh, H, u, h, q, t)
-
-    return Ku + Kh
+    return swe.linear.form_function(mesh, g, H, f,
+                                    u, h, v, q, t)
 
 
 appctx = {'aux_form_function': aux_form_function}
@@ -108,7 +103,7 @@ appctx = {'aux_form_function': aux_form_function}
 # solver parameters for the implicit solve
 factorisation_params = {
     'ksp_type': 'preonly',
-    'pc_factor_mat_ordering_type': 'rcm',
+    # 'pc_factor_mat_ordering_type': 'rcm',
     'pc_factor_reuse_ordering': None,
     'pc_factor_reuse_fill': None,
 }
@@ -297,7 +292,6 @@ PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {li
 PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/args.nt}')
 PETSc.Sys.Print('')
 
-mesh = miniapp.mesh
 W = miniapp.function_space
 PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}')
 PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size}')

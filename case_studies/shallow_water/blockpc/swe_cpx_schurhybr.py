@@ -80,13 +80,13 @@ args = args[0]
 if args.show_args:
     Print(args)
 
-mesh, u, coriolis, topography = read_checkpoint(args.checkpoint, args.funcname,
+mesh, u, f, b = read_checkpoint(args.checkpoint, args.funcname,
                                                 args.index, args.ref_level)
 
 x = fd.SpatialCoordinate(mesh)
 
 # case parameters
-gravity = earth.Gravity
+g = earth.Gravity
 
 uref, href = u.subfunctions
 H = function_mean(href)
@@ -98,22 +98,13 @@ def form_mass(u, h, v, q):
 
 
 def form_function(u, h, v, q, t=None):
-    return swe.nonlinear.form_function(mesh,
-                                       gravity,
-                                       topography,
-                                       coriolis,
+    return swe.nonlinear.form_function(mesh, g, b, f,
                                        u, h, v, q, t)
 
 
 def aux_form_function(u, h, v, q, t):
-    # Ku = swe.nonlinear.form_function_velocity(
-    #     mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
-
-    Ku = swe.linear.form_function_u(
-        mesh, gravity, coriolis, u, h, v, t)
-
-    Kh = swe.linear.form_function_h(
-        mesh, H, u, h, q, t)
+    return swe.linear.form_function(mesh, g, H, f,
+                                    u, h, v, q, t)
 
     return Ku + Kh
 
@@ -123,8 +114,7 @@ def form_mass_tr(u, h, tr, v, q, s):
 
 
 def form_function_tr(u, h, tr, v, q, dtr, t=None):
-    g = gravity
-    K = swe.linear.form_function(mesh, g, H, coriolis,
+    K = swe.linear.form_function(mesh, g, H, f,
                                  u, h, v, q, t)
     n = fd.FacetNormal(mesh)
     Khybr = (
@@ -375,6 +365,8 @@ if args.eigenvalue < 0:
 else:
     neigs = 1
     eig_range = tuple(range(args.eigenvalue, args.eigenvalue+1))
+
+PETSc.Sys.Print(f"Calculating for eigenvalues: {eig_range}")
 
 nits = np.zeros((args.nt//2+1, args.nrhs), dtype=int)
 for i in eig_range:

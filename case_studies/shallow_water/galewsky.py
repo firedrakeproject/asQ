@@ -22,6 +22,7 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid.')
+parser.add_argument('--base_level', type=int, default=2, help='Base refinement level for multigrid.')
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
@@ -61,26 +62,12 @@ dt = args.dt*units.hour
 
 
 def aux_form_function(u, h, v, q, t):
-    mesh = v.ufl_domain()
+    mesh = u.ufl_domain()
     coords = fd.SpatialCoordinate(mesh)
-
-    gravity = earth.Gravity
-    topography = galewsky.topography_expression(*coords)  # noqa: F841
-    coriolis = swe.earth_coriolis_expression(*coords)
+    f = swe.earth_coriolis_expression(*coords)
+    g = earth.Gravity
     H = galewsky.H0
-
-    # Ku = swe.nonlinear.form_function_velocity(
-    #     mesh, gravity, topography, coriolis, u, h, v, t, perp=fd.cross)
-
-    # Ku = swe.linear.form_function_u(
-    #     mesh, gravity, coriolis, u, h, v, t)
-
-    # Kh = swe.linear.form_function_h(
-    #     mesh, H, u, h, q, t)
-
-    # return Ku + Kh
-
-    return swe.linear.form_function(mesh, gravity, H, coriolis,
+    return swe.linear.form_function(mesh, g, H, f,
                                     u, h, v, q, t)
 
 
@@ -202,6 +189,7 @@ for i in range(window_length):
 create_mesh = partial(
     swe.create_mg_globe_mesh,
     ref_level=args.ref_level,
+    base_level=args.base_level,
     coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
@@ -221,12 +209,6 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename,
                                   record_diagnostics={'cfl': args.record_cfl, 'file': False})
-
-ics = miniapp.aaofunc.initial_condition
-reference_state = miniapp.solver.jacobian.reference_state
-reference_state.assign(ics)
-reference_state.subfunctions[0].assign(0)
-reference_state.subfunctions[1].assign(galewsky.H0)
 
 timer = SolverTimer()
 
