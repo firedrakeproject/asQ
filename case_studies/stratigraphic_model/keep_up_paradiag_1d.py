@@ -8,7 +8,7 @@ import argparse
 parser = argparse.ArgumentParser(
     description='Paradiag for Stratigraphic model that simulate formation of sedimentary rock over geological time.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--nx', type=int, default=150, help='Number of cells along each square side at the coarse level.')
+parser.add_argument('--nx', type=int, default=75, help='Number of cells along each square side at the coarse level.')
 parser.add_argument('--LR', type=int, default=2, help='Number of level refinements.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
@@ -31,7 +31,7 @@ time_partition = tuple(args.slice_length for _ in range(args.nslices))
 window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
-dt = 1000
+dt = 100
 
 # The Ensemble with the spatial and time communicators
 ensemble = asQ.create_ensemble(time_partition)
@@ -39,15 +39,16 @@ ensemble = asQ.create_ensemble(time_partition)
 # # # === --- domain --- === # # #
 
 # The mesh needs to be created with the spatial communicator
-mesh = fd.SquareMesh(args.nx, args.nx, 100000, quadrilateral=False, comm=ensemble.comm)
+mesh = fd.IntervalMesh(args.nx, 100000, comm=ensemble.comm)
 hierarchy = fd.MeshHierarchy(mesh, args.LR)
 mesh = hierarchy[-1]
+h = fd.avg(fd.CellDiameter(mesh))
 
 V = fd.FunctionSpace(mesh, "CG", args.degree)
 
 # # # === --- initial conditions --- === # # #
 
-x, y = fd.SpatialCoordinate(mesh)
+x, = fd.SpatialCoordinate(mesh)
 
 s0 = fd.Function(V, name="scalar_initial")
 s0.interpolate(fd.Constant(0.0))
@@ -55,7 +56,8 @@ s0.interpolate(fd.Constant(0.0))
 
 # The sediment movement D
 def D(D_c, d):
-    return D_c*2*1e6/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
+    AA = D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
+    return 1e6*fd.sqrt(AA**2 + (h/100000)**3)
 
 
 # The carbonate growth L.
@@ -73,11 +75,12 @@ def form_mass(s, q):
 D_c = fd.Constant(.002)
 G_0 = fd.Constant(.004)
 A = fd.Constant(50)
-b = 100*fd.tanh(1/20000*(x-50000))
+b = 10*fd.tanh(1/20000*(x-50000))
+
 
 
 def form_function(s, q, t):
-    return D(D_c, A*fd.sin(2*pi*t/500000)-b-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, A*fd.sin(2*pi*t/500000)-b-s)*q*fd.dx
+    return D(D_c, A*fd.sin(2*pi*t/500000)-b-s)*s.dx(0)*q.dx(0)*fd.dx-L(G_0, A*fd.sin(2*pi*t/500000)-b-s)*q*fd.dx
 
 
 # # # === --- PETSc solver parameters --- === # # #

@@ -1,27 +1,23 @@
 import firedrake as fd
-from math import pi
-from utils.serial import SerialMiniApp
+from math import pi, floor
+from firedrake.petsc import PETSc
 
 N = 250
-mesh = fd.SquareMesh(N, N, 100000, quadrilateral=False)
+mesh = fd.IntervalMesh(N, 100000)
 hierarchy = fd.MeshHierarchy(mesh, 2)
 mesh = hierarchy[-1]
+h = fd.avg(fd.CellDiameter(mesh))
 
 V = fd.FunctionSpace(mesh, "CG", 1)
 
 # # # === --- initial conditions --- === # # #
 
-x, y = fd.SpatialCoordinate(mesh)
-
-s0 = fd.Function(V, name="scalar_initial")
-s0.interpolate(fd.Constant(0.0))
-
-dt = 1000
-
+x, = fd.SpatialCoordinate(mesh)
 
 # The sediment movement D
 def D(D_c, d):
-    return D_c*2*1e6/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
+    AA = D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
+    return 1e6*fd.sqrt(AA**2 + (h/100000)**3)
 
 
 # The carbonate growth L.
@@ -45,7 +41,7 @@ b = 100*fd.tanh(1/20000*(x-50000))
 
 
 def form_function(s, q, t):
-    return D(D_c, sea_level(A, t)-b-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, sea_level(A, t)-b-s)*q*fd.dx
+    return D(D_c, sea_level(A, t)-b-s)*s.dx(0)*q.dx(0)*fd.dx-L(G_0, sea_level(A, t)-b-s)*q*fd.dx
 
 
 sp = {
@@ -87,14 +83,51 @@ sp = {
     "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
 }
 
+sp_0 = {
+    "snes_max_it": 2000,
+    "snes_atol": 1.0e-8,
+    "snes_rtol": 1.0e-8,
+    "snes_monitor": None,
+    "snes_linesearch_type": "l2",
+    "snes_converged_reason": None,
+    "mat_type": "aij",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "pc_factor_mat_solver_type": "mumps",
+    "mat_mumps_icntl_28": 2,
+    "mat_mumps_icntl_29": 1
+}
+
+
 theta = 0.5
+dt = fd.Constant(100)
+dt1 = fd.Constant(1./dt)
+time = fd.Constant(dt)
 
-miniapp = SerialMiniApp(dt, theta,
-                        s0,
-                        form_mass,
-                        form_function,
-                        sp)
+s_0 = fd.Function(V, name="scalar_initial")
+s_0.interpolate(fd.Constant(0.0))
+s_1 = fd.Function(V)
+s_1.assign(s_0)
+v = fd.TestFunction(V)
 
-# Solve of the required number of timesteps j
-j = 128
-miniapp.solve(j)
+
+dqdt = form_mass(s_1, v) - form_mass(s_0, v)
+LL = theta*form_function(s_1, v, time) + (1 - theta)*form_function(s_0, v, time - dt)
+
+F = (dt1*dqdt + LL)
+nlvp = fd.NonlinearVariationalProblem(F, s_1)
+solver = fd.NonlinearVariationalSolver(nlvp, solver_parameters=sp_0)
+
+outfile = fd.File("output/s.pvd")
+for step in range(floor(float(5e5/dt))):
+    solver.solve()
+    PETSc.Sys.Print(f" at time {time.values()}")
+    s_0.assign(s_1)
+    if float(time) % 1000 == 0:
+        outfile.write(s_1)
+    time.assign(time + dt)
+
+
+
+
+

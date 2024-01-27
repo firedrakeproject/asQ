@@ -8,7 +8,8 @@ import argparse
 parser = argparse.ArgumentParser(
     description='Paradiag for Stratigraphic model that simulate formation of sedimentary rock over geological time.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--nx', type=int, default=250, help='Number of cells along each square side.')
+parser.add_argument('--nx', type=int, default=75, help='Number of cells along each square side at the coarse level.')
+parser.add_argument('--LR', type=int, default=2, help='Number of level refinements.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
@@ -30,7 +31,7 @@ time_partition = tuple(args.slice_length for _ in range(args.nslices))
 window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 
-dt = 1000
+dt = 100
 
 # The Ensemble with the spatial and time communicators
 ensemble = asQ.create_ensemble(time_partition)
@@ -38,22 +39,24 @@ ensemble = asQ.create_ensemble(time_partition)
 # # # === --- domain --- === # # #
 
 # The mesh needs to be created with the spatial communicator
-mesh = fd.SquareMesh(args.nx, args.nx, 100000, quadrilateral=False, comm=ensemble.comm)
+mesh = fd.IntervalMesh(args.nx, 100000, comm=ensemble.comm)
+hierarchy = fd.MeshHierarchy(mesh, args.LR)
+mesh = hierarchy[-1]
+h = fd.avg(fd.CellDiameter(mesh))
 
 V = fd.FunctionSpace(mesh, "CG", args.degree)
 
 # # # === --- initial conditions --- === # # #
 
-x, y = fd.SpatialCoordinate(mesh)
+x, = fd.SpatialCoordinate(mesh)
 
 s0 = fd.Function(V, name="scalar_initial")
 s0.interpolate(fd.Constant(0.0))
 
-
 # The sediment movement D
 def D(D_c, d):
-    return D_c*2*1e6/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
-
+    AA = D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
+    return 1e6*fd.sqrt(AA**2 + (h/100000)**3)
 
 # The carbonate growth L.
 def L(G_0, d):
@@ -80,10 +83,11 @@ b = 100*fd.tanh(1/20000*(x-50000))
 
 
 def form_function(s, q, t):
-    return (D(D_c, sea_level(A, t)-b-Subsidence(t)-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, sea_level(A, t)-b-Subsidence(t)-s)*q*fd.dx)
-
+    return (D(D_c, sea_level(A, t)-b-Subsidence(t)-s)*s.dx(0)*q.dx(0)*fd.dx-L(G_0, sea_level(A, t)-b-Subsidence(t)-s)*q*fd.dx)
 
 # # # === --- PETSc solver parameters --- === # # #
+
+
 # The PETSc solver parameters used to solve the
 # blocks in step (b) of inverting the ParaDiag matrix.
 block_parameters = {
@@ -136,7 +140,7 @@ paradiag_parameters = {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-8,
-        'atol': 1e-100,
+        'atol': 1e-8,
         'stol': 1e-100,
     },
     'mat_type': 'matfree',
@@ -145,7 +149,7 @@ paradiag_parameters = {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-8,
-        'atol': 1e-100,
+        'atol': 1e-8,
         'stol': 1e-100,
     },
     'pc_type': 'python',
@@ -164,6 +168,8 @@ for i in range(window_length):
 # Give everything to asQ to create the paradiag object.
 # the circ parameter determines where the alpha-circulant
 # approximation is introduced. None means only in the preconditioner.
+
+
 pdg = asQ.Paradiag(ensemble=ensemble,
                    form_function=form_function,
                    form_mass=form_mass,
@@ -175,12 +181,10 @@ pdg = asQ.Paradiag(ensemble=ensemble,
 # This is a callback which will be called before pdg solves each time-window
 # We can use this to make the output a bit easier to read
 
-
 def window_preproc(pdg, wndw, rhs):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
-
 # The last time-slice will be saving snapshots to create an animation.
 # The layout member describes the time_partition.
 # layout.is_local(i) returns True/False if the timestep index i is on the
@@ -206,7 +210,6 @@ def window_postproc(pdg, wndw, rhs):
         timeseries.append(qout.copy(deepcopy=True))
 
 
-# Solve nwindows of the all-at-once system
 pdg.solve(args.nwindows,
           preproc=window_preproc,
           postproc=window_postproc)
@@ -231,6 +234,4 @@ PETSc.Sys.Print(f'block linear iterations: {pdg.block_iterations._data}  |  iter
 
 # We can write these diagnostics to file, along with some other useful information.
 # Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt
-
-
 asQ.write_paradiag_metrics(pdg)

@@ -2,17 +2,17 @@ import firedrake as fd
 from math import pi, floor
 from firedrake.petsc import PETSc
 
-N = 250
-mesh = fd.IntervalMesh(N, 100000)
+N = 100
+mesh = fd.SquareMesh(N, N, 100000, quadrilateral=False)
 hierarchy = fd.MeshHierarchy(mesh, 2)
 mesh = hierarchy[-1]
+h = fd.CellDiameter(mesh)
 
 V = fd.FunctionSpace(mesh, "CG", 1)
 
 # # # === --- initial conditions --- === # # #
 
-x, = fd.SpatialCoordinate(mesh)
-h = fd.avg(fd.CellDiameter(mesh))
+x, y = fd.SpatialCoordinate(mesh)
 
 # The sediment movement D
 def D(D_c, d):
@@ -25,27 +25,23 @@ def L(G_0, d):
     return G_0*fd.conditional(d > 0, fd.exp(-d/10)/(1 + fd.exp(-50*d)), fd.exp((50-1/10)*d)/(fd.exp(50*d) + 1))
 
 
-def Subsidence(t):
-    return -((100000-x)/10000)*(t/100000)
-
-
 def sea_level(A, t):
     return A*fd.sin(2*pi*t/500000)
 
 
 # # # === --- finite element forms --- === # # #
 def form_mass(s, q):
-    return (s*q*fd.dx)
+    return s*q*fd.dx
 
 
 D_c = fd.Constant(.002)
 G_0 = fd.Constant(.004)
 A = fd.Constant(50)
-b = 100*fd.tanh(1/20000*(x-50000))
+b = 90*fd.tanh(1/20000*(x-50000)) + 10*fd.sin(x/4000)*fd.sin(y/3000)
 
 
 def form_function(s, q, t):
-    return (D(D_c, sea_level(A, t)-b-Subsidence(t)-s)*s.dx(0)*q.dx(0)*fd.dx-L(G_0, sea_level(A, t)-b-Subsidence(t)-s)*q*fd.dx)
+    return D(D_c, sea_level(A, t)-b-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, sea_level(A, t)-b-s)*q*fd.dx
 
 
 sp = {
@@ -87,7 +83,6 @@ sp = {
     "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
 }
 
-
 sp_0 = {
     "snes_max_it": 2000,
     "snes_atol": 1.0e-8,
@@ -105,7 +100,7 @@ sp_0 = {
 
 
 theta = 0.5
-dt = fd.Constant(100)
+dt = fd.Constant(1000)
 dt1 = fd.Constant(1./dt)
 time = fd.Constant(dt)
 
@@ -122,16 +117,17 @@ LL = theta*form_function(s_1, v, time) + (1 - theta)*form_function(s_0, v, time 
 F = (dt1*dqdt + LL)
 nlvp = fd.NonlinearVariationalProblem(F, s_1)
 solver = fd.NonlinearVariationalSolver(nlvp, solver_parameters=sp_0)
+FF = fd.Function(V)
 
 outfile = fd.File("output/s.pvd")
 for step in range(floor(float(5e5/dt))):
     solver.solve()
     PETSc.Sys.Print(f" at time {time.values()}")
     s_0.assign(s_1)
+    FF.interpolate(b)
     if float(time) % 1000 == 0:
-        outfile.write(s_1)
+        outfile.write(s_1, FF)
     time.assign(time + dt)
-
 
 
 
