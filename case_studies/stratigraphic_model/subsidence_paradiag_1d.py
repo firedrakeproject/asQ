@@ -53,10 +53,12 @@ x, = fd.SpatialCoordinate(mesh)
 s0 = fd.Function(V, name="scalar_initial")
 s0.interpolate(fd.Constant(0.0))
 
+
 # The sediment movement D
 def D(D_c, d):
     AA = D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
     return 1e6*fd.sqrt(AA**2 + (h/100000)**3)
+
 
 # The carbonate growth L.
 def L(G_0, d):

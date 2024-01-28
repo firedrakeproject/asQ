@@ -78,7 +78,6 @@ A = fd.Constant(50)
 b = 90*fd.tanh(1/20000*(x-50000)) + 10*fd.sin(x/4000)*fd.sin(y/3000)
 
 
-
 def form_function(s, q, t):
     return D(D_c, A*fd.sin(2*pi*t/500000)-b-s)*fd.inner(fd.grad(s), fd.grad(q))*fd.dx-L(G_0, A*fd.sin(2*pi*t/500000)-b-s)*q*fd.dx
 

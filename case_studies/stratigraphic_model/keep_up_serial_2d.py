@@ -14,6 +14,7 @@ V = fd.FunctionSpace(mesh, "CG", 1)
 
 x, y = fd.SpatialCoordinate(mesh)
 
+
 # The sediment movement D
 def D(D_c, d):
     AA = D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
@@ -128,8 +129,3 @@ for step in range(floor(float(5e5/dt))):
     if float(time) % 1000 == 0:
         outfile.write(s_1, FF)
     time.assign(time + dt)
-
-
-
-
-

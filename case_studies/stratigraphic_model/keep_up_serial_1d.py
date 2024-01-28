@@ -14,6 +14,7 @@ V = fd.FunctionSpace(mesh, "CG", 1)
 
 x, = fd.SpatialCoordinate(mesh)
 
+
 # The sediment movement D
 def D(D_c, d):
     AA = D_c*2/fd.Constant(fd.sqrt(2*pi))*fd.exp(-1/2*((d-5)/10)**2)
@@ -99,8 +100,8 @@ sp_0 = {
 }
 
 
-theta = 0.5
-dt = fd.Constant(100)
+theta = 1
+dt = fd.Constant(100/8)
 dt1 = fd.Constant(1./dt)
 time = fd.Constant(dt)
 
@@ -110,9 +111,8 @@ s_1 = fd.Function(V)
 s_1.assign(s_0)
 v = fd.TestFunction(V)
 
-
 dqdt = form_mass(s_1, v) - form_mass(s_0, v)
-LL = theta*form_function(s_1, v, time) + (1 - theta)*form_function(s_0, v, time - dt)
+LL = theta*form_function(s_1, v, time) + (1 - theta)*form_function(s_0, v, time - dt)\
 
 F = (dt1*dqdt + LL)
 nlvp = fd.NonlinearVariationalProblem(F, s_1)
@@ -126,8 +126,3 @@ for step in range(floor(float(5e5/dt))):
     if float(time) % 1000 == 0:
         outfile.write(s_1)
     time.assign(time + dt)
-
-
-
-
-
