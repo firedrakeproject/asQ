@@ -214,7 +214,8 @@ def write_paradiag_setup(pdg, directory=""):
                 f"comm.size = {pdg.ensemble.comm.size}\n" + \
                 f"ensemble_comm.size = {pdg.ensemble.ensemble_comm.size}\n" + \
                 f"global_comm.size = {pdg.ensemble.global_comm.size}\n"
-            if hasattr(pdg.solver.jacobian.pc, "alpha"):
+            jacobian = pdg.solver.jacobian
+            if hasattr(jacobian, "pc") and hasattr(jacobian.pc, "alpha"):
                 info += f"alpha = {pdg.solver.jacobian.pc.alpha}"
             f.write(info)
     return
