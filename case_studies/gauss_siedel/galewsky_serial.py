@@ -198,29 +198,55 @@ for j in range(args.nsweeps):
     PETSc.Sys.Print(f'### === --- Calculating nonlinear sweep {j} --- === ###')
     PETSc.Sys.Print('')
 
-    # 1) one smoothing application on each chunk
+    # 1) set ics from previous iteration of previous chunk
+    if (args.nlmethod == 'jac'):
+        for i in range(1, args.nchunks):
+            chunks[i-1].bcast_field(-1, chunks[i].initial_condition)
+
     for i in range(args.nchunks):
         PETSc.Sys.Print(f'        --- Calculating chunk {i} ---        ')
 
-        global_comm.Barrier()
-        if chunk_id == i:
-            aaosolver.solve()
-        global_comm.Barrier()
+        # 1) set ic from current iteration of previous chunk
+        if (args.nlmethod == 'gs'):
+            if i > 0:
+                chunks[i-1].bcast_field(-1, chunks[i].initial_condition)
 
+        # 2) load chunk i solution
+        aaofunc.assign(chunks[i])
+
+        # 3) one iteration of chunk i
+        aaosolver.solve()
         PETSc.Sys.Print("")
 
-    # 2) update ics of each chunk from previous chunk
-    update_ics(global_aaofunc, chunk_aaofunc)
+        # 4) save chunk i solution
+        chunks[i].assign(aaofunc)
 
-    # 3) shuffle earlier chunks if converged
-    if j < args.ninitialise:
-        break
+    # check if first chunks have converged
+    for i in range(args.nchecks):
+        if j < args.ninitialise:
+            break
 
-    update_chunk_residuals(chunk_aaofunc, chunk_residuals)
-    nshuffle = count_converged(chunk_residuals, args.nchecks)
-    shuffle_chunks(global_aaofunc, chunk_aaofunc, nshuffle)
+        aaoform.assemble(chunks[0])
+        with aaoform.F.global_vec_ro() as rvec:
+            res = rvec.norm()
 
-    nconverged += nshuffle
+        if res < patol:
+            PETSc.Sys.Print(f">>> Chunk {str(i).rjust(2)} converged with function norm = {res:.6e} <<<")
+            nconverged += 1
+
+            # make sure we calculate the most up to date residual for the next chunk
+            chunks[0].bcast_field(-1, chunks[1].initial_condition)
+
+            # shuffle chunks down
+            for i in range(args.nchunks-1):
+                chunks[i].assign(chunks[i+1])
+
+            # reset last chunk to start from end of series
+            chunks[-1].bcast_field(-1, chunks[-1].initial_condition)
+            chunks[-1].assign(chunks[-1].initial_condition)
+
+        else:  # stop checking at first unconverged chunk
+            break
 
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f">>> Converged chunks: {int(nconverged)}.")
