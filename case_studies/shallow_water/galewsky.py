@@ -1,6 +1,5 @@
 from firedrake.petsc import PETSc
 
-import asQ
 import firedrake as fd  # noqa: F401
 from utils import units
 from utils.planets import earth
@@ -96,12 +95,46 @@ sparameters = {
     'mg': mg_parameters
 }
 
+sparameters = {
+    'ksp_type': 'preonly',
+    'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps',
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
+}
+
+none_parameters = {
+    'pc_type': 'none'
+}
+
+circulant_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.CirculantPC',
+    'diagfft_block': sparameters,
+}
+
+jacobi_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.JacobiPC',
+    'aaojacobi_block': sparameters,
+}
+
+slice_jacobi_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.SliceJacobiPC',
+    'slice_jacobi_nsteps': 4,
+    'slice_jacobi_slice_ksp_type': 'preonly',
+    # 'slice_jacobi_slice': jacobi_parameters,
+    'slice_jacobi_slice': circulant_parameters,
+}
+
+atol = 1e4
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-0,
+        'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
         'ksp_ew': None,
@@ -112,18 +145,15 @@ sparameters_diag = {
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_rate': None,
-        'rtol': 1e-5,
-        'atol': 1e-0,
+        'converged_reason': None,
+        'rtol': 1e-3,
+        'atol': atol,
     },
-    'pc_type': 'python',
-    'pc_python_type': 'asQ.JacobiPC',
 }
-
-pc_name = 'aaojacobi'
-
-for i in range(window_length):
-    sparameters_diag[f'{pc_name}_block_'+str(i)+'_'] = sparameters
+# sparameters_diag.update(none_parameters)
+# sparameters_diag.update(jacobi_parameters)
+# sparameters_diag.update(circulant_parameters)
+sparameters_diag.update(slice_jacobi_parameters)
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
@@ -156,6 +186,7 @@ def window_preproc(swe_app, pdg, wndw):
 
 
 def window_postproc(swe_app, pdg, wndw):
+    return
     if miniapp.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
         time = nt*pdg.aaoform.dt
@@ -171,27 +202,28 @@ miniapp.solve(nwindows=args.nwindows,
               preproc=window_preproc,
               postproc=window_postproc)
 
-PETSc.Sys.Print('### === --- Iteration counts --- === ###')
-
-asQ.write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
-
-PETSc.Sys.Print('')
-
-nw = miniapp.paradiag.total_windows
-nt = miniapp.paradiag.total_timesteps
-PETSc.Sys.Print(f'windows: {nw}')
-PETSc.Sys.Print(f'timesteps: {nt}')
-PETSc.Sys.Print('')
-
-lits = miniapp.paradiag.linear_iterations
-nlits = miniapp.paradiag.nonlinear_iterations
-blits = miniapp.paradiag.block_iterations.data()
-
-PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
-PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
-PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
-PETSc.Sys.Print('')
-
-PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
-PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
-PETSc.Sys.Print('')
+# PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+#
+# from asQ import write_paradiag_metrics
+# write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
+#
+# PETSc.Sys.Print('')
+#
+# nw = miniapp.paradiag.total_windows
+# nt = miniapp.paradiag.total_timesteps
+# PETSc.Sys.Print(f'windows: {nw}')
+# PETSc.Sys.Print(f'timesteps: {nt}')
+# PETSc.Sys.Print('')
+#
+# lits = miniapp.paradiag.linear_iterations
+# nlits = miniapp.paradiag.nonlinear_iterations
+# blits = miniapp.paradiag.block_iterations.data()
+#
+# PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
+# PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
+# PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
+# PETSc.Sys.Print('')
+#
+# PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
+# PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+# PETSc.Sys.Print('')
