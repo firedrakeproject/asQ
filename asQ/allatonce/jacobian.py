@@ -29,7 +29,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
     prefix = "aaos_jacobian_"
 
     @profiler()
-    def __init__(self, aaoform, current_state,
+    def __init__(self, aaoform,
                  reference_state=None,
                  options_prefix="",
                  appctx={}):
@@ -37,7 +37,6 @@ class AllAtOnceJacobian(TimePartitionMixin):
         Python context for a PETSc Mat for the Jacobian of an AllAtOnceForm.
 
         :arg aaoform: The AllAtOnceForm object to linearise.
-        :arg current_state: The AllAtOnceFunction being solved for.
         :arg reference_state: A firedrake.Function for a single timestep.
             Only needed if 'aaos_jacobian_state' is 'reference'.
         :arg options_prefix: string prefix for the Jacobian PETSc options.
@@ -49,8 +48,6 @@ class AllAtOnceJacobian(TimePartitionMixin):
         aaofunc = aaoform.aaofunc
         self.aaoform = aaoform
         self.aaofunc = aaofunc
-
-        self.current_state = current_state
 
         self.appctx = appctx
 
@@ -110,8 +107,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         Update the state to linearise around according to aaos_jacobian_state.
 
         :arg X: an optional AllAtOnceFunction or global PETSc Vec.
-            If X is not None and aaos_jacobian_state = 'current' then the state
-            is updated from X instead of self.current_state.
+            If X is not None then the state is updated from X.
         """
 
         aaofunc = self.aaofunc
@@ -121,16 +117,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
             pass
 
         elif jacobian_state == 'current':
-            if X is None:
-                X = self.current_state
-            self.aaofunc.assign(X)
+            if X is not None:
+                self.aaofunc.assign(X)
 
         elif jacobian_state in ('window', 'slice'):
-            time_average(self.current_state, self.ureduce, self.uwrk, average=jacobian_state)
+            self.aaofunc.assign(X)
+            time_average(self.aaofunc, self.ureduce, self.uwrk, average=jacobian_state)
             aaofunc.assign(self.ureduce)
 
         elif jacobian_state == 'initial':
-            aaofunc.assign(self.current_state.initial_condition)
+            aaofunc.assign(self.aaofunc.initial_condition)
 
         elif jacobian_state == 'reference':
             aaofunc.assign(self.reference_state)

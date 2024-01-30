@@ -46,7 +46,7 @@ class AllAtOncePCBase(TimePartitionMixin):
         self._time_partition_setup(jacobian.ensemble, jacobian.time_partition)
 
         jacobian.pc = self
-        aaofunc = jacobian.current_state
+        aaofunc = jacobian.aaofunc
         self.aaofunc = aaofunc
         self.aaoform = jacobian.aaoform
 

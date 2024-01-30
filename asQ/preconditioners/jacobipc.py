@@ -277,10 +277,9 @@ class SliceJacobiPC(AllAtOncePCBase):
 
         # TODO: this won't work if we try to build the
         # slice jacobian with anything other than
-        # 'aaos_jacobian_jacobian_state': 'current'
-        # because the slice_solver will give the
-        # slice_jacobian the zero_func as the
-        # current state.
+        # 'aaos_jacobian_state': 'user' because the
+        # slice_jacobian will be given the zero_func
+        # to update from.
 
         # here we abuse that aaoform.copy will create
         # the new form over the ensemble of the
@@ -293,8 +292,12 @@ class SliceJacobiPC(AllAtOncePCBase):
         # # # slice parameters # # #
 
         # most parameters are grabbed from the global options,
-        # we just need to make sure that the solver is linear.
-        slice_parameters = {'snes_type': 'ksponly'}
+        # we just need to make sure that the solver is linear
+        # and we're in charge of updating the jacobian state.
+        slice_parameters = {
+            'snes_type': 'ksponly',
+            'aaos_jacobian_state': 'user',
+        }
 
         # # # slice prefix # # #
         slice_prefix = f"{self.full_prefix}slice"
@@ -320,6 +323,7 @@ class SliceJacobiPC(AllAtOncePCBase):
 
         for i in range(self.nlocal_timesteps):
             slice_func[i].assign(aaofunc[i])
+        slice_func.update_time_halos()
 
         # are we the first slice?
         if self.slice_rank == 0:
