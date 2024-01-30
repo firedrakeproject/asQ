@@ -1,11 +1,13 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 from asQ.profiling import profiler
+from asQ.ensemble import split_ensemble
 from asQ.parallel_arrays import SharedArray
-from asQ.allatonce import time_average
-from asQ.preconditioners.base import AllAtOnceBlockPCBase
+from asQ.allatonce import (time_average, AllAtOnceSolver,
+                           AllAtOnceFunction, AllAtOnceCofunction)
+from asQ.preconditioners.base import AllAtOnceBlockPCBase, AllAtOncePCBase
 
-__all__ = ['JacobiPC']
+__all__ = ['JacobiPC', 'SliceJacobiPC']
 
 
 class JacobiPC(AllAtOnceBlockPCBase):
@@ -203,6 +205,146 @@ class JacobiPC(AllAtOnceBlockPCBase):
         self.y.zero()
         for i in range(self.nlocal_timesteps):
             self.block_solvers[i].solve()
+
+    @profiler()
+    def applyTranspose(self, pc, x, y):
+        raise NotImplementedError
+
+
+class SliceJacobiPC(AllAtOncePCBase):
+    prefix = "slice_jacobi_"
+
+    @profiler()
+    def initialize(self, pc, final_initialize=True):
+        super().initialize(pc, final_initialize=False)
+
+        # # # slice ensemble # # #
+
+        # slice here means the smaller local ensemble, not the
+        # section of the timeseries on the local ensemble member.
+
+        # how many timesteps in each slice?
+        slice_size = PETSc.Options().getInt(
+            f"{self.full_prefix}nsteps")
+
+        # create the ensemble for the local slice by splitting the global ensemble
+        self.slice_ensemble = split_ensemble(self.ensemble, self.time_partition,
+                                             split_size=slice_size)
+
+        # how many ensemble members in each slice?
+        slice_members = self.slice_ensemble.ensemble_comm.size
+
+        # which slice are we in?
+        self.slice_rank = self.ensemble.ensemble_comm.rank // slice_members
+
+        # the slice partition matches the corresponding
+        # slice of the global partition.
+        # only works for balanced partitions yet
+        part = self.time_partition[0]
+        slice_partition = tuple(part for i in range(slice_members))
+
+        # # # slice aaofuncs - zero, jacobian, yslice # # #
+
+        # the rhs to the slice solver is the incoming residual
+        # so the nonlinear slice residual must be zero
+        field_function_space = self.aaofunc.field_function_space
+        zero_func = AllAtOnceFunction(self.slice_ensemble,
+                                      slice_partition,
+                                      field_function_space)
+        zero_func.zero()
+
+        # the slice jacobian is created around a slice
+        # aaofunc that tracks the global aaofunc
+        self.slice_func = zero_func.copy(copy_values=True)
+        for i in range(self.nlocal_timesteps):
+            self.slice_func[i].assign(self.aaofunc[i])
+
+        # the result is placed in here and then copied
+        # out to the global result
+        self.yslice = zero_func.copy()
+
+        # this is the slice rhs
+        self.xslice = AllAtOnceCofunction(self.slice_ensemble,
+                                          slice_partition,
+                                          field_function_space.dual())
+
+        # # # slice aaoforms - zero, jacobian, # # #
+
+        # the nonlinear form and jacobian form must be
+        # created over different aaofuncs so that the
+        # jacobian is the linearisation of the current
+        # state but the nonlinear residual is zero.
+
+        # TODO: this won't work if we try to build the
+        # slice jacobian with anything other than
+        # 'aaos_jacobian_jacobian_state': 'current'
+        # because the slice_solver will give the
+        # slice_jacobian the zero_func as the
+        # current state.
+
+        # here we abuse that aaoform.copy will create
+        # the new form over the ensemble of the
+        # aaofunc kwarg not its own ensemble.
+        zero_form = self.aaoform.copy(aaofunc=zero_func)
+
+        # jacobian constructed around the tracking aaofunc
+        self.slice_form = zero_form.copy(aaofunc=self.slice_func)
+
+        # # # slice parameters # # #
+
+        # most parameters are grabbed from the global options,
+        # we just need to make sure that the solver is linear.
+        slice_parameters = {'snes_type': 'ksponly'}
+
+        # # # slice prefix # # #
+        slice_prefix = f"{self.full_prefix}slice"
+
+        # # # reference state # # #
+        reference_state = self.jacobian.reference_state
+
+        self.slice_solver = AllAtOnceSolver(
+            zero_form, self.yslice,
+            solver_parameters=slice_parameters,
+            options_prefix=slice_prefix,
+            jacobian_form=self.slice_form,
+            jacobian_reference_state=reference_state)
+
+        self.initialized = final_initialize
+
+    @profiler()
+    def update(self, pc):
+        aaofunc = self.aaofunc
+        aaoform = self.aaoform
+        slice_func = self.slice_func
+        slice_form = self.slice_form
+
+        for i in range(self.nlocal_timesteps):
+            slice_func[i].assign(aaofunc[i])
+
+        # are we the first slice?
+        if self.slice_rank == 0:
+            slice_form.t0.assign(aaoform.t0)
+        else:
+            slice_form.t0.assign(aaoform.time[0] - aaoform.dt)
+
+        for jt, ft in zip(slice_form.time, aaoform.time):
+            jt.assign(ft)
+
+        return
+
+    @profiler()
+    def apply_impl(self, pc, x, y):
+
+        # copy global rhs into slice rhs
+        for i in range(self.nlocal_timesteps):
+            self.xslice[i].assign(self.x[i])
+
+        self.yslice.zero()
+        self.slice_solver.solve(rhs=self.xslice)
+
+        # copy slice result into global result
+        for i in range(self.nlocal_timesteps):
+            self.y[i].assign(self.yslice[i])
 
     @profiler()
     def applyTranspose(self, pc, x, y):
