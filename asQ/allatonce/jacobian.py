@@ -44,7 +44,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         :arg appctx: the appcontext for the Jacobian and the preconditioner.
         """
         self._time_partition_setup(aaoform.ensemble, aaoform.time_partition)
-        prefix = self.prefix + options_prefix
+        prefix = options_prefix + self.prefix
 
         aaofunc = aaoform.aaofunc
         self.aaoform = aaoform
