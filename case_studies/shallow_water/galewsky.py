@@ -1,7 +1,7 @@
 from firedrake.petsc import PETSc
 
 import asQ
-import firedrake as fd  # noqa: F401
+import firedrake as fd
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
@@ -46,7 +46,127 @@ nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
 
+# alternative operator to precondition blocks
+H = galewsky.H0
+g = earth.Gravity
+
+
+def aux_form_function(u, h, v, q, t):
+    mesh = v.ufl_domain()
+    coords = fd.SpatialCoordinate(mesh)
+    f = swe.earth_coriolis_expression(*coords)
+    return swe.linear.form_function(mesh, g, H, f,
+                                    u, h, v, q, t)
+
+
+def form_mass_tr(u, h, tr, v, q, s):
+    mesh = v.ufl_domain()
+    return swe.linear.form_mass(mesh, u, h, v, q)
+
+
+def form_function_tr(u, h, tr, v, q, dtr, t=None):
+    mesh = v.ufl_domain()
+    coords = fd.SpatialCoordinate(mesh)
+    f = swe.earth_coriolis_expression(*coords)
+    K = swe.linear.form_function(mesh, g, H, f,
+                                 u, h, v, q, t)
+    n = fd.FacetNormal(mesh)
+    Khybr = (
+        g*fd.jump(v, n)*tr('+')
+        + fd.jump(u, n)*dtr('+')
+    )*fd.dS
+
+    return K + Khybr
+
+
+# PC forming approximate hybridisable system (without advection)
+# solve it using hybridisation and then return the DG part
+# (for use in a Schur compement setup)
+class ApproxHybridPC(fd.PCBase):
+    def initialize(self, pc):
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
+
+        cpx = appctx['cpx']
+
+        u0 = appctx['u0']
+        d1 = appctx['d1']
+        d2 = appctx['d2']
+
+        mesh = u0.ufl_domain()
+
+        W = u0.function_space()
+        Wu, Wh = W.subfunctions
+
+        Wub = fd.FunctionSpace(mesh, fd.BrokenElement(Wu.ufl_element()))
+        Tr = fd.FunctionSpace(mesh, "HDivT", Wu.ufl_element().degree())
+        Wtr = Wub*Wh*Tr
+
+        # input and output functions
+        self.xfstar = fd.Cofunction(Wh.dual())
+        self.xf = fd.Function(Wh)  # result of riesz map of the above
+        self.yf = fd.Function(Wh)  # the preconditioned residual
+
+        Mtr = cpx.BilinearForm(Wtr, d1, form_mass_tr)
+        Ktr = cpx.BilinearForm(Wtr, d2, form_function_tr)
+
+        Atr = Mtr + Ktr
+
+        self.wtr = fd.Function(Wtr)
+        _, self.htr, _ = self.wtr.subfunctions
+        _, q, _ = fd.TestFunctions(Wtr)
+
+        Ltr = fd.inner(q, self.xf)*fd.dx
+
+        condensed_params = {'ksp_type': 'preonly',
+                            'pc_type': 'lu',
+                            "pc_factor_mat_solver_type": "mumps"}
+
+        hbps = {
+            "mat_type": "matfree",
+            "ksp_type": "preonly",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.SCPC",
+            'pc_sc_eliminate_fields': '0, 1',
+            'condensed_field': condensed_params
+        }
+
+        problem = fd.LinearVariationalProblem(Atr, Ltr, self.wtr)
+        self.solver = fd.LinearVariationalSolver(
+            problem, solver_parameters=hbps)
+
+    def update(self, pc):
+        pass
+
+    def applyTranspose(self, pc, x, y):
+        raise NotImplementedError
+
+    def apply(self, pc, x, y):
+        # copy petsc vec into Function
+        with self.xfstar.dat.vec_wo as v:
+            x.copy(v)
+        self.xf.assign(self.xfstar.riesz_representation())
+        self.wtr.assign(0)
+        self.solver.solve()
+        self.yf.assign(self.htr)
+
+        # copy petsc vec into Function
+        with self.yf.dat.vec_ro as v:
+            v.copy(y)
+
+
+block_appctx = {'aux_form_function': aux_form_function}
+
 # parameters for the implicit diagonal solve in step-(b)
+factorisation_params = {
+    'ksp_type': 'preonly',
+    # 'pc_factor_mat_ordering_type': 'rcm',
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
+}
+
+lu_pc = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
+lu_pc.update(factorisation_params)
 
 patch_parameters = {
     'pc_patch': {
@@ -77,31 +197,82 @@ mg_parameters = {
     'coarse': {
         'pc_type': 'python',
         'pc_python_type': 'firedrake.AssembledPC',
-        'assembled_pc_type': 'lu',
-        'assembled_pc_factor_mat_solver_type': 'mumps'
+        'assembled': lu_pc,
     }
 }
 
-sparameters = {
-    'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    'ksp': {
-        'atol': 1e-5,
-        'rtol': 1e-5,
-        'max_it': 50,
-    },
+mg_pc = {
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
 
+block_rtol = 1e-5
+block_atol = 1e-100
+block_max_it = 25
+
+ksp_pc = {
+    'pc_type': 'ksp',
+    'ksp': {
+        'ksp_atol': block_atol,
+        'ksp_rtol': block_rtol,
+        'ksp_max_it': block_max_it,
+    }
+}
+ksp_pc['ksp'].update(lu_pc)
+
+aux_pc = {
+    'snes_lag_preconditioner': -2,
+    'snes_lag_preconditioner_persists': None,
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.AuxiliaryBlockPC',
+    'aux': lu_pc,
+    # 'aux': mg_pc,
+    # 'aux': ksp_pc,
+}
+
+hybr_pc = {
+    'pc_type': 'fieldsplit',
+    'pc_fieldsplit_type': 'schur',
+    'pc_fieldsplit_schur_fact_type': 'full',
+    'fieldsplit_0': {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps',
+    },
+    'fieldsplit_1': {
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': f'{__name__}.ApproxHybridPC',
+    },
+}
+
+block_sparams = {
+    'mat_type': 'matfree',
+    'ksp_type': 'gmres',
+    'ksp': {
+        'atol': block_atol,
+        'rtol': block_rtol,
+        'max_it': block_max_it,
+        'converged_maxits': None,
+        # 'monitor': None,
+        # 'converged_rate': None,
+    },
+}
+
+# block_sparams = lu_pc
+# block_sparams.update(mg_pc)
+# block_sparams.update(aux_pc)
+block_sparams.update(hybr_pc)
+
+atol = 1e4
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-0,
+        'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
         'ksp_ew': None,
@@ -112,9 +283,9 @@ sparameters_diag = {
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
+        'converged_rate': None,
         'rtol': 1e-5,
-        'atol': 1e-0,
+        'atol': atol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',
@@ -124,35 +295,16 @@ sparameters_diag = {
 }
 
 for i in range(window_length):
-    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
+    sparameters_diag['diagfft_block_'+str(i)+'_'] = block_sparams
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
     ref_level=args.ref_level,
     coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
 
-# check convergence of each timestep
-
-
-def post_function_callback(aaosolver, X, F):
-    residuals = asQ.SharedArray(time_partition,
-                                comm=aaosolver.ensemble.ensemble_comm)
-    # all-at-once residual
-    res = aaosolver.aaoform.F
-    for i in range(res.nlocal_timesteps):
-        w = res[i]
-        # residuals.dlocal[i] = fd.norm(w)
-        with w.dat.vec_ro as vec:
-            residuals.dlocal[i] = vec.norm()
-    residuals.synchronise()
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print('Field residuals:')
-    fr = [f"{r:.4e}" for r in residuals.data()]
-    PETSc.Sys.Print(fr)
-    PETSc.Sys.Print('')
-
-
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
+
+appctx = {'block_appctx': block_appctx}
 
 miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   topography_expression=galewsky.topography_expression,
@@ -163,16 +315,10 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   create_mesh=create_mesh,
                                   dt=dt, theta=0.5,
                                   time_partition=time_partition,
+                                  appctx=appctx,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename,
-                                  post_function_callback=post_function_callback,
                                   record_diagnostics={'cfl': True, 'file': False})
-
-ics = miniapp.aaofunc.initial_condition
-reference_state = miniapp.solver.jacobian.reference_state
-reference_state.assign(ics)
-reference_state.subfunctions[0].assign(0)
-reference_state.subfunctions[1].assign(galewsky.H0)
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -184,7 +330,7 @@ def window_preproc(swe_app, pdg, wndw):
 def window_postproc(swe_app, pdg, wndw):
     if miniapp.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
-        time = nt*pdg.aaoform.dt
+        time = float(nt*pdg.aaoform.dt)
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)
         PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)

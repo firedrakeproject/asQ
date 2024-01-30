@@ -25,8 +25,18 @@ def form_function_depth(mesh, u, h, p, t):
     n = fd.FacetNormal(mesh)
     uup = 0.5 * (fd.dot(u, n) + abs(fd.dot(u, n)))
 
-    return (- fd.inner(fd.grad(p), u)*h*fd.dx
-            + fd.jump(p)*(uup('+')*h('+') - uup('-')*h('-'))*fd.dS)
+    Forig = (  # noqa: F841
+        - fd.inner(fd.grad(p), u*h)*fd.dx
+        + fd.jump(p)*(uup('+')*h('+') - uup('-')*h('-'))*fd.dS
+    )
+
+    Fhybr = (  # noqa: F841
+        + fd.inner(p, fd.div(u*h))*fd.dx
+        + fd.jump(p)*(uup('+')*h('+') - uup('-')*h('-'))*fd.dS
+        - fd.jump(p*u*h, n)*fd.dS
+    )
+
+    return Fhybr
 
 
 def form_function_velocity(mesh, g, b, f, u, h, v, t, perp=fd.cross):

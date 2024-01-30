@@ -58,6 +58,77 @@ bcs = straka.boundary_conditions(W)
 for bc in bcs:
     bc.apply(Un)
 
+lu_params = {
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    # "pc_factor_mat_solver_type": "mumps",
+}
+
+jacobi_params = {
+    "ksp_type": "gmres",
+    "pc_type": "jacobi",
+}
+
+patch_params = {
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": "firedrake.AssembledPC",
+    "assembled": {
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMVankaPC",
+        "pc_vanka": {
+            "construct_dim": 0,
+            "sub_sub_pc_type": "lu",
+            "sub_sub_pc_factor_mat_ordering_type": "rcm",
+            "sub_sub_pc_factor_reuse_ordering": None,
+            "sub_sub_pc_factor_reuse_fill": None,
+        },
+    },
+}
+
+iwave = 0
+itemp = int(not iwave)
+ntemp = "Temperature"
+
+hybridization_sparams = {
+    # "mat_type": "matfree",
+    "ksp_type": "fgmres",
+    "pc_type": "fieldsplit",
+    "pc_fieldsplit_type": "schur",
+    "pc_fieldsplit_schur_fact_type": "full",
+    f"pc_fieldsplit_{iwave}_fields": "0,1",
+    f"pc_fieldsplit_{itemp}_fields": "2",
+    f"fieldsplit_{iwave}": lu_params,
+    f"fieldsplit_{ntemp}": lu_params,
+    # f"fieldsplit_{ntemp}": {
+    #     "ksp_type": "gmres",
+    #     "pc_type": "none",
+    # },
+    # f"fieldsplit_{iwave}": {
+    #     # "mat_type": "matfree",
+    #     "pc_type": "python",
+    #     "pc_python_type": "firedrake.HybridizationPC",
+    #     # "hybridization": lu_params
+    #     "hybridization": {
+    #         "ksp_rtol": 1e-10,
+    #         "ksp_type": "cg",
+    #         # "ksp_converged_rate": None,
+    #         'pc_type': 'gamg',
+    #         'pc_gamg_sym_graph': None,
+    #         'pc_mg_type': 'multiplicative',
+    #         'mg': {
+    #             'levels': {
+    #                 'ksp_type': 'richardson',
+    #                 'ksp_max_it': 3,
+    #                 'pc_type': 'bjacobi',
+    #                 'sub_pc_type': 'ilu',
+    #             },
+    #         },
+    #     },
+    # },
+    "ksp_view": None,
+}
+
 atol = 1e0
 stol = 1e-100
 sparameters = {
@@ -79,20 +150,10 @@ sparameters = {
         "stol": stol,
         "atol": atol,
     },
-    "pc_type": "python",
-    "pc_python_type": "firedrake.AssembledPC",
-    "assembled": {
-        "pc_type": "python",
-        "pc_python_type": "firedrake.ASMVankaPC",
-        "pc_vanka": {
-            "construct_dim": 0,
-            "sub_sub_pc_type": "lu",
-            "sub_sub_pc_factor_mat_ordering_type": "rcm",
-            "sub_sub_pc_factor_reuse_ordering": None,
-            "sub_sub_pc_factor_reuse_fill": None,
-        },
-    },
 }
+
+# sparameters.update(patch_params)
+sparameters.update(hybridization_sparams)
 
 theta = 0.5
 

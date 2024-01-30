@@ -6,7 +6,7 @@ from utils import units
 from utils import mg
 from utils.planets import earth
 import utils.shallow_water as swe
-import utils.shallow_water.gravity_bumps as case
+import utils.shallow_water.gravity_bumps as gcase
 
 from utils.serial import SerialMiniApp
 
@@ -48,21 +48,21 @@ dt = args.dt*units.hour
 W = swe.default_function_space(mesh, degree=args.degree)
 
 # parameters
-coriolis = case.coriolis_expression(*x)
+coriolis = gcase.coriolis_expression(*x)
 
 
 # initial conditions
 w_initial = fd.Function(W)
 u_initial, h_initial = w_initial.subfunctions
 
-u_initial.project(case.velocity_expression(*x))
-h_initial.project(case.depth_expression(*x))
+u_initial.project(gcase.velocity_expression(*x))
+h_initial.project(gcase.depth_expression(*x))
 
 
 # shallow water equation forms
 def form_function(u, h, v, q, t):
     return swe.linear.form_function(mesh,
-                                    earth.Gravity, case.H,
+                                    earth.Gravity, gcase.H,
                                     coriolis,
                                     u, h, v, q, t)
 
@@ -70,6 +70,23 @@ def form_function(u, h, v, q, t):
 def form_mass(u, h, v, q):
     return swe.linear.form_mass(mesh, u, h, v, q)
 
+
+# solver parameters for the implicit solve
+factorisation_params = {
+    'ksp_type': 'preonly',
+    'pc_factor_mat_ordering_type': 'rcm',
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
+}
+
+lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
+lu_params.update(factorisation_params)
+
+ilu_params = {'pc_type': 'ilu'}
+ilu_params.update(factorisation_params)
+
+icc_params = {'pc_type': 'icc'}
+icc_params.update(factorisation_params)
 
 patch_parameters = {
     'pc_patch': {
@@ -84,13 +101,8 @@ patch_parameters = {
     },
     'sub': {
         'ksp_type': 'preonly',
-        'pc_type': 'fieldsplit',
-        'pc_fieldsplit_type': 'schur',
-        'pc_fieldsplit_detect_saddle_point': None,
-        'pc_fieldsplit_schur_fact_type': 'full',
-        'pc_fieldsplit_schur_precondition': 'full',
-        'fieldsplit_ksp_type': 'preonly',
-        'fieldsplit_pc_type': 'lu',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
     }
 }
 
@@ -105,35 +117,65 @@ mg_parameters = {
     'coarse': {
         'pc_type': 'python',
         'pc_python_type': 'firedrake.AssembledPC',
-        'assembled_pc_type': 'lu',
-        'assembled_pc_factor_mat_solver_type': 'mumps',
+        'assembled': lu_params
     },
 }
 
-# solver parameters for the implicit solve
-sparameters = {
-    'snes_type': 'ksponly',
-    'snes': {
-        'monitor': None,
-        'converged_reason': None,
-        'atol': 1e-0,
-        'rtol': 1e-10,
-        'stol': 1e-12,
-    },
+mg_sparams = {
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    'ksp': {
-        'atol': 1e-0,
-        'rtol': 1e-10,
-        'stol': 1e-12,
-        'monitor': None,
-        'converged_reason': None
-    },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
+
+gamg_sparams = {
+    'ksp_type': 'fgmres',
+    'ksp_rtol': 1e-8,
+    'ksp_converged_rate': None,
+    'pc_type': 'gamg',
+    'pc_mg_cycle_type': 'v',
+    'pc_mg_type': 'full',
+    'mg_levels': {
+        'ksp_type': 'cg',
+        'ksp_max_it': 4,
+        'pc_type': 'bjacobi',
+        'sub': icc_params,
+    },
+    'mg_coarse': lu_params,
+}
+
+hybridization_sparams = {
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": "firedrake.HybridizationPC",
+    # "hybridization": lu_params
+    "hybridization": gamg_sparams
+}
+
+atol = 1e2
+sparameters = {
+    'snes_type': 'ksponly',
+    'snes': {
+        # 'monitor': None,
+        # 'converged_reason': None,
+        'atol': atol,
+        'rtol': 1e-10,
+        'stol': 1e-12,
+    },
+    'ksp_type': 'fgmres',
+    'ksp': {
+        'atol': atol,
+        'rtol': 1e-10,
+        'stol': 1e-12,
+        'monitor': None,
+        'converged_rate': None
+    },
+}
+
+# sparameters.update(lu_params)
+# sparameters.update(mg_sparams)
+sparameters.update(hybridization_sparams)
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta,
@@ -153,7 +195,7 @@ uout = fd.Function(u_initial.function_space(), name='velocity')
 hout = fd.Function(h_initial.function_space(), name='depth')
 
 uout.assign(u_initial)
-hout.assign(h_initial - case.H)
+hout.assign(h_initial - gcase.H)
 ofile.write(uout, hout, time=0)
 
 
@@ -172,7 +214,7 @@ def postproc(app, step, t):
 
     u, h = app.w0.subfunctions
     uout.assign(u)
-    hout.assign(h-case.H)
+    hout.assign(h-gcase.H)
     ofile.write(uout, hout, time=t/units.hour)
 
 
@@ -180,6 +222,7 @@ miniapp.solve(args.nt,
               preproc=preproc,
               postproc=postproc)
 
+PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
