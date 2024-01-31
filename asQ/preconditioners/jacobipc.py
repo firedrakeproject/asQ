@@ -329,6 +329,7 @@ class SliceJacobiPC(AllAtOncePCBase):
             zero_form, self.yslice,
             solver_parameters=slice_parameters,
             options_prefix=slice_prefix,
+            appctx=self.appctx,
             jacobian_form=self.slice_form,
             jacobian_reference_state=reference_state)
 
