@@ -53,11 +53,11 @@ class AllAtOncePCBase(TimePartitionMixin):
         self.appctx = jacobian.appctx
 
         # Input/Output wrapper Functions for all-at-once residual being acted on
-        self.x = AllAtOnceCofunction(self.ensemble, self.time_partition,
-                                     aaofunc.field_function_space.dual())
+        self._x = AllAtOnceCofunction(self.ensemble, self.time_partition,
+                                      aaofunc.field_function_space.dual())
 
-        self.y = AllAtOnceFunction(self.ensemble, self.time_partition,
-                                   aaofunc.field_function_space)
+        self._y = AllAtOnceFunction(self.ensemble, self.time_partition,
+                                    aaofunc.field_function_space)
 
         self.initialized = final_initialize
 
@@ -74,13 +74,13 @@ class AllAtOncePCBase(TimePartitionMixin):
     def apply(self, pc, x, y):
 
         # copy petsc vec into AllAtOnceCofunction
-        with self.x.global_vec_wo() as v:
+        with self._x.global_vec_wo() as v:
             x.copy(v)
 
-        self.apply_impl(pc, self.x, self.y)
+        self.apply_impl(pc, self._x, self._y)
 
         # copy result into petsc vec
-        with self.y.global_vec_ro() as v:
+        with self._y.global_vec_ro() as v:
             v.copy(y)
 
         self._record_diagnostics()
@@ -133,19 +133,6 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
         The implicit theta method parameter to use in the preconditioning matrix.
         Defaults to the implicit theta method parameter used in the AllAtOnceJacobian.
     """
-
-    @profiler()
-    def __init__(self):
-        r"""A preconditioner for all-at-once systems.
-        """
-        self.initialized = False
-
-    @profiler()
-    def setUp(self, pc):
-        """Setup method called by PETSc."""
-        if not self.initialized:
-            self.initialize(pc)
-        self.update(pc)
 
     @profiler()
     def initialize(self, pc, final_initialize=True):

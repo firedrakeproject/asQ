@@ -451,7 +451,3 @@ class CirculantPC(AllAtOnceBlockPCBase):
         with y.global_vec_wo() as yvec:
             yvec.array[:] = parray.reshape(-1).real
         ################
-
-    @profiler()
-    def applyTranspose(self, pc, x, y):
-        raise NotImplementedError

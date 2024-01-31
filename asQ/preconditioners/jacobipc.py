@@ -135,7 +135,7 @@ class JacobiPC(AllAtOnceBlockPCBase):
 
             # The block rhs/solution are the timestep i of the
             # input/output AllAtOnceCofunction/Function
-            block_problem = fd.LinearVariationalProblem(A, self.x[i], self.y[i],
+            block_problem = fd.LinearVariationalProblem(A, self._x[i], self._y[i],
                                                         bcs=self.block_bcs)
             block_solver = fd.LinearVariationalSolver(block_problem,
                                                       appctx=appctx_h,
@@ -202,13 +202,9 @@ class JacobiPC(AllAtOnceBlockPCBase):
     @profiler()
     def apply_impl(self, pc, x, y):
         # x and y are already the rhs and solution of the blocks
-        self.y.zero()
+        self._y.zero()
         for i in range(self.nlocal_timesteps):
             self.block_solvers[i].solve()
-
-    @profiler()
-    def applyTranspose(self, pc, x, y):
-        raise NotImplementedError
 
 
 class SliceJacobiPC(AllAtOncePCBase):
@@ -341,15 +337,11 @@ class SliceJacobiPC(AllAtOncePCBase):
 
         # copy global rhs into slice rhs
         for i in range(self.nlocal_timesteps):
-            self.xslice[i].assign(self.x[i])
+            self.xslice[i].assign(x[i])
 
         self.yslice.zero()
         self.slice_solver.solve(rhs=self.xslice)
 
         # copy slice result into global result
         for i in range(self.nlocal_timesteps):
-            self.y[i].assign(self.yslice[i])
-
-    @profiler()
-    def applyTranspose(self, pc, x, y):
-        raise NotImplementedError
+            y[i].assign(self.yslice[i])
