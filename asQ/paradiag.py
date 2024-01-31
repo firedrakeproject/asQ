@@ -1,4 +1,3 @@
-import firedrake as fd
 from firedrake.petsc import PETSc
 from asQ.profiling import profiler
 
@@ -6,27 +5,7 @@ from asQ.allatonce import AllAtOnceFunction, AllAtOnceForm, AllAtOnceSolver
 from asQ.allatonce.mixin import TimePartitionMixin
 from asQ.parallel_arrays import SharedArray
 
-__all__ = ['create_ensemble', 'Paradiag']
-
-
-@profiler()
-def create_ensemble(time_partition, comm=fd.COMM_WORLD):
-    '''
-    Create an Ensemble for the given slice partition.
-    Checks that the number of slices and the size of the communicator are compatible.
-
-    :arg time_partition: a list of integers, the number of timesteps on each time-rank
-    :arg comm: the global communicator for the ensemble
-    '''
-    nslices = 1 if type(time_partition) is int else len(time_partition)
-    nranks = comm.size
-
-    if nranks % nslices != 0:
-        raise ValueError("Number of time slices must be exact factor of number of MPI ranks")
-
-    nspatial_domains = nranks//nslices
-
-    return fd.Ensemble(comm, nspatial_domains)
+__all__ = ['Paradiag']
 
 
 class Paradiag(TimePartitionMixin):
@@ -167,9 +146,11 @@ class Paradiag(TimePartitionMixin):
 
         Until this method is called, diagnostic information is not guaranteed to be valid.
         """
-        pc_block_iterations = self.solver.jacobian.pc.block_iterations
-        pc_block_iterations.synchronise()
-        self.block_iterations.data(deepcopy=False)[:] = pc_block_iterations.data(deepcopy=False)
+        jacobian = self.solver.jacobian
+        if hasattr(jacobian, "pc") and hasattr(jacobian.pc, "block_iterations"):
+            pc_block_iterations = self.solver.jacobian.pc.block_iterations
+            pc_block_iterations.synchronise()
+            self.block_iterations.data(deepcopy=False)[:] = pc_block_iterations.data(deepcopy=False)
 
     @profiler()
     def solve(self,

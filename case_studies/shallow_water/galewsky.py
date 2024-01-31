@@ -251,8 +251,6 @@ block_sparams = {
         'rtol': args.block_rtol,
         'max_it': args.block_max_it,
         'converged_maxits': None,
-        # 'monitor': None,
-        # 'converged_rate': None,
     },
 }
 
@@ -266,6 +264,32 @@ else:
       }[args.block_method])
 
 patol = sqrt(window_length)*args.atol
+
+none_parameters = {
+    'pc_type': 'none'
+}
+
+circulant_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.CirculantPC',
+    'diagfft_block': block_sparams,
+}
+
+jacobi_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.JacobiPC',
+    'aaojacobi_block': block_sparams,
+}
+
+slice_jacobi_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.SliceJacobiPC',
+    'slice_jacobi_nsteps': 4,
+    'slice_jacobi_slice_ksp_type': 'preonly',
+    # 'slice_jacobi_slice': jacobi_parameters,
+    'slice_jacobi_slice': circulant_parameters,
+}
+
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
@@ -286,15 +310,12 @@ sparameters_diag = {
         'rtol': 1e-5,
         'atol': patol,
     },
-    'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_alpha': args.alpha,
-    'diagfft_state': 'window',
-    'aaos_jacobian_state': 'current'
 }
 
-for i in range(window_length):
-    sparameters_diag['diagfft_block_'+str(i)+'_'] = block_sparams
+# sparameters_diag.update(none_parameters)
+# sparameters_diag.update(jacobi_parameters)
+# sparameters_diag.update(circulant_parameters)
+sparameters_diag.update(slice_jacobi_parameters)
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
@@ -322,6 +343,8 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
 
 timer = SolverTimer()
 
+fround = lambda x: round(float(x), 2)
+
 
 def window_preproc(swe_app, pdg, wndw):
     PETSc.Sys.Print('')
@@ -331,6 +354,7 @@ def window_preproc(swe_app, pdg, wndw):
 
 
 def window_postproc(swe_app, pdg, wndw):
+<<<<<<< HEAD
     timer.stop_timing()
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'Window solution time: {timer.times[-1]}')
@@ -341,9 +365,9 @@ def window_postproc(swe_app, pdg, wndw):
         time = float(nt*pdg.aaoform.dt)
         comm = miniapp.ensemble.comm
         if args.record_cfl:
-            PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
-        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
+            PETSc.Sys.Print(f'Maximum CFL = {fround(swe_app.cfl_series[wndw])}', comm=comm)
+        PETSc.Sys.Print(f'Hours = {fround(time/units.hour)}', comm=comm)
+        PETSc.Sys.Print(f'Days = {fround(time/earth.day)}', comm=comm)
         PETSc.Sys.Print('', comm=comm)
 
 
@@ -353,19 +377,27 @@ miniapp.solve(nwindows=args.nwindows,
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
-asQ.write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
+paradiag = miniapp.paradiag
+asQ.write_paradiag_metrics(paradiag, directory=args.metrics_dir)
 
 PETSc.Sys.Print('')
 
-nw = miniapp.paradiag.total_windows
-nt = miniapp.paradiag.total_timesteps
+nw = paradiag.total_windows
+nt = paradiag.total_timesteps
 PETSc.Sys.Print(f'windows: {nw}')
 PETSc.Sys.Print(f'timesteps: {nt}')
 PETSc.Sys.Print('')
 
-lits = miniapp.paradiag.linear_iterations
-nlits = miniapp.paradiag.nonlinear_iterations
-blits = miniapp.paradiag.block_iterations.data()
+lits = paradiag.linear_iterations
+nlits = paradiag.nonlinear_iterations
+
+if sparameters_diag['pc_python_type'] != 'asQ.SliceJacobiPC':
+    blits = paradiag.block_iterations.data()
+else:
+    slice_solver = paradiag.solver.jacobian.pc.slice_solver
+    blits = slice_solver.jacobian.pc.block_iterations
+    blits.sychronise()
+    blits = blits.data()
 
 PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
 PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')

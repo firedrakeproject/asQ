@@ -116,7 +116,7 @@ sparameters_diag = {
         'view_eigenvalues': None,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
+    'pc_python_type': 'asQ.CirculantPC',
     'diagfft_alpha': args.alpha,
     'diagfft_state': 'linear',
     'aaos_jacobian_state': 'linear',

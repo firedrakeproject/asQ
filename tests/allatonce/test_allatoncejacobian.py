@@ -54,7 +54,7 @@ def test_heat_jacobian():
                                 form_mass, form_function)
 
     # build the all-at-once jacobian
-    aaojac = asQ.AllAtOnceJacobian(aaoform, aaofunc)
+    aaojac = asQ.AllAtOnceJacobian(aaoform)
 
     # on each time-slice, build the form for the entire timeseries
     full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))
@@ -164,7 +164,7 @@ def test_mixed_heat_jacobian():
                                 form_mass, form_function)
 
     # build the all-at-once jacobian
-    aaojac = asQ.AllAtOnceJacobian(aaoform, aaofunc)
+    aaojac = asQ.AllAtOnceJacobian(aaoform)
 
     # on each time-slice, build the form for the entire timeseries
     full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))

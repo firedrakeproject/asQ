@@ -1,10 +1,10 @@
 from firedrake import *
 import asQ
 
-time_partition = [1, 1, 1, 1]
+time_partition = [4, 4]
 ensemble = asQ.create_ensemble(time_partition)
 
-mesh = SquareMesh(nx=32, ny=32, L=1,
+mesh = SquareMesh(nx=8, ny=8, L=1,
                   comm=ensemble.comm)
 x, y = SpatialCoordinate(mesh)
 
@@ -26,20 +26,26 @@ block_parameters = {
     'pc_type': 'lu'}
 
 solver_parameters = {
+    'ksp_monitor': None,
+    'ksp_converged_rate': None,
     'snes_type': 'ksponly',
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_alpha': 1e-3,
-    'diagfft_block': block_parameters}
+    # 'pc_python_type': 'asQ.CirculantPC',
+    # 'diagfft_block': block_parameters,
+    # 'diagfft_state': 'linear',
+    'pc_python_type': 'asQ.JacobiPC',
+    'aaojacobi_block': block_parameters,
+    'aaojacobi_state': 'linear',
+    'aaos_jacobian_state': 'linear'}
 
 paradiag = asQ.Paradiag(
     ensemble=ensemble,
     form_mass=form_mass,
     form_function=form_function,
-    ics=uinitial, dt=0.5, theta=1.0,
+    ics=uinitial, dt=0.1, theta=0.5,
     time_partition=time_partition,
     solver_parameters=solver_parameters)
 
-paradiag.solve(nwindows=10)
+paradiag.solve(nwindows=1)

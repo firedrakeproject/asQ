@@ -99,7 +99,6 @@ class AllAtOnceSolver(TimePartitionMixin):
         # Jacobian
         with self.options.inserted_options():
             self.jacobian = AllAtOnceJacobian(self.jacobian_form,
-                                              current_state=aaofunc,
                                               reference_state=jacobian_reference_state,
                                               options_prefix=options_prefix,
                                               appctx=appctx)
