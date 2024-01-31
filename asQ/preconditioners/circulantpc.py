@@ -72,6 +72,13 @@ class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
 
 class CirculantPC(AllAtOnceBlockPCBase):
     """
+    A block alpha-circulant Paradiag preconditioner for the all-at-once system.
+
+    For details see:
+    "ParaDiag: parallel-in-time algorithms based on the diagonalization technique"
+    Martin J. Gander, Jun Liu, Shu-Lin Wu, Xiaoqiang Yue, Tao Zhou.
+    arXiv:2005.09158
+
     PETSc options:
 
     'diagfft_linearisation': <'consistent', 'user'>

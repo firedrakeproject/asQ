@@ -12,6 +12,9 @@ __all__ = ['JacobiPC', 'SliceJacobiPC']
 
 class JacobiPC(AllAtOnceBlockPCBase):
     """
+    A block Jacobi preconditioner where each block is built from a single timestep.
+    Each block is (approximately) solved using its own LinearVariatonalSolver.
+
     PETSc options:
 
     'aaojacobi_linearisation': <'consistent', 'user'>
@@ -208,6 +211,27 @@ class JacobiPC(AllAtOnceBlockPCBase):
 
 
 class SliceJacobiPC(AllAtOncePCBase):
+    """
+    A block Jacobi preconditioner where each block (slice) is built from several timesteps.
+
+    The all-at-once system is split into several slices of several
+    timesteps each (these do not necessarily have to match the 'slices'
+    of the ensemble partition, i.e. the timesteps on a single ensemble
+    member).
+    The preconditioner is constructed as a block-diagonal system where
+    each block is the all-at-once system of a slice. Each block (slice)
+    is (approximately) solved with its own AllAtOnceSolver.
+
+    PETSc options:
+
+    'slice_jacobi_nsteps': <int>
+        The number of timesteps per slice. Must be an integer multiple
+        of the number of timesteps on each ensemble member i.e. all
+        timesteps on an ensemble member must belong to the same slice.
+
+    'slice_jacobi_slice': <AllAtOnceSolver options>
+        The solver options for the linear AllAtOnceSolver in each slice.
+    """
     prefix = "slice_jacobi_"
 
     @profiler()

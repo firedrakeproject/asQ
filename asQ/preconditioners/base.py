@@ -93,6 +93,7 @@ class AllAtOncePCBase(TimePartitionMixin):
 class AllAtOnceBlockPCBase(AllAtOncePCBase):
     """
     Base class for preconditioners for the all-at-once system
+    built on blocks matching each timestep of the timeseries.
 
     Child classes must:
         - implement method: apply_impl(pc, xf, yf)
