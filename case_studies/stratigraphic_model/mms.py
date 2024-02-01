@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
         for i in range(1):
             t.assign(t+dt)
-            s_exact = fd.interpolate((t+1)*fd.sin((x+2*y)), Z)
+            s_exact = fd.Function(Z).interpolate((t+1)*fd.sin((x+2*y)))
             solver.solve()
             A = fd.errornorm(s, s_exact)/fd.norm(s_exact)
             PETSc.Sys.Print("E :%s" % A)
