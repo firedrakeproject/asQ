@@ -128,7 +128,7 @@ slice_jacobi_parameters = {
     'slice_jacobi_slice': circulant_parameters,
 }
 
-atol = 1e4
+atol = 1e6
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
@@ -146,7 +146,7 @@ sparameters_diag = {
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-3,
+        'rtol': 1e-2,
         'atol': atol,
     },
 }
@@ -175,7 +175,6 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   file_name='output/'+args.filename,
                                   record_diagnostics={'cfl': True, 'file': False})
 
-
 fround = lambda x: round(float(x), 2)
 
 
@@ -202,28 +201,28 @@ miniapp.solve(nwindows=args.nwindows,
               preproc=window_preproc,
               postproc=window_postproc)
 
-# PETSc.Sys.Print('### === --- Iteration counts --- === ###')
-#
-# from asQ import write_paradiag_metrics
-# write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
-#
-# PETSc.Sys.Print('')
-#
-# nw = miniapp.paradiag.total_windows
-# nt = miniapp.paradiag.total_timesteps
-# PETSc.Sys.Print(f'windows: {nw}')
-# PETSc.Sys.Print(f'timesteps: {nt}')
-# PETSc.Sys.Print('')
-#
-# lits = miniapp.paradiag.linear_iterations
-# nlits = miniapp.paradiag.nonlinear_iterations
+PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+
+from asQ import write_paradiag_metrics
+write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
+
+PETSc.Sys.Print('')
+
+nw = miniapp.paradiag.total_windows
+nt = miniapp.paradiag.total_timesteps
+PETSc.Sys.Print(f'windows: {nw}')
+PETSc.Sys.Print(f'timesteps: {nt}')
+PETSc.Sys.Print('')
+
+lits = miniapp.paradiag.linear_iterations
+nlits = miniapp.paradiag.nonlinear_iterations
 # blits = miniapp.paradiag.block_iterations.data()
-#
-# PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
-# PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
+
+PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
+PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
 # PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
 # PETSc.Sys.Print('')
-#
-# PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
-# PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
-# PETSc.Sys.Print('')
+
+PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
+PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+PETSc.Sys.Print('')
