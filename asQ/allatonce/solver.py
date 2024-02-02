@@ -1,7 +1,8 @@
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 
 from asQ.profiling import profiler
-from asQ.allatonce import AllAtOnceJacobian, AllAtOnceCofunction
+from asQ.allatonce import (AllAtOnceCofunction, AllAtOnceFunction,
+                           AllAtOnceJacobian)
 from asQ.allatonce.mixin import TimePartitionMixin
 
 __all__ = ['AllAtOnceSolver']
@@ -139,3 +140,30 @@ class AllAtOnceSolver(TimePartitionMixin):
                     raise TypeError(msg)
                 with rhs.global_vec_ro() as rvec:
                     self.snes.solve(rvec, gvec)
+
+
+class LinearSolver(TimePartitionMixin):
+    @profiler()
+    def __init__(self, aaoform, solver_parameters={},
+                 appctx={}, options_prefix=""):
+        pass
+
+    @profiler()
+    def solve(self, b, x):
+        """
+        Solve the all-at-once matrix Ax=b.
+
+        :arg b: AllAtOnceCofunction right hand side vector.
+        :arg x: AllAtOnceFunction solution vector.
+        """
+        if not isinstance(x, AllAtOnceFunction):
+            msg = f"Solution of all-at-once problem must be AllAtOnceFunction not {type(x)}."
+            raise TypeError(msg)
+
+        if not isinstance(b, AllAtOnceCofunction):
+            msg = f"Right hand side of all-at-once problem must be AllAtOnceCofunction not {type(b)}."
+            raise TypeError(msg)
+
+        with x.global_vec() as xvec, b.global_vec_ro() as bvec:
+            with self.options.inserted_options():
+                self.ksp.solve(bvec, xvec)

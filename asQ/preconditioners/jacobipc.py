@@ -3,7 +3,7 @@ from firedrake.petsc import PETSc
 from asQ.profiling import profiler
 from asQ.ensemble import split_ensemble
 from asQ.parallel_arrays import SharedArray
-from asQ.allatonce import (time_average, AllAtOnceSolver,
+from asQ.allatonce import (time_average, LinearSolver,
                            AllAtOnceFunction, AllAtOnceCofunction)
 from asQ.preconditioners.base import AllAtOnceBlockPCBase, AllAtOncePCBase
 
@@ -263,90 +263,73 @@ class SliceJacobiPC(AllAtOncePCBase):
         part = self.time_partition[0]
         slice_partition = tuple(part for i in range(slice_members))
 
-        # # # slice aaofuncs - zero, jacobian, yslice # # #
-
-        # the rhs to the slice solver is the incoming residual
-        # so the nonlinear slice residual must be zero
-        field_function_space = self.aaofunc.field_function_space
-        zero_func = AllAtOnceFunction(self.slice_ensemble,
-                                      slice_partition,
-                                      field_function_space)
-        zero_func.zero()
+        # # # slice aaofuncs - jacobian, yslice # # #
 
         # the slice jacobian is created around a slice
         # aaofunc that tracks the global aaofunc
-        self.slice_func = zero_func.copy(copy_values=True)
+        field_function_space = self.aaofunc.field_function_space
+        slice_func = AllAtOnceFunction(self.slice_ensemble,
+                                       slice_partition,
+                                       field_function_space)
+        slice_func.zero()
+        self.slice_func = slice_func
+
         for i in range(self.nlocal_timesteps):
-            self.slice_func[i].assign(self.aaofunc[i])
+            slice_func[i].assign(self.aaofunc[i])
 
         # the result is placed in here and then copied
         # out to the global result
-        self.yslice = zero_func.copy()
+        self.yslice = slice_func.copy()
 
         # this is the slice rhs
         self.xslice = AllAtOnceCofunction(self.slice_ensemble,
                                           slice_partition,
                                           field_function_space.dual())
 
-        # # # slice aaoforms - zero, jacobian, # # #
-
-        # the nonlinear form and jacobian form must be
-        # created over different aaofuncs so that the
-        # jacobian is the linearisation of the current
-        # state but the nonlinear residual is zero.
-
-        # TODO: this won't work if we try to build the
-        # slice jacobian with anything other than
-        # 'aaos_jacobian_state': 'user' because the
-        # slice_jacobian will be given the zero_func
-        # to update from.
+        # # # slice aaoform - jacobian, # # #
 
         # here we abuse that aaoform.copy will create
         # the new form over the ensemble of the
         # aaofunc kwarg not its own ensemble.
-        zero_form = self.aaoform.copy(aaofunc=zero_func)
-
-        # jacobian constructed around the tracking aaofunc
-        self.slice_form = zero_form.copy(aaofunc=self.slice_func)
+        self.slice_form = self.aaoform.copy(aaofunc=slice_func)
 
         # # # slice parameters # # #
-
-        # most parameters are grabbed from the global options,
-        # we just need to make sure that the solver is linear
-        # and we're in charge of updating the jacobian state.
-        slice_parameters = {
-            'snes_type': 'ksponly',
-            'aaos_jacobian_state': 'user',
-        }
+        # TODO: Do we need to set anything here now that we
+        #       use LinearSolver instead of AllAtOnceSolver?
+        slice_parameters = {}
 
         # # # slice prefix # # #
         slice_prefix = f"{self.full_prefix}slice"
 
-        # # # reference state # # #
-        reference_state = self.jacobian.reference_state
-
-        self.slice_solver = AllAtOnceSolver(
-            zero_form, self.yslice,
+        self.slice_solver = LinearSolver(
+            self.slice_form,
             solver_parameters=slice_parameters,
-            options_prefix=slice_prefix,
             appctx=self.appctx,
-            jacobian_form=self.slice_form,
-            jacobian_reference_state=reference_state)
+            options_prefix=slice_prefix)
 
         self.initialized = final_initialize
 
     @profiler()
     def update(self, pc):
+        """
+        Update the slice states.
+        """
+        # update the timestep values
         aaofunc = self.aaofunc
-        aaoform = self.aaoform
         slice_func = self.slice_func
-        slice_form = self.slice_form
 
         for i in range(self.nlocal_timesteps):
             slice_func[i].assign(aaofunc[i])
-        slice_func.update_time_halos()
 
-        # are we the first slice?
+        # TODO: update the initial conditions
+
+        slice_func.update_time_halos()
+        self.slice_solver.jacobian.update()
+
+        # update the time values
+        aaoform = self.aaoform
+        slice_form = self.slice_form
+
         if self.slice_rank == 0:
             slice_form.t0.assign(aaoform.t0)
         else:
@@ -365,7 +348,7 @@ class SliceJacobiPC(AllAtOncePCBase):
             self.xslice[i].assign(x[i])
 
         self.yslice.zero()
-        self.slice_solver.solve(rhs=self.xslice)
+        self.slice_solver.solve(self.xslice, self.yslice)
 
         # copy slice result into global result
         for i in range(self.nlocal_timesteps):
