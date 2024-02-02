@@ -5,7 +5,7 @@ from asQ.allatonce import (AllAtOnceCofunction, AllAtOnceFunction,
                            AllAtOnceJacobian)
 from asQ.allatonce.mixin import TimePartitionMixin
 
-__all__ = ['AllAtOnceSolver']
+__all__ = ['AllAtOnceSolver', 'LinearSolver']
 
 
 class AllAtOnceSolver(TimePartitionMixin):
@@ -21,7 +21,7 @@ class AllAtOnceSolver(TimePartitionMixin):
                  pre_jacobian_callback=lambda solver, X, J: None,
                  post_jacobian_callback=lambda solver, X, J: None):
         """
-        Solves an all-at-once form over an all-at-once function.
+        Solve an all-at-once form over an all-at-once function.
 
         :arg aaoform: the AllAtOnceForm to solve.
         :arg aaofunc: the AllAtOnceFunction solution.
@@ -144,9 +144,55 @@ class AllAtOnceSolver(TimePartitionMixin):
 
 class LinearSolver(TimePartitionMixin):
     @profiler()
-    def __init__(self, aaoform, solver_parameters={},
-                 appctx={}, options_prefix=""):
-        pass
+    def __init__(self, aaoform,
+                 solver_parameters={},
+                 appctx={},
+                 options_prefix=""):
+        """
+        Solve a linear system where the matrix is an all-at-once Jacobian.
+
+        :arg aaoform: the AllAtOnceForm to form the Jacobian from.
+        :arg solver_parameters: solver parameters to pass to PETSc.
+            This should be a dict mapping PETSc options to values.
+        :arg appctx: A dictionary containing application context that is
+            passed to the preconditioner if matrix-free.
+        :arg options_prefix: an optional prefix used to distinguish PETSc options.
+            Use this option if you want to pass options to the solver from the
+            command line in addition to through the solver_parameters dict.
+        """
+        self._time_partition_setup(aaoform.ensemble, aaoform.time_partition)
+
+        self.aaoform = aaoform
+        self.appctx = appctx
+        aaofunc = aaoform.aaofunc
+
+        # manage options from both dict and command line
+        self.solver_parameters = solver_parameters
+        self.flat_solver_parameters = flatten_parameters(solver_parameters)
+        self.options = OptionsManager(self.flat_solver_parameters, options_prefix)
+        options_prefix = self.options.options_prefix
+
+        # the solver
+        self.ksp = PETSc.KSP().create(comm=self.ensemble.global_comm)
+        self.ksp.setOptionsPrefix(options_prefix)
+
+        # create the all-at-once jacobian
+        with self.options.inserted_options():
+            self.jacobian = AllAtOnceJacobian(aaoform, appctx=appctx,
+                                              options_prefix=options_prefix)
+
+        # create petsc matrix
+        jacobian_mat = PETSc.Mat().create(comm=self.ensemble.global_comm)
+        jacobian_mat.setType("python")
+        sizes = (aaofunc.nlocal_dofs, aaofunc.nglobal_dofs)
+        jacobian_mat.setSizes((sizes, sizes))
+        jacobian_mat.setPythonContext(self.jacobian)
+        jacobian_mat.setUp()
+        self.jacobian_mat = jacobian_mat
+
+        # finish setting up the ksp
+        self.ksp.setOperators(jacobian_mat)
+        self.options.set_from_options(self.ksp)
 
     @profiler()
     def solve(self, b, x):
