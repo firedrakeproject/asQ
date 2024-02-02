@@ -89,21 +89,12 @@ class EnsembleConnector(Ensemble):
         assert nmembers*local_comm.size == global_comm.size
 
         self.global_comm = global_comm
-        self._global_comm = internal_comm(self.global_comm)
+        self._comm = internal_comm(self.global_comm, self)
 
         self.comm = local_comm
-        self._comm = internal_comm(self.comm)
+        self._spatial_comm = internal_comm(self.comm, self)
 
         self.ensemble_comm = self.global_comm.Split(color=self.comm.rank,
                                                     key=global_comm.rank)
 
-        self._ensemble_comm = internal_comm(self.ensemble_comm)
-
-    def __del__(self):
-        if hasattr(self, "ensemble_comm"):
-            self.ensemble_comm.Free()
-            del self.ensemble_comm
-        for comm_name in ["_global_comm", "_comm", "_ensemble_comm"]:
-            if hasattr(self, comm_name):
-                comm = getattr(self, comm_name)
-                decref(comm)
+        self._ensemble_comm = internal_comm(self.ensemble_comm, self)
