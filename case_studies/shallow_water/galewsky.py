@@ -25,6 +25,8 @@ parser.add_argument('--base_level', type=int, default=2, help='Base refinement l
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
+parser.add_argument('--slice_jacobi_nsteps', type=int, default=4, help='Number of timesteps per SliceJacobiPC.')
+parser.add_argument('--aaopc', type=str, default='CirculantPC', choices=['CirculantPC', 'JacobiPC', 'SliceJacobiPC'], help='Preconditioner for the AllAtOnceSystem')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 
 parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
@@ -200,7 +202,7 @@ patch_parameters = {
 mg_parameters = {
     'levels': {
         'ksp_type': 'gmres',
-        'ksp_max_it': 5,
+        'ksp_max_it': 4,
         'pc_type': 'python',
         'pc_python_type': 'firedrake.PatchPC',
         'patch': patch_parameters
@@ -245,7 +247,7 @@ hybr_pc = {
 
 block_sparams = {
     'mat_type': 'matfree',
-    'ksp_type': 'gmres',
+    'ksp_type': 'fgmres',
     'ksp': {
         'atol': 1e-100,
         'rtol': args.block_rtol,
@@ -273,6 +275,7 @@ circulant_parameters = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
     'diagfft_block': block_sparams,
+    'diagfft_alpha': args.alpha,
 }
 
 jacobi_parameters = {
@@ -284,11 +287,26 @@ jacobi_parameters = {
 slice_jacobi_parameters = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.SliceJacobiPC',
-    'slice_jacobi_nsteps': 4,
+    'slice_jacobi_nsteps': args.slice_jacobi_nsteps,
     'slice_jacobi_slice_ksp_type': 'preonly',
     # 'slice_jacobi_slice': jacobi_parameters,
     'slice_jacobi_slice': circulant_parameters,
 }
+
+# JacobiPC and SliceJacobiPC have disconnected blocks.
+# Because the all-at-once jacobian is triangular it
+# will take `nblocks` iterations for information to
+# travel # the entire way across the solution vector.
+# This means # we should allow at least as many gmres
+# iterations as the number of blocks before restarting.
+default_gmres_restart = 30  # PETSc default
+if args.aaopc == "CirculantPC":
+    nblocks = 1
+elif args.aaopc == "JacobiPC":
+    nblocks = window_length
+elif args.aaopc == "SliceJacobiPC":
+    nblocks = window_length//args.slice_jacobi_nsteps
+gmres_restart = max(nblocks + 1, default_gmres_restart)
 
 sparameters_diag = {
     'snes': {
@@ -309,13 +327,16 @@ sparameters_diag = {
         'converged_rate': None,
         'rtol': 1e-5,
         'atol': patol,
+        'gmres_restart': gmres_restart,
     },
 }
 
-# sparameters_diag.update(none_parameters)
-# sparameters_diag.update(jacobi_parameters)
-# sparameters_diag.update(circulant_parameters)
-sparameters_diag.update(slice_jacobi_parameters)
+if args.aaopc == 'JacobiPC':
+   sparameters_diag.update(jacobi_parameters)
+elif args.aaopc == 'CirculantPC':
+   sparameters_diag.update(circulant_parameters)
+elif args.aaopc == 'SliceJacobiPC':
+   sparameters_diag.update(slice_jacobi_parameters)
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
@@ -354,7 +375,6 @@ def window_preproc(swe_app, pdg, wndw):
 
 
 def window_postproc(swe_app, pdg, wndw):
-<<<<<<< HEAD
     timer.stop_timing()
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'Window solution time: {timer.times[-1]}')
@@ -396,7 +416,7 @@ if sparameters_diag['pc_python_type'] != 'asQ.SliceJacobiPC':
 else:
     slice_solver = paradiag.solver.jacobian.pc.slice_solver
     blits = slice_solver.jacobian.pc.block_iterations
-    blits.sychronise()
+    blits.synchronise()
     blits = blits.data()
 
 PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
