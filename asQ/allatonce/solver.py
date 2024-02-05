@@ -23,6 +23,9 @@ class AllAtOnceSolver(TimePartitionMixin):
         """
         Solve an all-at-once form over an all-at-once function.
 
+        This is used to solve for a timeseries defined by the all-at-once form
+        and the initial condition in the all-at-once function.
+
         :arg aaoform: the AllAtOnceForm to solve.
         :arg aaofunc: the AllAtOnceFunction solution.
         :arg solver_parameters: solver parameters to pass to PETSc.
@@ -150,6 +153,10 @@ class LinearSolver(TimePartitionMixin):
                  options_prefix=""):
         """
         Solve a linear system where the matrix is an all-at-once Jacobian.
+
+        This does not solve for a timeseries (use an AllAtOnceSolver if this
+        is what you need), but simply uses the AllAtOnceJacobian as the Mat
+        for a KSP.
 
         :arg aaoform: the AllAtOnceForm to form the Jacobian from.
         :arg solver_parameters: solver parameters to pass to PETSc.

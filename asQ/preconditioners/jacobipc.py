@@ -243,16 +243,22 @@ class SliceJacobiPC(AllAtOncePCBase):
         # slice here means the smaller local ensemble, not the
         # section of the timeseries on the local ensemble member.
 
+        # all ensemble members must have the same number of timesteps
+        if len(set(self.time_partition)) != 1:
+            msg = "SliceJacobiPC only implemented for balanced partitions yet"
+            raise ValueError(msg)
+
         # how many timesteps in each slice?
         slice_size = PETSc.Options().getInt(
             f"{self.full_prefix}nsteps")
 
-        # create the ensemble for the local slice by splitting the global ensemble
-        self.slice_ensemble = split_ensemble(self.ensemble, self.time_partition,
-                                             split_size=slice_size)
+        # we need to work out how many members of the global ensemble
+        # needed to get `split_size` timesteps on each slice ensemble
+        slice_members = slice_size // self.time_partition[0]
 
-        # how many ensemble members in each slice?
-        slice_members = self.slice_ensemble.ensemble_comm.size
+        # create the ensemble for the local slice by splitting the global ensemble
+        self.slice_ensemble = split_ensemble(self.ensemble,
+                                             split_size=slice_members)
 
         # which slice are we in?
         self.slice_rank = self.ensemble.ensemble_comm.rank // slice_members
