@@ -1,7 +1,7 @@
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 
 from asQ.profiling import profiler
-from asQ.allatonce import AllAtOnceJacobian
+from asQ.allatonce import AllAtOnceJacobian, AllAtOnceCofunction
 from asQ.allatonce.mixin import TimePartitionMixin
 
 __all__ = ['AllAtOnceSolver']
@@ -135,5 +135,8 @@ class AllAtOnceSolver(TimePartitionMixin):
             if rhs is None:
                 self.snes.solve(None, gvec)
             else:
+                if not isinstance(rhs, AllAtOnceCofunction):
+                    msg = f"Right hand side of all-at-once problem must be AllAtOnceCofunction not {type(rhs)}."
+                    raise TypeError(msg)
                 with rhs.global_vec_ro() as rvec:
                     self.snes.solve(rvec, gvec)
