@@ -37,7 +37,7 @@ def form_mass(u, v):
     return fd.inner(u, v)*fd.dx
 
 
-def form_function(u, v):
+def form_function(u, v, t=None):
     return Nu*fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
 
@@ -73,13 +73,15 @@ miniapp = SerialMiniApp(dtf, theta,
 
 def G(u, uout, **kwargs):
     miniapp.dt.assign(dtc)
-    miniapp.solve(1, ics=u, **kwargs)
+    miniapp.w0.assign(u)
+    miniapp.solve(1, **kwargs)
     uout.assign(miniapp.w0)
 
 
 def F(u, uout, **kwargs):
     miniapp.dt.assign(dtf)
-    miniapp.solve(ntf, ics=u, **kwargs)
+    miniapp.w0.assign(u)
+    miniapp.solve(ntf, **kwargs)
     uout.assign(miniapp.w0)
 
 
