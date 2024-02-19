@@ -320,29 +320,38 @@ class SliceJacobiPC(AllAtOncePCBase):
         """
         Update the slice states.
         """
-        # update the timestep values
+        # # # update the timestep values
         aaofunc = self.aaofunc
         slice_func = self.slice_func
 
+        # slice initial conditions
+        aaofunc.update_time_halos()
+        if self.slice_rank == 0:
+            slice_func.initial_condition.assign(aaofunc.initial_condition)
+        else:
+            slice_func.initial_condition.assign(aaofunc.uprev)
+
+        # slice values
         for i in range(self.nlocal_timesteps):
             slice_func[i].assign(aaofunc[i])
-
-        # TODO: update the initial conditions
-
         slice_func.update_time_halos()
-        self.slice_solver.jacobian.update()
 
-        # update the time values
+        # # # update the time values
         aaoform = self.aaoform
         slice_form = self.slice_form
 
+        # slice initial time
         if self.slice_rank == 0:
             slice_form.t0.assign(aaoform.t0)
         else:
             slice_form.t0.assign(aaoform.time[0] - aaoform.dt)
 
-        for jt, ft in zip(slice_form.time, aaoform.time):
-            jt.assign(ft)
+        # slice times
+        for i in range(self.nlocal_timesteps):
+            slice_form.time[i] = aaoform.time[i]
+
+        # # # update the slice
+        self.slice_solver.jacobian.update()
 
         return
 
