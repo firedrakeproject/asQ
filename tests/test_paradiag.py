@@ -272,7 +272,9 @@ def test_galewsky_timeseries():
     }
 
     # mg with patch smoother
+    from utils.mg import ManifoldTransferManager  # noqa: F401
     mg_parameters = {
+        'transfer_manager': f'{__name__}.ManifoldTransferManager',
         'levels': {
             'ksp_type': 'gmres',
             'ksp_max_it': 5,
@@ -414,7 +416,10 @@ def test_steady_swe_miniapp():
     sparameters = {
         'ksp_type': 'preonly',
         'pc_type': 'lu',
-        'pc_factor_mat_solver_type': 'mumps'}
+        'pc_factor_mat_solver_type': 'mumps',
+        'pc_factor_reuse_fill': None,
+        'pc_factor_reuse_ordering': None,
+    }
 
     solver_parameters_diag = {
         "snes_linesearch_type": "basic",
@@ -430,7 +435,7 @@ def test_steady_swe_miniapp():
         'pc_python_type': 'asQ.DiagFFTPC',
         'aaos_jacobian_state': 'initial',
         'diagfft_state': 'initial',
-        'diagfft_alpha': 1e-3,
+        'diagfft_alpha': 1e-5,
     }
 
     for i in range(sum(time_partition)):
