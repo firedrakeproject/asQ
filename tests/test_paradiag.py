@@ -5,6 +5,12 @@ from firedrake.petsc import PETSc
 from functools import reduce, partial
 from operator import mul
 
+# This hack is here because firedrake can't import from double-qualified
+# modules so passing 'utils.mg.ManifoldTransferManager' in the petsc
+# options results in an error. Instead we import the tm here and pass
+# '{__name__}.ManifoldTransferManager'
+from utils.mg import ManifoldTransferManager  # noqa: F401
+
 
 @pytest.mark.parallel(nprocs=4)
 def test_Nitsche_BCs():
@@ -272,7 +278,6 @@ def test_galewsky_timeseries():
     }
 
     # mg with patch smoother
-    from utils.mg import ManifoldTransferManager  # noqa: F401
     mg_parameters = {
         'transfer_manager': f'{__name__}.ManifoldTransferManager',
         'levels': {
