@@ -366,15 +366,6 @@ class DiagFFTPC(TimePartitionMixin):
             block_solver = fd.LinearVariationalSolver(block_problem,
                                                       appctx=appctx_h,
                                                       options_prefix=block_prefix)
-            # multigrid transfer manager
-            if f'{self.prefix}transfer_managers' in appctx:
-                # block_solver.set_transfer_manager(jacobian.appctx['diagfft_transfer_managers'][ii])
-                tm = appctx[f'{self.prefix}transfer_managers'][i]
-                block_solver.set_transfer_manager(tm)
-                tm_set = (block_solver._ctx.transfer_manager is tm)
-
-                if tm_set is False:
-                    print(f"transfer manager not set on block_solvers[{ii}]")
 
             self.block_solvers.append(block_solver)
 
