@@ -89,6 +89,7 @@ def form_mass(u, h, v, q):
 
 
 # solver parameters for the implicit solve
+from utils.mg import ManifoldTransferManager  # noqa: F401
 atol = 1e4
 serial_sparameters = {
     'snes': {
@@ -108,6 +109,7 @@ serial_sparameters = {
     'pc_mg_cycle_type': 'w',
     'pc_mg_type': 'multiplicative',
     'mg': {
+        'transfer_manager': f'{__name__}.ManifoldTransferManager',
         'levels': {
             'ksp_type': 'gmres',
             'ksp_max_it': 5,
@@ -154,6 +156,7 @@ block_sparameters = {
     'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
     'mg': {
+        'transfer_manager': f'{__name__}.ManifoldTransferManager',
         'levels': {
             'ksp_type': 'gmres',
             'ksp_max_it': 5,
