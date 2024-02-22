@@ -1,4 +1,6 @@
 import firedrake as fd
+from firedrake.petsc import PETSc
+
 from functools import partial
 
 from asQ.profiling import profiler
@@ -163,3 +165,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         with self.F.global_vec_ro() as v:
             v.copy(Y)
+
+    @profiler()
+    def petsc_mat(self):
+        """
+        Return a petsc4py.PETSc.Mat with this AllAtOnceJacobian as the python context.
+        """
+        mat = PETSc.Mat().create(comm=self.ensemble.global_comm)
+        mat.setType("python")
+        sizes = (self.aaofunc.nlocal_dofs, self.aaofunc.nglobal_dofs)
+        mat.setSizes((sizes, sizes))
+        mat.setPythonContext(self)
+        mat.setUp()
+        return mat

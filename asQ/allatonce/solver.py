@@ -107,13 +107,7 @@ class AllAtOnceSolver(TimePartitionMixin):
                                               options_prefix=options_prefix,
                                               appctx=appctx)
 
-        jacobian_mat = PETSc.Mat().create(comm=self.ensemble.global_comm)
-        jacobian_mat.setType("python")
-        sizes = (aaofunc.nlocal_dofs, aaofunc.nglobal_dofs)
-        jacobian_mat.setSizes((sizes, sizes))
-        jacobian_mat.setPythonContext(self.jacobian)
-        jacobian_mat.setUp()
-        self.jacobian_mat = jacobian_mat
+        self.jacobian_mat = self.jacobian.petsc_mat()
 
         def form_jacobian(snes, X, J, P):
             self.pre_jacobian_callback(self, X, J)
@@ -122,7 +116,9 @@ class AllAtOnceSolver(TimePartitionMixin):
             J.assemble()
             P.assemble()
 
-        self.snes.setJacobian(form_jacobian, J=jacobian_mat, P=jacobian_mat)
+        self.snes.setJacobian(form_jacobian,
+                              J=self.jacobian_mat,
+                              P=self.jacobian_mat)
 
         # complete the snes setup
         self.options.set_from_options(self.snes)
@@ -171,7 +167,6 @@ class LinearSolver(TimePartitionMixin):
 
         self.aaoform = aaoform
         self.appctx = appctx
-        aaofunc = aaoform.aaofunc
 
         # manage options from both dict and command line
         self.solver_parameters = solver_parameters
@@ -189,16 +184,10 @@ class LinearSolver(TimePartitionMixin):
                                               options_prefix=options_prefix)
 
         # create petsc matrix
-        jacobian_mat = PETSc.Mat().create(comm=self.ensemble.global_comm)
-        jacobian_mat.setType("python")
-        sizes = (aaofunc.nlocal_dofs, aaofunc.nglobal_dofs)
-        jacobian_mat.setSizes((sizes, sizes))
-        jacobian_mat.setPythonContext(self.jacobian)
-        jacobian_mat.setUp()
-        self.jacobian_mat = jacobian_mat
+        self.jacobian_mat = self.jacobian.petsc_mat()
 
         # finish setting up the ksp
-        self.ksp.setOperators(jacobian_mat)
+        self.ksp.setOperators(self.jacobian_mat)
         self.options.set_from_options(self.ksp)
 
     @profiler()
