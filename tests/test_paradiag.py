@@ -5,6 +5,12 @@ from firedrake.petsc import PETSc
 from functools import reduce, partial
 from operator import mul
 
+# This hack is here because firedrake can't import from double-qualified
+# modules so passing 'utils.mg.ManifoldTransferManager' in the petsc
+# options results in an error. Instead we import the tm here and pass
+# '{__name__}.ManifoldTransferManager'
+from utils.mg import ManifoldTransferManager  # noqa: F401
+
 
 @pytest.mark.parallel(nprocs=4)
 def test_Nitsche_BCs():
@@ -273,6 +279,7 @@ def test_galewsky_timeseries():
 
     # mg with patch smoother
     mg_parameters = {
+        'transfer_manager': f'{__name__}.ManifoldTransferManager',
         'levels': {
             'ksp_type': 'gmres',
             'ksp_max_it': 5,
@@ -414,7 +421,10 @@ def test_steady_swe_miniapp():
     sparameters = {
         'ksp_type': 'preonly',
         'pc_type': 'lu',
-        'pc_factor_mat_solver_type': 'mumps'}
+        'pc_factor_mat_solver_type': 'mumps',
+        'pc_factor_reuse_fill': None,
+        'pc_factor_reuse_ordering': None,
+    }
 
     solver_parameters_diag = {
         "snes_linesearch_type": "basic",
@@ -430,7 +440,7 @@ def test_steady_swe_miniapp():
         'pc_python_type': 'asQ.CirculantPC',
         'aaos_jacobian_state': 'initial',
         'diagfft_state': 'initial',
-        'diagfft_alpha': 1e-3,
+        'diagfft_alpha': 1e-5,
     }
 
     for i in range(sum(time_partition)):
