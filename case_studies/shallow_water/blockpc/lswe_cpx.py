@@ -54,6 +54,9 @@ freqs = fftfreq(nt, dt)
 d1 = D1[args.eigenvalue]
 d2 = D2[args.eigenvalue]
 
+d1 = 1
+d2 = 1
+
 d1c = cpx.ComplexConstant(d1)
 d2c = cpx.ComplexConstant(d2)
 
@@ -79,7 +82,7 @@ def make_solver(W, form_mass, form_function,
 
     A = M + K
 
-    wout = fd.Function(W)
+    wout = fd.Function(W).assign(0)
     problem = fd.LinearVariationalProblem(A, L, wout)
     solver = fd.LinearVariationalSolver(problem,
                                         solver_parameters=sparams)
@@ -164,13 +167,23 @@ sparams_tr = {
 np.random.seed(args.seed)
 L.assign(0)
 Ltr.assign(0)
-for dat in (*L.dat, *Ltr.dat):
+for dat in L.dat:
     dat.data[:] = np.random.rand(*(dat.data.shape))
+L.subfunctions[0].assign(0)
+
+# break velocity
+from utils.broken_projections import BrokenHDivProjector
+projector = BrokenHDivProjector(Vu)
+projector.project(L.subfunctions[0].sub(0), Ltr.subfunctions[0].sub(0))
+projector.project(L.subfunctions[0].sub(1), Ltr.subfunctions[0].sub(1))
+
+# break height
+Ltr.subfunctions[1].assign(L.subfunctions[1])
 
 w, solver = make_solver(W, form_mass, form_function,
-                        d1c, d2c, L, sparams)
+                        d1c, d2c, L, lu_params)
 wtr, solver_tr = make_solver(Wtr, form_mass_tr, form_function_tr,
-                             d1c, d2c, Ltr, sparams_tr)
+                             d1c, d2c, Ltr, lu_params)
 
 PETSc.Sys.Print("")
 PETSc.Sys.Print("Solving original system")
@@ -181,8 +194,15 @@ solver_tr.solve()
 
 u, h = w.subfunctions
 utr, htr, tr = wtr.subfunctions
+
+umend = fd.Function(W.subfunctions[0])
+projector.project(utr.sub(0), umend.sub(0))
+projector.project(utr.sub(1), umend.sub(1))
+
+umerr = fd.errornorm(u, umend)/fd.norm(u)
 uerr = fd.errornorm(u, utr)/fd.norm(u)
 herr = fd.errornorm(h, htr)/fd.norm(h)
 PETSc.Sys.Print("")
 PETSc.Sys.Print(f"Velocity errornorm = {uerr}")
 PETSc.Sys.Print(f"Depth errornorm    = {herr}")
+PETSc.Sys.Print(f"Mended velocity errornorm = {umerr}")
