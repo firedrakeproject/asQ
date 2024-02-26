@@ -123,7 +123,7 @@ def depth_expression(x, y, z):
     W = fd.VectorFunctionSpace(mesh, V.ufl_element())
 
     # initialise depth from coordinates
-    coords = fd.interpolate(mesh.coordinates, W)
+    coords = fd.Function(W).interpolate(mesh.coordinates)
     h = fd.Function(V)
     h.dat.data[:] = depth_calculation(coords.dat.data_ro)
 
