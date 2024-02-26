@@ -56,6 +56,18 @@ class BrokenHDivProjector:
         :arg src: the Function/Cofunction to be projected from.
         :arg dst: the Function/Cofunction to be projected to.
         """
+        es, ed = src.ufl_element(), dst.ufl_element()
+        ev, eb = self.V.ufl_element(), self.Vb.ufl_element()
+        echeck = (ev, eb)
+        ms, md = src.function_space().mesh(), dst.function_space().mesh()
+        mcheck = self.V.mesh()
+        valid_mesh = (ms == mcheck) and (md == mcheck)
+        valid_elements = (es in echeck) and (ed in echeck) and (es != ed)
+
+        if not (valid_mesh and valid_elements):
+            msg = f"Can only project between the HDiv space {ev} and the broken space {eb} on the mesh {mcheck}, not between the spaces {es} and {ed} on meshes {ms} and {md}."
+            raise TypeError(msg)
+
         dst.assign(0)
         par_loop(self.projection_kernel, dx,
                  {"weights": (self.weights, READ),
