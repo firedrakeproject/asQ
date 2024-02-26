@@ -2,6 +2,8 @@ from firedrake import FunctionSpace, BrokenElement, Function, dx
 from firedrake.parloops import par_loop, READ, INC
 from math import prod
 
+__all__ = ['BrokenHDivProjector']
+
 
 class BrokenHDivProjector:
     def __init__(self, V):

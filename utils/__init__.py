@@ -1,5 +1,6 @@
 import utils.units  # noqa: F401
 import utils.planets  # noqa: F401
+import utils.broken_projections  # noqa: F401
 import utils.shallow_water  # noqa: F401
 import utils.compressible_flow  # noqa: F401
 import utils.vertical_slice  # noqa: F401
