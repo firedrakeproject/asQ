@@ -53,7 +53,7 @@ freqs = fftfreq(nt, dt)
 d1 = D1[args.eigenvalue]
 d2 = D2[args.eigenvalue]
 
-d1 = 1 + 0.01j
+d1 = 1 + 1j
 d2 = 1
 
 d1c = cpx.ComplexConstant(d1)
@@ -104,11 +104,18 @@ def form_mass_tr(u, h, tr, v, q, s):
 def form_function_tr(u, h, tr, v, q, dtr, t=None):
     K = form_function(u, h, v, q, t)
     n = fd.FacetNormal(mesh)
-    Khybr = (
+    K += (
         g*fd.jump(v, n)*tr('+')
-        + fd.jump(u, n)*dtr('+')
     )*fd.dS
-    return K + Khybr
+    return K
+
+
+def form_trace(u, h, tr, v, q, dtr, t=None):
+    n = fd.FacetNormal(mesh)
+    Ktr = (
+        fd.jump(u, n)*dtr('+')
+    )*fd.dS
+    return Ktr
 
 
 class HybridisedSCPC(fd.PCBase):
@@ -133,55 +140,27 @@ class HybridisedSCPC(fd.PCBase):
 
         M = cpx.BilinearForm(Wtr, d1c, form_mass_tr)
         K = cpx.BilinearForm(Wtr, d2c, form_function_tr)
+        Tr = cpx.BilinearForm(Wtr, 1, form_trace)
 
-        A = M + K
+        A = M + K + Tr
         L = self.xtr
 
         condensed_params = lu_params
         scpc_params = {
+            # 'ksp_monitor': None,
+            # 'ksp_converged_reason': None,
             "mat_type": "matfree",
             "ksp_type": "preonly",
             "pc_type": "python",
             "pc_python_type": "firedrake.SCPC",
-            'pc_sc_eliminate_fields': '0, 1',
-            'condensed_field': condensed_params
+            "pc_sc_eliminate_fields": "0, 1",
+            "condensed_field": condensed_params
         }
-        scpc_params = lu_params
+        # scpc_params = lu_params
 
         problem = fd.LinearVariationalProblem(A, L, self.ytr)
         self.solver = fd.LinearVariationalSolver(
             problem, solver_parameters=scpc_params)
-
-    def _hdiv_project(self, src, dst):
-        # function spaces
-        Ws = src.function_space()
-        Wd = dst.function_space()
-
-        Vs = Ws.sub(0)
-        Vd = Wd.sub(0)
-
-        # copy into Function for cpx
-
-        # real / imag components
-        sr = fd.Function(Vs)
-        si = fd.Function(Vs)
-
-        dr = fd.Function(Vd)
-        di = fd.Function(Vd)
-
-        # extract components
-        cpx.get_real(src, sr)
-        cpx.get_imag(src, si)
-
-        # break / mend
-        self.projector.project(sr, dr)
-        self.projector.project(si, di)
-
-        # return components
-        cpx.set_real(dst, dr)
-        cpx.set_imag(dst, di)
-
-        # copy out of Function from cpx
 
     def apply(self, pc, x, y):
         # copy into unbroken vector
@@ -189,9 +168,8 @@ class HybridisedSCPC(fd.PCBase):
             x.copy(v)
 
         # break each component of velocity
-        self._hdiv_project(self.xu, self.xbu)
-        # self.projector.project(self.xu.sub(0), self.xbu.sub(0))
-        # self.projector.project(self.xu.sub(1), self.xbu.sub(1))
+        self.projector.project(self.xu.sub(0), self.xbu.sub(0))
+        self.projector.project(self.xu.sub(1), self.xbu.sub(1))
 
         # depth already broken
         self.xbh.assign(self.xh)
@@ -200,9 +178,8 @@ class HybridisedSCPC(fd.PCBase):
         self.solver.solve()
 
         # mend each component of velocity
-        self._hdiv_project(self.ybu, self.yu)
-        # self.projector.project(self.ybu.sub(0), self.yu.sub(0))
-        # self.projector.project(self.ybu.sub(1), self.yu.sub(1))
+        self.projector.project(self.ybu.sub(0), self.yu.sub(0))
+        self.projector.project(self.ybu.sub(1), self.yu.sub(1))
 
         # depth already mended
         self.yh.assign(self.ybh)
@@ -230,6 +207,7 @@ lu_params = {
 }
 
 scpc_sparams = {
+    "ksp_type": 'gmres',
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": f"{__name__}.HybridisedSCPC",
@@ -239,7 +217,7 @@ rtol = 1e-3
 sparams = {
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
+        'converged_rate': None,
         'rtol': rtol,
         # 'view': None
     },
@@ -259,7 +237,7 @@ K = cpx.BilinearForm(W, d2c, form_function)
 
 A = M + K
 
-wout = fd.Function(W)
+wout = fd.Function(W).assign(0)
 problem = fd.LinearVariationalProblem(A, L, wout)
 solver = fd.LinearVariationalSolver(problem,
                                     solver_parameters=sparams)

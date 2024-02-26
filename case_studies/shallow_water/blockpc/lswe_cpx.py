@@ -54,7 +54,7 @@ freqs = fftfreq(nt, dt)
 d1 = D1[args.eigenvalue]
 d2 = D2[args.eigenvalue]
 
-d1 = 1
+d1 = 1 + 1j
 d2 = 1
 
 d1c = cpx.ComplexConstant(d1)
@@ -74,13 +74,17 @@ H = lcase.H
 
 # generate linear solver
 def make_solver(W, form_mass, form_function,
-                d1c, d2c, L, sparams):
+                d1c, d2c, L, sparams, form_trace=None):
 
     # block forms
     M = cpx.BilinearForm(W, d1c, form_mass)
     K = cpx.BilinearForm(W, d2c, form_function)
 
     A = M + K
+
+    if form_trace is not None:
+        Tr = cpx.BilinearForm(W, 1, form_trace)
+        A += Tr
 
     wout = fd.Function(W).assign(0)
     problem = fd.LinearVariationalProblem(A, L, wout)
@@ -101,19 +105,24 @@ def form_function(u, h, v, q, t=None):
 
 # shallow water equation forms with trace variable
 def form_mass_tr(u, h, tr, v, q, s):
-    return swe.linear.form_mass(mesh, u, h, v, q)
+    return form_mass(u, h, v, q)
 
 
 def form_function_tr(u, h, tr, v, q, dtr, t=None):
-    K = swe.linear.form_function(mesh, g, H, f,
-                                 u, h, v, q, t)
+    K = form_function(u, h, v, q, t)
+    n = fd.FacetNormal(mesh)
+    K += (
+        g*fd.jump(v, n)*tr('+')
+    )*fd.dS
+    return K
+
+
+def form_trace(u, h, tr, v, q, dtr, t=None):
     n = fd.FacetNormal(mesh)
     Khybr = (
-        g*fd.jump(v, n)*tr('+')
         + fd.jump(u, n)*dtr('+')
     )*fd.dS
-
-    return K + Khybr
+    return Khybr
 
 
 V = swe.default_function_space(mesh)
@@ -148,13 +157,7 @@ sparams = {
 }
 sparams.update(lu_params)
 
-sparams_tr = {
-    'ksp': {
-        'monitor': None,
-        'converged_reason': None,
-        'rtol': rtol,
-        # 'view': None
-    },
+scpc_params = {
     'mat_type': 'matfree',
     'ksp_type': 'preonly',
     'pc_type': 'python',
@@ -163,13 +166,24 @@ sparams_tr = {
     'condensed_field': lu_params,
 }
 
+sparams_tr = {
+    'ksp': {
+        'monitor': None,
+        'converged_reason': None,
+        'rtol': rtol,
+        # 'view': None
+    },
+}
+# sparams_tr.update(scpc_params)
+sparams_tr.update(lu_params)
+
 # trace component should have zero rhs
 np.random.seed(args.seed)
 L.assign(0)
 Ltr.assign(0)
 for dat in L.dat:
     dat.data[:] = np.random.rand(*(dat.data.shape))
-L.subfunctions[0].assign(0)
+# L.subfunctions[1].assign(0)
 
 # break velocity
 from utils.broken_projections import BrokenHDivProjector
@@ -181,9 +195,9 @@ projector.project(L.subfunctions[0].sub(1), Ltr.subfunctions[0].sub(1))
 Ltr.subfunctions[1].assign(L.subfunctions[1])
 
 w, solver = make_solver(W, form_mass, form_function,
-                        d1c, d2c, L, lu_params)
+                        d1c, d2c, L, sparams)
 wtr, solver_tr = make_solver(Wtr, form_mass_tr, form_function_tr,
-                             d1c, d2c, Ltr, lu_params)
+                             d1c, d2c, Ltr, sparams_tr, form_trace)
 
 PETSc.Sys.Print("")
 PETSc.Sys.Print("Solving original system")
