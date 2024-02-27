@@ -1,3 +1,4 @@
+
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from math import pi, cos, sin
@@ -15,7 +16,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--nx', type=int, default=16, help='Number of cells along each square side.')
 parser.add_argument('--cfl', type=float, default=0.8, help='Convective CFL number.')
 parser.add_argument('--angle', type=float, default=pi/6, help='Angle of the convective velocity.')
-parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
+parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar spaces.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
 parser.add_argument('--width', type=float, default=0.2, help='Width of the Gaussian bump.')
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
@@ -23,9 +24,8 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--nsample', type=int, default=32, help='Number of sample points for plotting.')
-parser.add_argument('--mpeg', action='store_true', help='Output an mpeg of the timeseries.')
-parser.add_argument('--write_metrics', action='store_true', help='Write various solver metrics to file.')
-parser.add_argument('--show_args', action='store_true', default=True, help='Output all the arguments.')
+parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
+parser.add_argument('--mpeg', action='store_true', help='Create mp4 of timeseries')
 
 args = parser.parse_known_args()
 args = args[0]
@@ -37,8 +37,6 @@ if args.show_args:
 # Here we use the same number of timesteps on each slice, but they can be different
 
 time_partition = tuple(args.slice_length for _ in range(args.nslices))
-window_length = sum(time_partition)
-nsteps = args.nwindows*window_length
 
 # Calculate the timestep from the CFL number
 umax = 1.
@@ -56,7 +54,7 @@ mesh = fd.PeriodicUnitSquareMesh(args.nx, args.nx, quadrilateral=True, comm=ense
 # We use a discontinuous Galerkin space for the advected scalar
 # and a continuous Galerkin space for the advecting velocity field
 V = fd.FunctionSpace(mesh, "DQ", args.degree)
-W = fd.VectorFunctionSpace(mesh, "CG", args.degree)
+W = fd.VectorFunctionSpace(mesh, "CG", args.degree+1)
 
 # # # === --- initial conditions --- === # # #
 
@@ -78,6 +76,11 @@ q0.interpolate(1 + gaussian(x, y))
 # The advecting velocity field is constant and directed at an angle to the x-axis
 u = fd.Function(W, name='velocity')
 u.interpolate(fd.as_vector((umax*cos(args.angle), umax*sin(args.angle))))
+
+# We create an all-at-once function representing the timeseries solution of the scalar
+
+aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, V)
+aaofunc.assign(q0)
 
 
 # # # === --- finite element forms --- === # # #
@@ -107,6 +110,12 @@ def form_function(q, phi, t):
     return int_facet - int_cell
 
 
+# Construct the all-at-once form representing the coupled equations for
+# the implicit-theta method at every timestep of the timeseries.
+
+aaoform = asQ.AllAtOnceForm(aaofunc, dt, args.theta,
+                            form_mass, form_function)
+
 # # # === --- PETSc solver parameters --- === # # #
 
 
@@ -119,21 +128,52 @@ block_parameters = {
 }
 
 # The PETSc solver parameters for solving the all-at-once system.
-# The python preconditioner 'asQ.CirculantPC' applies the ParaDiag matrix.
 #
-# The equation is linear so we can either:
-# a) Solve it in one shot using a preconditioned Krylov method:
-#    P^{-1}Au = P^{-1}b
-#    The solver options for this are:
-#    'ksp_type': 'gmres'
-# b) Solve it with stationary iterations:
-#    Pu_{k+1} = (P - A)u_{k} + b
-#    The solver options for this are:
-#    'ksp_type': 'richardson'
+# We have a selection of all-at-once preconditioners:
+#   'asQ.CirculantPC'
+#       - applies the block circulant ParaDiag matrix.
+#   'asQ.JacobiPC'
+#       - applies a block Jacobi preconditioner where each block
+#         is a single timestep.
+#   'asQ.SliceJacobiPC'
+#       - applies a block Jacobi preconditioner where each block
+#         is a set of 'slice_jacobi_nsteps' timesteps. Each block
+#         can in turn be preconditioned with either CirculantPC or
+#         some other method.
+#
+# The equation is linear so we can use 'snes_type': 'ksponly' and
+# use your favourite Krylov method (if a Krylov method is used on
+# the blocks then the outer Krylov method must be either flexible
+# or Richardson).
 
-atol = 1e-10
+circulant_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.CirculantPC',
+    'diagfft_state': 'linear',
+    'diagfft_alpha': 1e-4,
+    'diagfft_block': block_parameters,
+}
+
+jacobi_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.JacobiPC',
+    'aaojacobi_state': 'linear',
+    'aaojacobi_block': block_parameters,
+}
+
+slice_jacobi_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.SliceJacobiPC',
+    'slice_jacobi_nsteps': 4,
+    'slice_jacobi_slice': {
+        'aaos_jacobian_state': 'linear',
+        'ksp_type': 'preonly',
+    }
+}
+
+atol = 1e-100
 rtol = 1e-8
-paradiag_parameters = {
+solver_parameters = {
     'snes_type': 'ksponly',  # for a linear system
     'snes': {
         'monitor': None,
@@ -146,103 +186,93 @@ paradiag_parameters = {
     'ksp_type': 'gmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
+        'converged_rate': None,
         'rtol': rtol,
         'atol': atol,
         'stol': 1e-12,
     },
-    'pc_type': 'python',
-    'pc_python_type': 'asQ.CirculantPC',
-    'diagfft_alpha': args.alpha,
-    'diagfft_state': 'linear',
     'aaos_jacobian_state': 'linear',
 }
 
-# We need to add a block solver parameters dictionary for each block.
-# Here they are all the same but they could be different.
-for i in range(window_length):
-    paradiag_parameters['diagfft_block_'+str(i)+'_'] = block_parameters
+# pick which preconditioning method we want here
+# solver_parameters.update(jacobi_parameters)
+# solver_parameters.update(circulant_parameters)
+solver_parameters.update(slice_jacobi_parameters)
+
+slice_jacobi_parameters['slice_jacobi_slice'].update(circulant_parameters)
 
 
-# # # === --- Setup ParaDiag --- === # # #
+# Create a solver object to set up and solve the (possibly nonlinear) problem
+# for the timeseries in the all-at-once function.
+aaosolver = asQ.AllAtOnceSolver(aaoform, aaofunc,
+                                solver_parameters=solver_parameters)
 
+# set up diagnostic recording
 
-# Give everything to asQ to create the paradiag object.
-pdg = asQ.Paradiag(ensemble=ensemble,
-                   form_function=form_function,
-                   form_mass=form_mass,
-                   ics=q0, dt=dt, theta=args.theta,
-                   time_partition=time_partition,
-                   solver_parameters=paradiag_parameters)
+linear_iterations = 0
+nonlinear_iterations = 0
+total_timesteps = 0
+total_windows = 0
 
-
-# This is a callback which will be called before pdg solves each time-window
-# We can use this to make the output a bit easier to read
-def window_preproc(pdg, wndw, rhs):
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
-    PETSc.Sys.Print('')
-
+w = fd.Function(V)
 
 # The last time-slice will be saving snapshots to create an animation.
 # The layout member describes the time_partition.
 # layout.is_local(i) returns True/False if the timestep index i is on the
 # current time-slice. Here we use -1 to mean the last timestep in the window.
-is_last_slice = pdg.layout.is_local(-1)
+is_last_slice = aaofunc.layout.is_local(-1)
 
-# Make an output Function on the last time-slice and start a snapshot list
 if is_last_slice:
-    qout = fd.Function(V)
     timeseries = [q0.copy(deepcopy=True)]
 
 
-# This is a callback which will be called after pdg solves each time-window
-# We can use this to save the last timestep of each window for plotting.
-def window_postproc(pdg, wndw, rhs):
+# record some diagnostics from the solve
+def record_diagnostics():
+    global linear_iterations, nonlinear_iterations, total_timesteps, total_windows
+    linear_iterations += aaosolver.snes.getLinearSolveIterations()
+    nonlinear_iterations += aaosolver.snes.getIterationNumber()
+    total_timesteps += sum(aaosolver.time_partition)
+    total_windows += 1
     if is_last_slice:
-        # The aaofunc is the AllAtOnceFunction which represents the time-series.
-        # indexing the AllAtOnceFunction accesses one timestep on the local slice.
-        # -1 is again used to get the last timestep and place it in qout.
-        qout.assign(pdg.aaofunc[-1])
-        timeseries.append(qout)
+        w.assign(aaofunc[-1])
+        timeseries.append(w.copy(deepcopy=True))
 
 
-# Solve nwindows of the all-at-once system
-pdg.solve(args.nwindows,
-          preproc=window_preproc,
-          postproc=window_postproc)
+for i in range(args.nwindows):
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'### === --- Calculating time-window {i} --- === ###')
+    PETSc.Sys.Print('')
 
+    aaosolver.solve()
+    record_diagnostics()
 
-# # # === --- Postprocessing --- === # # #
+    # restart timeseries using final timestep as new
+    # initial conditions and the initial guess.
+    aaofunc.assign(aaofunc.bcast_field(-1, aaofunc.initial_condition))
 
-# paradiag collects a few solver diagnostics for us to inspect
-nw = args.nwindows
+# Print out some iteration counts
 
 # Number of nonlinear iterations, total and per window.
 # (Will be 1 per window for this linear problem)
-PETSc.Sys.Print(f'nonlinear iterations: {pdg.nonlinear_iterations}  |  iterations per window: {pdg.nonlinear_iterations/nw}')
+PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_iterations}  |  iterations per window: {nonlinear_iterations/total_windows}')
 
-# Number of linear iterations of the all-at-once system, total and per window.
-PETSc.Sys.Print(f'linear iterations: {pdg.linear_iterations}  |  iterations per window: {pdg.linear_iterations/nw}')
+# Number of linear iterations, total and per window.
+PETSc.Sys.Print(f'linear iterations: {linear_iterations}  |  iterations per window: {linear_iterations/total_windows}')
 
 # Number of iterations needed for each block in step-(b), total and per block solve
 # The number of iterations for each block will usually be different because of the different eigenvalues
-block_iterations = pdg.solver.jacobian.pc.block_iterations
-PETSc.Sys.Print(f'block linear iterations: {block_iterations.data()}  |  iterations per block solve: {block_iterations.data()/pdg.linear_iterations}')
-
-# We can write these diagnostics to file, along with some other useful information.
-# Files written are: aaos_metrics.txt, block_metrics.txt, paradiag_setup.txt, solver_parameters.txt
-if args.write_metrics:
-    asQ.write_paradiag_metrics(pdg)
+if hasattr(aaosolver.jacobian.pc, "block_iterations"):
+    block_iterations = aaosolver.jacobian.pc.block_iterations
+    block_iterations.synchronise()
+    PETSc.Sys.Print(f'block linear iterations: {block_iterations.data()}  |  iterations per block solve: {block_iterations.data()/linear_iterations}')
 
 # Make an animation from the snapshots we collected and save it to periodic.mp4.
 if is_last_slice and args.mpeg:
-
     fn_plotter = fd.FunctionPlotter(mesh, num_sample_points=args.nsample)
 
     fig, axes = plt.subplots()
     axes.set_aspect('equal')
-    colors = fd.tripcolor(qout, num_sample_points=args.nsample, vmin=1, vmax=2, axes=axes)
+    colors = fd.tripcolor(w, num_sample_points=args.nsample, vmin=1, vmax=2, axes=axes)
     fig.colorbar(colors)
 
     def animate(q):

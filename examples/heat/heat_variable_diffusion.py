@@ -74,7 +74,7 @@ solver_parameters = {
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
+    'pc_python_type': 'asQ.CirculantPC',
     'diagfft_alpha': 1e-3,
     'diagfft_block': block_parameters
 }

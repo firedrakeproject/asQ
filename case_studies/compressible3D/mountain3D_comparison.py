@@ -224,7 +224,7 @@ parallel_parameters = {
         "atol": patol,
     },
     "pc_type": "python",
-    "pc_python_type": "asQ.DiagFFTPC",
+    "pc_python_type": "asQ.CirculantPC",
     "diagfft_alpha": args.alpha,
 }
 

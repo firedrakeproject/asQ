@@ -89,7 +89,7 @@ sparameters_diag = {
     'ksp_type': 'gmres',
     'ksp_max_it': 10,
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'}
+    'pc_python_type': 'asQ.CirculantPC'}
 
 
 # list of serial timesteps

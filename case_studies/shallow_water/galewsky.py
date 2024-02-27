@@ -1,6 +1,5 @@
 from firedrake.petsc import PETSc
 
-import asQ
 import firedrake as fd  # noqa: F401
 from utils import units
 from utils.planets import earth
@@ -98,12 +97,45 @@ sparameters = {
     'mg': mg_parameters
 }
 
+sparameters = {
+    'ksp_type': 'preonly',
+    'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps',
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
+}
+
+none_parameters = {
+    'pc_type': 'none'
+}
+
+circulant_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.CirculantPC',
+    'diagfft_block': sparameters,
+}
+
+jacobi_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.JacobiPC',
+    'aaojacobi_block': sparameters,
+}
+
+slice_jacobi_parameters = {
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.SliceJacobiPC',
+    'slice_jacobi_nsteps': 4,
+    'slice_jacobi_slice_ksp_type': 'preonly',
+    'slice_jacobi_slice': circulant_parameters,
+}
+
+atol = 1e6
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-0,
+        'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
         'ksp_ew': None,
@@ -115,44 +147,16 @@ sparameters_diag = {
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-5,
-        'atol': 1e-0,
+        'rtol': 1e-2,
+        'atol': atol,
     },
-    'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
-    'diagfft_alpha': args.alpha,
-    'diagfft_state': 'window',
-    'aaos_jacobian_state': 'current'
 }
-
-for i in range(window_length):
-    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
+sparameters_diag.update(slice_jacobi_parameters)
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
     ref_level=args.ref_level,
     coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
-
-# check convergence of each timestep
-
-
-def post_function_callback(aaosolver, X, F):
-    residuals = asQ.SharedArray(time_partition,
-                                comm=aaosolver.ensemble.ensemble_comm)
-    # all-at-once residual
-    res = aaosolver.aaoform.F
-    for i in range(res.nlocal_timesteps):
-        w = res[i]
-        # residuals.dlocal[i] = fd.norm(w)
-        with w.dat.vec_ro as vec:
-            residuals.dlocal[i] = vec.norm()
-    residuals.synchronise()
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print('Field residuals:')
-    fr = [f"{r:.4e}" for r in residuals.data()]
-    PETSc.Sys.Print(fr)
-    PETSc.Sys.Print('')
-
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
@@ -167,14 +171,9 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
                                   file_name='output/'+args.filename,
-                                  post_function_callback=post_function_callback,
                                   record_diagnostics={'cfl': True, 'file': False})
 
-ics = miniapp.aaofunc.initial_condition
-reference_state = miniapp.solver.jacobian.reference_state
-reference_state.assign(ics)
-reference_state.subfunctions[0].assign(0)
-reference_state.subfunctions[1].assign(galewsky.H0)
+fround = lambda x: round(float(x), 2)
 
 
 def window_preproc(swe_app, pdg, wndw):
@@ -184,14 +183,15 @@ def window_preproc(swe_app, pdg, wndw):
 
 
 def window_postproc(swe_app, pdg, wndw):
+    return
     if miniapp.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
         time = nt*pdg.aaoform.dt
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)
-        PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
-        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
+        PETSc.Sys.Print(f'Maximum CFL = {fround(swe_app.cfl_series[wndw])}', comm=comm)
+        PETSc.Sys.Print(f'Hours = {fround(time/units.hour)}', comm=comm)
+        PETSc.Sys.Print(f'Days = {fround(time/earth.day)}', comm=comm)
         PETSc.Sys.Print('', comm=comm)
 
 
@@ -201,7 +201,8 @@ miniapp.solve(nwindows=args.nwindows,
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
-asQ.write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
+from asQ import write_paradiag_metrics
+write_paradiag_metrics(miniapp.paradiag, directory=args.metrics_dir)
 
 PETSc.Sys.Print('')
 
@@ -213,12 +214,9 @@ PETSc.Sys.Print('')
 
 lits = miniapp.paradiag.linear_iterations
 nlits = miniapp.paradiag.nonlinear_iterations
-blits = miniapp.paradiag.block_iterations.data()
 
 PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
 PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
-PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
-PETSc.Sys.Print('')
 
 PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
 PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')

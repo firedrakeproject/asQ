@@ -95,7 +95,7 @@ block_parameters = {
 }
 
 # The PETSc solver parameters for solving the all-at-once system.
-# The python preconditioner 'asQ.DiagFFTPC' applies the ParaDiag matrix.
+# The python preconditioner 'asQ.CirculantPC' applies the ParaDiag matrix.
 #
 # The equation is linear so we can either:
 # a) Solve it in one shot using a preconditioned Krylov method:
@@ -127,7 +127,7 @@ paradiag_parameters = {
         'stol': 1e-12,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
+    'pc_python_type': 'asQ.CirculantPC',
     'diagfft_alpha': args.alpha,
 }
 
