@@ -126,7 +126,6 @@ slice_jacobi_parameters = {
     'pc_python_type': 'asQ.SliceJacobiPC',
     'slice_jacobi_nsteps': 4,
     'slice_jacobi_slice_ksp_type': 'preonly',
-    # 'slice_jacobi_slice': jacobi_parameters,
     'slice_jacobi_slice': circulant_parameters,
 }
 
@@ -152,9 +151,6 @@ sparameters_diag = {
         'atol': atol,
     },
 }
-# sparameters_diag.update(none_parameters)
-# sparameters_diag.update(jacobi_parameters)
-# sparameters_diag.update(circulant_parameters)
 sparameters_diag.update(slice_jacobi_parameters)
 
 create_mesh = partial(
@@ -218,12 +214,9 @@ PETSc.Sys.Print('')
 
 lits = miniapp.paradiag.linear_iterations
 nlits = miniapp.paradiag.nonlinear_iterations
-# blits = miniapp.paradiag.block_iterations.data()
 
 PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
 PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
-# PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
-# PETSc.Sys.Print('')
 
 PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
 PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
