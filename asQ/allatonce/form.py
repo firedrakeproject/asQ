@@ -2,7 +2,7 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 
 from asQ.profiling import profiler
-from asQ.allatonce import AllAtOnceFunction
+from asQ.allatonce import AllAtOnceFunction, AllAtOnceCofunction
 from asQ.allatonce.mixin import TimePartitionMixin
 
 from functools import partial
@@ -137,9 +137,9 @@ class AllAtOnceForm(TimePartitionMixin):
 
         :arg func: may optionally be an AllAtOnceFunction or a global PETSc Vec.
             if not None, the form will be evaluated at the state in `func`.
-        :arg tensor: may optionally be an AllAtOnceFunction, a global PETSc Vec,
-            or a Function in AllAtOnceFunction.function_space. if not None, the
-            result will be placed into `tensor`.
+        :arg tensor: may optionally be an AllAtOnceFunction, AllAtOnceCofunction,
+            a global PETSc Vec, or a Function in AllAtOnceFunction.function_space.
+            if not None, the result will be placed into `tensor`.
         """
         # set current state
         if func is not None:
@@ -161,12 +161,22 @@ class AllAtOnceForm(TimePartitionMixin):
         elif isinstance(tensor, fd.Function):
             tensor.assign(self.F.function)
 
+        elif isinstance(tensor, AllAtOnceCofunction):
+            with self.F.global_vec_ro() as fvec:
+                with tensor.global_vec_wo() as tvec:
+                    fvec.copy(tvec)
+
+        elif isinstance(tensor, fd.Cofunction):
+            with self.F.function.dat.vec_ro as fvec:
+                with tensor.dat.vec_wo as tvec:
+                    fvec.copy(tvec)
+
         elif isinstance(tensor, PETSc.Vec):
-            with self.F.global_vec_ro() as v:
-                v.copy(tensor)
+            with self.F.global_vec_ro() as fvec:
+                fvec.copy(tensor)
 
         elif tensor is not None:
-            raise TypeError(f"tensor must be AllAtOnceFunction, Function, or PETSc.Vec, not {type(tensor)}")
+            raise TypeError(f"tensor must be AllAtOnceFunction, AllAtOnceCofunction, Function, Cofunction, or PETSc.Vec, not {type(tensor)}")
 
     def _construct_form(self):
         """
