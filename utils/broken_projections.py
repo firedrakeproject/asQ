@@ -2,16 +2,16 @@ from firedrake import FunctionSpace, BrokenElement, Function, dx
 from firedrake.parloops import par_loop, READ, INC
 from math import prod
 
-__all__ = ['BrokenHDivProjector']
-
 
 class BrokenHDivProjector:
-    def __init__(self, V):
+    def __init__(self, V, Vb=None):
         """
         Projects between an HDiv space and it's broken space
         using equal splitting at the facets.
 
-        :arg V: the HDiv space.
+        :arg V: The HDiv space.
+        :arg Vb: optional, the broken space.
+                 If not provided then BrokenElement(V.ufl_element()) is used.
         """
 
         # check V is actually HDiv
@@ -22,11 +22,14 @@ class BrokenHDivProjector:
         # create the broken function space
         self.mesh = V.mesh()
         self.V = V
-        self.Vb = FunctionSpace(self.mesh, BrokenElement(V.ufl_element()))
+        if Vb is None:
+            Vb = FunctionSpace(self.mesh, BrokenElement(V.ufl_element()))
+        self.Vb = Vb
 
         # parloop domain
         shapes = (V.finat_element.space_dimension(),
                   prod(V.shape))
+        print(shapes)
 
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
 
@@ -49,6 +52,23 @@ class BrokenHDivProjector:
         """
         self.projection_kernel = (domain, projection_instructions)
 
+    def _check_functions(self, x, y):
+        """
+        Ensure the Functions/Cofunctions x and y are from the correct HDiv and broken spaces.
+        """
+        ex, ey = x.ufl_element(), y.ufl_element()
+        ev, eb = self.V.ufl_element(), self.Vb.ufl_element()
+        echeck = (ev, eb)
+        mx, my = x.function_space().mesh(), y.function_space().mesh()
+        mcheck = self.V.mesh()
+
+        valid_mesh = (mx == mcheck) and (my == mcheck)
+        valid_elements = (ex in echeck) and (ey in echeck) and (ex != ey)
+
+        if not (valid_mesh and valid_elements):
+            msg = f"Can only project between the HDiv space {ev} and the broken space {eb} on the mesh {mcheck}, not between the spaces {ex} on mesh {mx} and {ey} on mesh {my}."
+            raise TypeError(msg)
+
     def project(self, src, dst):
         """
         Project from src to dst using equal weighting at the facets.
@@ -56,18 +76,7 @@ class BrokenHDivProjector:
         :arg src: the Function/Cofunction to be projected from.
         :arg dst: the Function/Cofunction to be projected to.
         """
-        es, ed = src.ufl_element(), dst.ufl_element()
-        ev, eb = self.V.ufl_element(), self.Vb.ufl_element()
-        echeck = (ev, eb)
-        ms, md = src.function_space().mesh(), dst.function_space().mesh()
-        mcheck = self.V.mesh()
-        valid_mesh = (ms == mcheck) and (md == mcheck)
-        valid_elements = (es in echeck) and (ed in echeck) and (es != ed)
-
-        if not (valid_mesh and valid_elements):
-            msg = f"Can only project between the HDiv space {ev} and the broken space {eb} on the mesh {mcheck}, not between the spaces {es} and {ed} on meshes {ms} and {md}."
-            raise TypeError(msg)
-
+        self._check_functions(src, dst)
         dst.assign(0)
         par_loop(self.projection_kernel, dx,
                  {"weights": (self.weights, READ),

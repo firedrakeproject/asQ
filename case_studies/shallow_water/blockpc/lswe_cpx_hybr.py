@@ -124,7 +124,14 @@ class HybridisedSCPC(fd.PCBase):
             raise ValueError("Expecting PC type python")
 
         from utils.broken_projections import BrokenHDivProjector
-        self.projector = BrokenHDivProjector(Vu)
+        self.projectorV = BrokenHDivProjector(Vu)
+        self.projectorW = BrokenHDivProjector(Wu, Wub)
+
+        self.v = fd.Function(self.projectorV.V)
+        self.vb = fd.Function(self.projectorV.Vb)
+
+        self.vs = fd.Cofunction(self.projectorV.V.dual())
+        self.vsb = fd.Cofunction(self.projectorV.Vb.dual())
 
         self.x = fd.Cofunction(W.dual()).assign(0)
         self.y = fd.Function(W).assign(0)
@@ -156,11 +163,28 @@ class HybridisedSCPC(fd.PCBase):
             "pc_sc_eliminate_fields": "0, 1",
             "condensed_field": condensed_params
         }
-        # scpc_params = lu_params
 
         problem = fd.LinearVariationalProblem(A, L, self.ytr)
         self.solver = fd.LinearVariationalSolver(
             problem, solver_parameters=scpc_params)
+
+    def _break(self, w, wb):
+        # self.projectorW.project(w, wb)
+        self._project(w, wb, self.vs, self.vsb)
+
+    def _mend(self, w, wb):
+        # self.projectorW.project(wb, w)
+        self._project(wb, w, self.vb, self.v)
+
+    def _project(self, wsrc, wdst, vsrc, vdst):
+        sr, si = wsrc.sub(0), wsrc.sub(1)
+        dr, di = wdst.sub(0), wdst.sub(1)
+        for src, dst in ((sr, dr), (si, di)):
+            for vdat, sdat in zip(vsrc.dat, src.dat):
+                vdat.data[:] = sdat.data[:]
+            self.projectorV.project(vsrc, vdst)
+            for vdat, sdat in zip(vdst.dat, dst.dat):
+                sdat.data[:] = vdat.data[:]
 
     def apply(self, pc, x, y):
         # copy into unbroken vector
@@ -168,8 +192,7 @@ class HybridisedSCPC(fd.PCBase):
             x.copy(v)
 
         # break each component of velocity
-        self.projector.project(self.xu.sub(0), self.xbu.sub(0))
-        self.projector.project(self.xu.sub(1), self.xbu.sub(1))
+        self._break(self.xu, self.xbu)
 
         # depth already broken
         self.xbh.assign(self.xh)
@@ -178,8 +201,7 @@ class HybridisedSCPC(fd.PCBase):
         self.solver.solve()
 
         # mend each component of velocity
-        self.projector.project(self.ybu.sub(0), self.yu.sub(0))
-        self.projector.project(self.ybu.sub(1), self.yu.sub(1))
+        self._mend(self.yu, self.ybu)
 
         # depth already mended
         self.yh.assign(self.ybh)
