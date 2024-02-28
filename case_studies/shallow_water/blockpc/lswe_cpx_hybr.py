@@ -53,8 +53,8 @@ freqs = fftfreq(nt, dt)
 d1 = D1[args.eigenvalue]
 d2 = D2[args.eigenvalue]
 
-d1 = 1 + 1j
-d2 = 1
+# d1 = 1 + 1j
+# d2 = 1
 
 d1c = cpx.ComplexConstant(d1)
 d2c = cpx.ComplexConstant(d2)
@@ -124,26 +124,19 @@ class HybridisedSCPC(fd.PCBase):
             raise ValueError("Expecting PC type python")
 
         from utils.broken_projections import BrokenHDivProjector
-        self.projectorV = BrokenHDivProjector(Vu)
-        self.projectorW = BrokenHDivProjector(Wu, Wub)
+        self.projector = BrokenHDivProjector(Wu, Wub)
 
-        self.v = fd.Function(self.projectorV.V)
-        self.vb = fd.Function(self.projectorV.Vb)
-
-        self.vs = fd.Cofunction(self.projectorV.V.dual())
-        self.vsb = fd.Cofunction(self.projectorV.Vb.dual())
-
-        self.x = fd.Cofunction(W.dual()).assign(0)
-        self.y = fd.Function(W).assign(0)
+        self.x = fd.Cofunction(W.dual())
+        self.y = fd.Function(W)
 
         self.xu, self.xh = self.x.subfunctions
         self.yu, self.yh = self.y.subfunctions
 
         self.xtr = fd.Cofunction(Wtr.dual()).assign(0)
-        self.ytr = fd.Function(Wtr).assign(0)
+        self.ytr = fd.Function(Wtr)
 
-        self.xbu, self.xbh, _ = self.xtr.subfunctions
-        self.ybu, self.ybh, _ = self.ytr.subfunctions
+        self.xbu, self.xbh, self.xbt = self.xtr.subfunctions
+        self.ybu, self.ybh, self.ybt = self.ytr.subfunctions
 
         M = cpx.BilinearForm(Wtr, d1c, form_mass_tr)
         K = cpx.BilinearForm(Wtr, d2c, form_function_tr)
@@ -154,8 +147,6 @@ class HybridisedSCPC(fd.PCBase):
 
         condensed_params = lu_params
         scpc_params = {
-            # 'ksp_monitor': None,
-            # 'ksp_converged_reason': None,
             "mat_type": "matfree",
             "ksp_type": "preonly",
             "pc_type": "python",
@@ -168,40 +159,26 @@ class HybridisedSCPC(fd.PCBase):
         self.solver = fd.LinearVariationalSolver(
             problem, solver_parameters=scpc_params)
 
-    def _break(self, w, wb):
-        # self.projectorW.project(w, wb)
-        self._project(w, wb, self.vs, self.vsb)
-
-    def _mend(self, w, wb):
-        # self.projectorW.project(wb, w)
-        self._project(wb, w, self.vb, self.v)
-
-    def _project(self, wsrc, wdst, vsrc, vdst):
-        sr, si = wsrc.sub(0), wsrc.sub(1)
-        dr, di = wdst.sub(0), wdst.sub(1)
-        for src, dst in ((sr, dr), (si, di)):
-            for vdat, sdat in zip(vsrc.dat, src.dat):
-                vdat.data[:] = sdat.data[:]
-            self.projectorV.project(vsrc, vdst)
-            for vdat, sdat in zip(vdst.dat, dst.dat):
-                sdat.data[:] = vdat.data[:]
-
     def apply(self, pc, x, y):
         # copy into unbroken vector
         with self.x.dat.vec_wo as v:
             x.copy(v)
 
         # break each component of velocity
-        self._break(self.xu, self.xbu)
+        self.projector.project(self.xu, self.xbu)
 
         # depth already broken
         self.xbh.assign(self.xh)
 
+        # zero trace residual
+        self.xbt.assign(0)
+
+        # eliminate and solve the trace system
         self.ytr.assign(0)
         self.solver.solve()
 
         # mend each component of velocity
-        self._mend(self.yu, self.ybu)
+        self.projector.project(self.ybu, self.yu)
 
         # depth already mended
         self.yh.assign(self.ybh)
@@ -229,7 +206,7 @@ lu_params = {
 }
 
 scpc_sparams = {
-    "ksp_type": 'gmres',
+    "ksp_type": 'preonly',
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": f"{__name__}.HybridisedSCPC",
