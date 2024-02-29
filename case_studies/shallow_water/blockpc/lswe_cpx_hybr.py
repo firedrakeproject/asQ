@@ -78,12 +78,24 @@ Wu, Wh = W.subfunctions
 
 Vu, Vh = V.subfunctions
 Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
-Tr = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
-Vtr = Vub*Vh*Tr
+Vt = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
+Vtr = Vub*Vh*Vt
 
 Wtr = cpx.FunctionSpace(Vtr)
 
 Wub, _, Wt = Wtr.subfunctions
+
+Print(f"V DoFs:   {V.dim()}")
+Print(f"Vu DoFs:  {Vu.dim()}")
+Print(f"Vh DoFs:  {Vh.dim()}")
+Print(f"Vub DoFs: {Vub.dim()}")
+Print(f"Vt DoFs:  {Vt.dim()}")
+Print("")
+Print(f"W DoFs:   {W.dim()}")
+Print(f"Wu DoFs:  {Wu.dim()}")
+Print(f"Wh DoFs:  {Wh.dim()}")
+Print(f"Wub DoFs: {Wub.dim()}")
+Print(f"Wt DoFs : {Wt.dim()}")
 
 
 # shallow water equation forms
@@ -106,16 +118,17 @@ def form_function_tr(u, h, tr, v, q, dtr, t=None):
     n = fd.FacetNormal(mesh)
     K += (
         g*fd.jump(v, n)*tr('+')
+        # + fd.jump(u, n)*dtr('+')
     )*fd.dS
     return K
 
 
 def form_trace(u, h, tr, v, q, dtr, t=None):
     n = fd.FacetNormal(mesh)
-    Ktr = (
-        fd.jump(u, n)*dtr('+')
+    K = (
+        + fd.jump(u, n)*dtr('+')
     )*fd.dS
-    return Ktr
+    return K
 
 
 class HybridisedSCPC(fd.PCBase):
@@ -138,6 +151,8 @@ class HybridisedSCPC(fd.PCBase):
         self.xbu, self.xbh, self.xbt = self.xtr.subfunctions
         self.ybu, self.ybh, self.ybt = self.ytr.subfunctions
 
+        # dtr = cpx.ComplexConstant(1/complex(d2c.real, d2c.imag))
+
         M = cpx.BilinearForm(Wtr, d1c, form_mass_tr)
         K = cpx.BilinearForm(Wtr, d2c, form_function_tr)
         Tr = cpx.BilinearForm(Wtr, 1, form_trace)
@@ -145,7 +160,6 @@ class HybridisedSCPC(fd.PCBase):
         A = M + K + Tr
         L = self.xtr
 
-        condensed_params = lu_params
         scpc_params = {
             "mat_type": "matfree",
             "ksp_type": "preonly",
@@ -205,7 +219,38 @@ lu_params = {
     'pc_factor_mat_solver_type': 'mumps'
 }
 
-scpc_sparams = {
+ilu_params = {
+    'ksp_type': 'preonly',
+    'pc_type': 'ilu',
+}
+
+gamg_params = {
+    'ksp_type': 'richardson',
+    # 'ksp_view': None,
+    'ksp_rtol': 1e-12,
+    'ksp_monitor': ':trace_monitor.log',
+    'ksp_converged_rate': None,
+    'pc_type': 'gamg',
+    'pc_gamg_threshold': 0.1,
+    'pc_gamg_agg_nsmooths': 0,
+    'pc_gamg_esteig_ksp_maxit': 10,
+    'pc_mg_cycle_type': 'v',
+    'pc_mg_type': 'multiplicative',
+    'mg_levels': {
+        'ksp_type': 'gmres',
+        # 'ksp_chebyshev_esteig': None,
+        # 'ksp_chebyshev_esteig_noisy': None,
+        # 'ksp_chebyshev_esteig_steps': 30,
+        'ksp_max_it': 5,
+        'pc_type': 'bjacobi',
+        'sub': ilu_params,
+    },
+    'mg_coarse': lu_params,
+}
+
+condensed_params = lu_params
+
+scpc_params = {
     "ksp_type": 'preonly',
     "mat_type": "matfree",
     "pc_type": "python",
@@ -213,7 +258,7 @@ scpc_sparams = {
 }
 
 rtol = 1e-3
-sparams = {
+params = {
     'ksp': {
         'monitor': None,
         'converged_rate': None,
@@ -221,8 +266,8 @@ sparams = {
         # 'view': None
     },
 }
-# sparams.update(lu_params)
-sparams.update(scpc_sparams)
+# params.update(lu_params)
+params.update(scpc_params)
 
 # trace component should have zero rhs
 np.random.seed(args.seed)
@@ -239,7 +284,7 @@ A = M + K
 wout = fd.Function(W).assign(0)
 problem = fd.LinearVariationalProblem(A, L, wout)
 solver = fd.LinearVariationalSolver(problem,
-                                    solver_parameters=sparams)
+                                    solver_parameters=params)
 
 Print(f"dhat = {np.round(dhat, 4)}")
 solver.solve()
