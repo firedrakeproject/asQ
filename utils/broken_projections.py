@@ -29,7 +29,6 @@ class BrokenHDivProjector:
         # parloop domain
         shapes = (V.finat_element.space_dimension(),
                   prod(V.shape))
-        print(shapes)
 
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
 
