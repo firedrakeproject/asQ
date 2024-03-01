@@ -118,7 +118,6 @@ def form_function_tr(u, h, tr, v, q, dtr, t=None):
     n = fd.FacetNormal(mesh)
     K += (
         g*fd.jump(v, n)*tr('+')
-        # + fd.jump(u, n)*dtr('+')
     )*fd.dS
     return K
 
@@ -150,8 +149,6 @@ class HybridisedSCPC(fd.PCBase):
 
         self.xbu, self.xbh, self.xbt = self.xtr.subfunctions
         self.ybu, self.ybh, self.ybt = self.ytr.subfunctions
-
-        # dtr = cpx.ComplexConstant(1/complex(d2c.real, d2c.imag))
 
         M = cpx.BilinearForm(Wtr, d1c, form_mass_tr)
         K = cpx.BilinearForm(Wtr, d2c, form_function_tr)

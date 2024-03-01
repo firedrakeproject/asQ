@@ -1,3 +1,4 @@
+import firedrake as fd
 from firedrake.petsc import PETSc
 
 from utils import units
@@ -20,7 +21,7 @@ parser.add_argument('--ref_level', type=int, default=2, help='Refinement level o
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
-parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
+parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours.')
 parser.add_argument('--filename', type=str, default='gravity_waves', help='Name of output vtk files.')
 parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
@@ -44,7 +45,145 @@ nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
 
+# alternative operator to precondition blocks
+H = case.H
+g = earth.Gravity
+
+
+def form_mass_tr(u, h, tr, v, q, s):
+    mesh = v.ufl_domain()
+    return swe.linear.form_mass(mesh, u, h, v, q)
+
+
+def form_function_tr(u, h, tr, v, q, dtr, t=None):
+    mesh = v.ufl_domain()
+    coords = fd.SpatialCoordinate(mesh)
+    f = swe.earth_coriolis_expression(*coords)
+    K = swe.linear.form_function(mesh, g, H, f,
+                                 u, h, v, q, t)
+    n = fd.FacetNormal(mesh)
+    Khybr = (
+        g*fd.jump(v, n)*tr('+')
+    )*fd.dS
+
+    return K + Khybr
+
+
+def form_trace(u, h, tr, v, q, dtr, t=None):
+    mesh = v.ufl_domain()
+    n = fd.FacetNormal(mesh)
+    K = (
+        + fd.jump(u, n)*dtr('+')
+    )*fd.dS
+    return K
+
+
+class HybridisedSCPC(fd.PCBase):
+    def initialize(self, pc):
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
+
+        appctx = self.get_appctx(pc)
+
+        cpx = appctx['cpx']
+
+        u0 = appctx['u0']
+        d1 = appctx['d1']
+        d2 = appctx['d2']
+
+        mesh = u0.ufl_domain()
+
+        W = u0.function_space()
+        Wu, Wh = W.subfunctions
+
+        # the real space
+        Vu = fd.FunctionSpace(mesh, Wu.sub(0).ufl_element())
+        Vh = fd.FunctionSpace(mesh, Wh.sub(0).ufl_element())
+        Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
+        Vt = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
+        Vtr = Vub*Vh*Vt
+
+        Wtr = cpx.FunctionSpace(Vtr)
+        Wub, Wh, Wt = Wtr.subfunctions
+
+        from utils.broken_projections import BrokenHDivProjector
+        self.projector = BrokenHDivProjector(Wu, Wub)
+
+        self.x = fd.Cofunction(W.dual())
+        self.y = fd.Function(W)
+
+        self.xu, self.xh = self.x.subfunctions
+        self.yu, self.yh = self.y.subfunctions
+
+        self.xtr = fd.Cofunction(Wtr.dual()).assign(0)
+        self.ytr = fd.Function(Wtr)
+
+        self.xbu, self.xbh, self.xbt = self.xtr.subfunctions
+        self.ybu, self.ybh, self.ybt = self.ytr.subfunctions
+
+        M = cpx.BilinearForm(Wtr, d1, form_mass_tr)
+        K = cpx.BilinearForm(Wtr, d2, form_function_tr)
+        Tr = cpx.BilinearForm(Wtr, 1, form_trace)
+
+        A = M + K + Tr
+        L = self.xtr
+
+        scpc_params = {
+            "mat_type": "matfree",
+            "ksp_type": "preonly",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.SCPC",
+            "pc_sc_eliminate_fields": "0, 1",
+            "condensed_field": condensed_params
+        }
+
+        problem = fd.LinearVariationalProblem(A, L, self.ytr)
+        self.solver = fd.LinearVariationalSolver(
+            problem, solver_parameters=scpc_params)
+
+    def apply(self, pc, x, y):
+        # copy into unbroken vector
+        with self.x.dat.vec_wo as v:
+            x.copy(v)
+
+        # break each component of velocity
+        self.projector.project(self.xu, self.xbu)
+
+        # depth already broken
+        self.xbh.assign(self.xh)
+
+        # zero trace residual
+        self.xbt.assign(0)
+
+        # eliminate and solve the trace system
+        self.ytr.assign(0)
+        self.solver.solve()
+
+        # mend each component of velocity
+        self.projector.project(self.ybu, self.yu)
+
+        # depth already mended
+        self.yh.assign(self.ybh)
+
+        # copy out to petsc
+        with self.y.dat.vec_ro as v:
+            v.copy(y)
+
+    def update(self, pc):
+        pass
+
+    def applyTranspose(self, pc, x, y):
+        raise NotImplementedError
+
+
 # parameters for the implicit diagonal solve in step-(b)
+
+lu_params = {
+    'ksp_type': 'preonly',
+    'pc_type': 'lu',
+    # 'pc_factor_mat_ordering_type': 'rcm',
+    'pc_factor_mat_solver_type': 'mumps'
+}
 
 patch_parameters = {
     'pc_patch': {
@@ -75,24 +214,37 @@ mg_parameters = {
     'coarse': {
         'pc_type': 'python',
         'pc_python_type': 'firedrake.AssembledPC',
-        'assembled_pc_type': 'lu',
-        'assembled_pc_factor_mat_solver_type': 'mumps'
+        'assembled': lu_params
     }
 }
 
-sparameters = {
+mg_params = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
+    'pc_type': 'mg',
+    'pc_mg_cycle_type': 'v',
+    'pc_mg_type': 'multiplicative',
+    'mg': mg_parameters
+}
+
+hybrid_params = {
+    "mat_type": "matfree",
+    "ksp_type": 'preonly',
+    "pc_type": "python",
+    "pc_python_type": f"{__name__}.HybridisedSCPC",
+}
+condensed_params = lu_params
+
+sparameters = {
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
         'max_it': 60
     },
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'multiplicative',
-    'mg': mg_parameters
 }
+# sparameters.update(mg_params)
+sparameters.update(hybrid_params)
+# sparameters = lu_params
 
 rtol = 1e-10
 atol = 1e0
@@ -106,13 +258,12 @@ sparameters_diag = {
         'atol': atol,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
+    'ksp_type': 'richardson',
     'ksp': {
         'monitor': None,
         'converged_rate': None,
         'rtol': rtol,
         'atol': atol,
-        'view_eigenvalues': None,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.DiagFFTPC',

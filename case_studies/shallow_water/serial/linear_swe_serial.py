@@ -248,8 +248,8 @@ hybridization_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": "firedrake.HybridizationPC",
-    # "hybridization": lu_params
-    "hybridization": gamg_sparams
+    "hybridization": lu_params
+    # "hybridization": gamg_sparams
 }
 
 scpc_sparams = {
