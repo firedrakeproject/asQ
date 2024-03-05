@@ -142,9 +142,6 @@ miniapp = SerialMiniApp(dt, args.theta,
                         form_function,
                         sparameters)
 
-miniapp.nlsolver.set_transfer_manager(
-    mg.ManifoldTransferManager())
-
 potential_vorticity = diagnostics.potential_vorticity_calculator(
     u_initial.function_space(), name='vorticity')
 
@@ -168,8 +165,7 @@ def preproc(app, step, t):
 
 
 def postproc(app, step, t):
-    global linear_its
-    global nonlinear_its
+    global linear_its, nonlinear_its
 
     linear_its += app.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += app.nlsolver.snes.getIterationNumber()
