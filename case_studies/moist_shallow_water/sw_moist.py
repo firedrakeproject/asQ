@@ -1,5 +1,6 @@
 import firedrake as fd
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
+from pyop2.mpi import MPI
 PETSc.Sys.popErrorHandler()
 
 from utils import units
@@ -7,20 +8,28 @@ from utils.planets import earth
 from utils import shallow_water as swe
 from utils.shallow_water.williamson1992 import case5 as w5
 from utils.mg import ManifoldTransferManager  # noqa: F401
+from utils.diagnostics import convective_cfl_calculator
 
 import asQ
 
 import argparse
-parser = argparse.ArgumentParser(description='Moist Williamson 5 testcase')
-parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve. Default 1.')
-parser.add_argument('--ref_level', type=int, default=5, help='Refinement level of icosahedral grid. Default 5.')
-parser.add_argument('--dmax', type=float, default=15, help='Final time in days. Default 15.')
-parser.add_argument('--dumpt', type=float, default=24, help='Dump time in hours. Default 24.')
-parser.add_argument('--dt', type=float, default=1, help='Timestep in hours. Default XXX')
-parser.add_argument('--filename', type=str, default='w5moist')
+parser = argparse.ArgumentParser(
+    description='Moist Williamson 5 testcase',
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter
+)
+
+parser.add_argument('--base_level', type=int, default=1, help='Base refinement level of icosahedral grid for MG solve.')
+parser.add_argument('--ref_level', type=int, default=5, help='Refinement level of icosahedral grid.')
+parser.add_argument('--dt', type=float, default=1, help='Timestep in hours.')
+parser.add_argument('--theta', type=float, default=0.5, help='Implicit parameter.')
 parser.add_argument('--coords_degree', type=int, default=1, help='Degree of polynomials for sphere mesh approximation.')
 parser.add_argument('--degree', type=int, default=1, help='Degree of finite element space (the DG space).')
-parser.add_argument('--kspmg', type=int, default=3, help='Max number of KSP iterations in the MG levels. Default 3.')
+parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
+parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
+parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
+parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
+parser.add_argument('--kspmg', type=int, default=3, help='Max number of KSP iterations in the MG levels.')
+parser.add_argument('--filename', type=str, default='w5moist')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -28,6 +37,17 @@ args = args[0]
 
 if args.show_args:
     PETSc.Sys.Print(args)
+
+PETSc.Sys.Print('')
+PETSc.Sys.Print('### === --- Setting up --- === ###')
+PETSc.Sys.Print('')
+
+time_partition = tuple((args.slice_length for _ in range(args.nslices)))
+window_length = sum(time_partition)
+nsteps = args.nwindows*window_length
+
+global_comm = fd.COMM_WORLD
+ensemble = asQ.create_ensemble(time_partition, comm=global_comm)
 
 # some domain, parameters and FS setup
 R0 = earth.Radius
@@ -38,7 +58,8 @@ name = args.filename
 
 mesh = swe.create_mg_globe_mesh(base_level=args.base_level,
                                 ref_level=args.ref_level,
-                                coords_degree=1)
+                                coords_degree=1,
+                                comm=ensemble.comm)
 
 R0 = fd.Constant(R0)
 x, y, z = fd.SpatialCoordinate(mesh)
@@ -49,6 +70,9 @@ V1, V2 = Vdry.subfunctions
 V0 = fd.FunctionSpace(mesh, "CG", args.degree+2)
 W = fd.MixedFunctionSpace((V1, V2, V2, V2, V2, V2))
 # velocity, depth, temperature, vapour, cloud, rain
+
+PETSc.Sys.Print(f"DoFs: {W.dim()}")
+PETSc.Sys.Print(f"DoFs/core: {W.dim()/ensemble.comm.size}")
 
 Omega = earth.Omega  # rotation rate
 f = w5.coriolis_expression(x, y, z)  # Coriolis parameter
@@ -77,7 +101,7 @@ def form_mass_moisture(q, phi):
     return q*phi*fd.dx
 
 
-def form_mass(u, h, B, qv, qc, qr, du, dh, dB, dqv, dqc, dqr):
+def form_mass(u, h, B, qv, qc, qr, du, dh, dB, dqv, dqc, dqr, t=None):
     return (form_mass_velocity(u, du)
             + form_mass_depth(h, dh)
             + form_mass_moisture(B, dB)
@@ -206,7 +230,7 @@ def form_function_rain(u, h, B, qv, qc, qr, dqr):
             - dqr*delqr*dx0)
 
 
-def form_function(*args):
+def form_function(*args, t=None):
     ncpts = 6
     trials, tests = args[:ncpts], args[ncpts:]
     return (form_function_velocity_moist(g, b, f, *trials, tests[0])
@@ -217,50 +241,26 @@ def form_function(*args):
             + form_function_rain(*trials, tests[5]))
 
 
-Un = fd.Function(W)
-Unp1 = fd.Function(W)
-u0, h0, B0, qv0, qc0, qr0 = fd.split(Un)
-u1, h1, B1, qv1, qc1, qr1 = fd.split(Unp1)
-du, dh, dB, dqv, dqc, dqr = fd.TestFunctions(W)
-
-"implicit midpoint rule"
-uh = 0.5*(u0 + u1)
-hh = 0.5*(h0 + h1)
-Bh = 0.5*(B0 + B1)
-qvh = 0.5*(qv0 + qv1)
-qch = 0.5*(qc0 + qc1)
-qrh = 0.5*(qr0 + qr1)
-
-half = fd.Constant(0.5)
-
-eqn = (
-    # time derivative
-    form_mass(u1, h1, B1, qv1, qc1, qr1, du, dh, dB, dqv, dqc, dqr)
-    - form_mass(u0, h0, B0, qv0, qc0, qr0, du, dh, dB, dqv, dqc, dqr)
-
-    + dT*half*form_function(u0, h0, B0, qv0, qc0, qr0, du, dh, dB, dqv, dqc, dqr)
-    + dT*half*form_function(u1, h1, B1, qv1, qc1, qr1, du, dh, dB, dqv, dqc, dqr)
-)
-
 # monolithic solver options
+
+lu_params = {
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "pc_factor_mat_solver_type": "mumps",
+    "pc_factor_mat_ordering_type": "rcm",
+    "pc_factor_reuse_ordering": None,
+    "pc_factor_reuse_fill": None,
+}
 
 atol = 1e5
 sparameters = {
-    "snes": {
-        "monitor": None,
-        "converged_reason": None,
-        'atol': atol,
-        'rtol': 1e-8,
-        'ksp_ew': None,
-        'ksp_ew_version': 1,
-    },
     "mat_type": "matfree",
     "ksp_type": "fgmres",
     "ksp": {
-        "monitor": None,
-        "converged_rate": None,
-        "atol": atol,
-        "rtol": 1e-3,
+        # "monitor": None,
+        # "converged_rate": None,
+        "atol": 1e-100,
+        "rtol": 1e-5,
         "max_it": 30,
     },
     "pc_type": "mg",
@@ -304,13 +304,39 @@ sparameters = {
     },
 }
 
+sparameters_diag = {
+    'snes': {
+        'linesearch_type': 'basic',
+        'monitor': None,
+        'converged_reason': None,
+        'atol': atol,
+        'rtol': 1e-10,
+        'stol': 1e-12,
+        'ksp_ew': None,
+        'ksp_ew_version': 1,
+        'ksp_ew_threshold': 1e-2,
+    },
+    'mat_type': 'matfree',
+    'ksp_type': 'fgmres',
+    'ksp': {
+        'monitor': None,
+        'converged_rate': None,
+        'rtol': 1e-2,
+        'atol': atol,
+    },
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.CirculantPC',
+    'diagfft_alpha': args.alpha,
+}
+
+for i in range(sum(time_partition)):
+    sparameters_diag["diagfft_block_"+str(i)+"_"] = lu_params
+
 dt = units.hour*args.dt
 dT.assign(dt)
 t = 0.
 
-nprob = fd.NonlinearVariationalProblem(eqn, Unp1)
-nsolver = fd.NonlinearVariationalSolver(nprob,
-                                        solver_parameters=sparameters)
+w0 = fd.Function(W)
 
 u_expr = w5.velocity_expression(x, y, z)
 eta_expr = w5.elevation_expression(x, y, z)
@@ -323,7 +349,7 @@ bexpr = w5.topography_expression(x, y, z)
 
 b.interpolate(bexpr)
 
-u0, h0, B0, qv0, qc0, qr0n = Un.subfunctions
+u0, h0, B0, qv0, qc0, qr0 = w0.subfunctions
 u0.assign(un)
 h0.assign(etan + H - b)
 
@@ -353,56 +379,126 @@ vexpr = mu2 * initial_msat
 qv0.interpolate(vexpr)
 # cloud and rain initially zero
 
-q = fd.TrialFunction(V0)
-p = fd.TestFunction(V0)
+pdg = asQ.Paradiag(ensemble=ensemble,
+                   time_partition=time_partition,
+                   form_function=form_function,
+                   form_mass=form_mass,
+                   ics=w0, dt=dt, theta=args.theta,
+                   solver_parameters=sparameters_diag)
 
-qn = fd.Function(V0, name="Relative Vorticity")
-veqn = q*p*fd.dx + fd.inner(perp(fd.grad(p)), un)*fd.dx
-vprob = fd.LinearVariationalProblem(fd.lhs(veqn), fd.rhs(veqn), qn)
-qparams = {'ksp_type': 'cg'}
-qsolver = fd.LinearVariationalSolver(vprob,
-                                     solver_parameters=qparams)
+is_last_slice = pdg.layout.is_local(-1)
 
-file_sw = fd.File(f'output/{name}.pvd')
-etan.assign(h0 - H + b)
-un.assign(u0)
-qsolver.solve()
-qvn = fd.Function(V2, name="Water Vapour")
-qcn = fd.Function(V2, name="Cloud Vapour")
-qrn = fd.Function(V2, name="Rain")
-qvn.interpolate(qv0)
-qcn.interpolate(qc0)
-qrn.interpolate(qr0)
-file_sw.write(un, etan, qn, qvn, qcn, qrn)
-Unp1.assign(Un)
+if is_last_slice:
+    q = fd.TrialFunction(V0)
+    p = fd.TestFunction(V0)
 
-tmax = units.day*args.dmax
-dumpt = units.hour*args.dumpt
-tdump = 0.
+    qn = fd.Function(V0, name="Relative Vorticity")
+    veqn = q*p*fd.dx + fd.inner(perp(fd.grad(p)), un)*fd.dx
+    vprob = fd.LinearVariationalProblem(fd.lhs(veqn), fd.rhs(veqn), qn)
+    qparams = {'ksp_type': 'cg'}
+    qsolver = fd.LinearVariationalSolver(vprob,
+                                         solver_parameters=qparams)
 
-PETSc.Sys.Print('tmax', tmax, 'dt', dt)
-itcount = 0
-stepcount = 0
-while t < tmax + 0.5*dt:
-    PETSc.Sys.Print(f"\n=== --- Timestep {stepcount} at time {t/units.hour} hours --- ===\n")
-    t += dt
-    tdump += dt
+    uout, hout, Bout, qvout, qcout, qrout = pdg.aaofunc[-1].subfunctions
+    file_sw = fd.File(f'output/{name}.pvd')
+    etan.assign(hout - H + b)
+    un.assign(uout)
+    qsolver.solve()
+    Bn = fd.Function(V2, name="Buoyancy")
+    qvn = fd.Function(V2, name="Water Vapour")
+    qcn = fd.Function(V2, name="Cloud Vapour")
+    qrn = fd.Function(V2, name="Rain")
+    Bn.interpolate(Bout)
+    qvn.interpolate(qvout)
+    qcn.interpolate(qcout)
+    qrn.interpolate(qrout)
+    file_sw.write(un, etan, Bn, qvn, qcn, qrn)
 
-    with PETSc.Log.Event("nsolver"):
-        nsolver.solve()
-    Un.assign(Unp1)
+    cfl_calc = convective_cfl_calculator(mesh)
+    cfl_series = []
 
-    if tdump > dumpt - dt*0.5:
-        etan.assign(h0 - H + b)
-        un.assign(u0)
-        qsolver.solve()
-        qvn.interpolate(qv0)
-        qcn.interpolate(qc0)
-        qrn.interpolate(qr0)
-        file_sw.write(un, etan, qn, qvn, qcn, qrn)
-        tdump -= dumpt
-    stepcount += 1
-    itcount += nsolver.snes.getLinearSolveIterations()
-PETSc.Sys.Print("\n=== --- Iteration counts --- ===\n")
-PETSc.Sys.Print("Iterations", itcount, "its per step", itcount/stepcount,
-                "dt", dt, "ref_level", args.ref_level, "dmax", args.dmax)
+    def max_cfl(u, dt):
+        with cfl_calc(u, dt).dat.vec_ro as v:
+            return v.max()[1]
+
+
+solver_time = []
+
+
+def window_preproc(pdg, wndw, rhs):
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
+    PETSc.Sys.Print('')
+    stime = MPI.Wtime()
+    solver_time.append(stime)
+
+
+def window_postproc(pdg, wndw, rhs):
+    etime = MPI.Wtime()
+    stime = solver_time[-1]
+    duration = etime - stime
+    solver_time[-1] = duration
+    PETSc.Sys.Print('', comm=global_comm)
+    PETSc.Sys.Print(f'Window solution time: {duration}', comm=global_comm)
+    PETSc.Sys.Print('', comm=global_comm)
+
+    # postprocess this timeslice
+    if is_last_slice:
+        etan.assign(hout - H + b)
+        un.assign(uout)
+        Bn.assign(Bout)
+        qvn.interpolate(qvout)
+        qcn.interpolate(qcout)
+        qrn.interpolate(qrout)
+        file_sw.write(un, etan, Bn, qvn, qcn, qrn)
+
+        cfl = max_cfl(uout, dt)
+        cfl_series.append(cfl)
+        PETSc.Sys.Print('', comm=ensemble.comm)
+        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
+
+
+# solve for each window
+pdg.solve(nwindows=args.nwindows,
+          preproc=window_preproc,
+          postproc=window_postproc)
+
+PETSc.Sys.Print('')
+PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+PETSc.Sys.Print('')
+
+nw = pdg.total_windows
+nt = pdg.total_timesteps
+PETSc.Sys.Print(f'windows: {nw}')
+PETSc.Sys.Print(f'timesteps: {nt}')
+PETSc.Sys.Print('')
+
+lits = pdg.linear_iterations
+nlits = pdg.nonlinear_iterations
+blits = pdg.block_iterations.data()
+
+PETSc.Sys.Print(f'linear iterations: {lits} | iterations per window: {lits/nw}')
+PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/nw}')
+PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
+PETSc.Sys.Print('')
+
+ensemble.global_comm.Barrier()
+if is_last_slice:
+    PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}', comm=ensemble.comm)
+    PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}', comm=ensemble.comm)
+    PETSc.Sys.Print('', comm=ensemble.comm)
+ensemble.global_comm.Barrier()
+
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}', comm=global_comm)
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size} ', comm=global_comm)
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}', comm=global_comm)
+PETSc.Sys.Print(f'Block DoFs/rank: {2*W.dim()/mesh.comm.size}', comm=global_comm)
+PETSc.Sys.Print('')
+
+if len(solver_time) > 1:
+    solver_time[0] = solver_time[1]
+
+PETSc.Sys.Print(f'Total solution time: {sum(solver_time)}', comm=global_comm)
+PETSc.Sys.Print(f'Average window solution time: {sum(solver_time)/len(solver_time)}', comm=global_comm)
+PETSc.Sys.Print(f'Average timestep solution time: {sum(solver_time)/(window_length*len(solver_time))}', comm=global_comm)
+PETSc.Sys.Print('', comm=global_comm)
