@@ -3,7 +3,6 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 
 from utils import units
-from utils import mg
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
