@@ -1,4 +1,6 @@
 import firedrake as fd
+from firedrake.petsc import PETSc
+
 from functools import partial
 
 from asQ.profiling import profiler
@@ -113,16 +115,18 @@ class AllAtOnceJacobian(TimePartitionMixin):
         aaofunc = self.aaofunc
         jacobian_state = self.jacobian_state()
 
-        if jacobian_state == 'linear':
-            pass
+        if jacobian_state in ('linear', 'user'):
+            return
 
-        elif jacobian_state == 'current':
-            if X is not None:
-                self.aaofunc.assign(X)
+        if X is not None:
+            self.aaofunc.assign(X)
+
+        if jacobian_state == 'current':
+            return
 
         elif jacobian_state in ('window', 'slice'):
-            self.aaofunc.assign(X)
-            time_average(self.aaofunc, self.ureduce, self.uwrk, average=jacobian_state)
+            time_average(self.aaofunc, self.ureduce, self.uwrk,
+                         average=jacobian_state)
             aaofunc.assign(self.ureduce)
 
         elif jacobian_state == 'initial':
@@ -130,9 +134,6 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         elif jacobian_state == 'reference':
             aaofunc.assign(self.reference_state)
-
-        elif jacobian_state == 'user':
-            pass
 
         return
 
@@ -164,3 +165,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         with self.F.global_vec_ro() as v:
             v.copy(Y)
+
+    @profiler()
+    def petsc_mat(self):
+        """
+        Return a petsc4py.PETSc.Mat with this AllAtOnceJacobian as the python context.
+        """
+        mat = PETSc.Mat().create(comm=self.ensemble.global_comm)
+        mat.setType("python")
+        sizes = (self.aaofunc.nlocal_dofs, self.aaofunc.nglobal_dofs)
+        mat.setSizes((sizes, sizes))
+        mat.setPythonContext(self)
+        mat.setUp()
+        return mat

@@ -168,10 +168,6 @@ slice_jacobi_parameters = {
     'slice_jacobi_slice': {
         'aaos_jacobian_state': 'linear',
         'ksp_type': 'preonly',
-        'pc_type': 'python',
-        'pc_python_type': 'asQ.CirculantPC',
-        'diagfft_state': 'linear',
-        'diagfft_block': block_parameters,
     }
 }
 
@@ -199,7 +195,11 @@ solver_parameters = {
 }
 
 # pick which preconditioning method we want here
-solver_parameters.update(jacobi_parameters)
+# solver_parameters.update(jacobi_parameters)
+# solver_parameters.update(circulant_parameters)
+solver_parameters.update(slice_jacobi_parameters)
+
+slice_jacobi_parameters['slice_jacobi_slice'].update(circulant_parameters)
 
 
 # Create a solver object to set up and solve the (possibly nonlinear) problem

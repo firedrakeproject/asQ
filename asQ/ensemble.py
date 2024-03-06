@@ -1,8 +1,7 @@
 from firedrake import COMM_WORLD, Ensemble
 from pyop2.mpi import internal_comm, decref
 
-__all__ = ['create_ensemble',
-           'split_ensemble', 'EnsembleConnector']
+__all__ = ['create_ensemble', 'split_ensemble', 'EnsembleConnector']
 
 
 def create_ensemble(time_partition, comm=COMM_WORLD):
@@ -24,69 +23,43 @@ def create_ensemble(time_partition, comm=COMM_WORLD):
     return Ensemble(comm, nspatial_domains)
 
 
-def multi_ensemble(nchunks, chunk_length, comm=COMM_WORLD):
-    global_comm = comm
-    global_size = global_comm.size
-    global_rank = global_comm.rank
+def split_ensemble(ensemble, split_size):
+    """
+    Split an Ensemble into multiple smaller Ensembles which share the same
+    spatial communicators `ensemble.comm`.
 
-    total_timesteps = nchunks*chunk_length
+    Each smaller Ensemble returned is defined over a contiguous subset of the
+    members of the large Ensemble.
 
-    if (global_size % total_timesteps) != 0:
-        raise ValueError("Total number of time steps must be exact factor of number of MPI ranks")
-
-    # number of ranks per timestep and per chunk
-    spatial_size = global_size // total_timesteps
-    chunk_size = spatial_size * chunk_length
-
-    # create global ensemble
-    global_ensemble = Ensemble(global_comm, spatial_size)
-    assert global_ensemble.ensemble_comm.size == total_timesteps
-
-    # create comm for local chunk
-    chunk_id = global_rank // chunk_size
-    chunk_comm = global_comm.Split(color=chunk_id, key=global_rank)
-    assert chunk_comm.size == chunk_size
-
-    # create ensemble for local chunk
-    chunk_ensemble = Ensemble(chunk_comm, spatial_size)
-    assert chunk_ensemble.ensemble_comm.size == chunk_length
-
-    return global_ensemble, chunk_ensemble
-
-
-def split_ensemble(ensemble, partition, split_size):
-    # we just need to work out how many members of the global ensemble
-    # needed to get `split_size` timesteps on each slice ensemble
-    if ensemble.ensemble_comm.size != len(partition):
-        msg = "partition must have the same number of members as the ensemble"
+    :arg ensemble: the large Ensemble to split.
+    :arg split_size: the number of members in each smaller Ensemble.
+    """
+    if (ensemble.ensemble_comm.size % split_size) != 0:
+        msg = "Ensemble size must be integer multiple of split_size"
         raise ValueError(msg)
-
-    if (sum(partition) % split_size) != 0:
-        msg = "total number of timesteps must be integer multiple of split_size"
-        raise ValueError(msg)
-
-    if len(set(partition)) != 1:
-        msg = "split_ensemble only implemented for balanced partitions yet"
-        raise ValueError(msg)
-
-    part = partition[0]
-
-    # number of members of each split ensemble
-    nmembers = split_size // part
 
     # which split are we part of?
-    split_rank = ensemble.ensemble_comm.rank // nmembers
+    split_rank = ensemble.ensemble_comm.rank // split_size
 
     # create split_ensemble.global_comm
     split_comm = ensemble.global_comm.Split(color=split_rank,
                                             key=ensemble.global_comm.rank)
 
-    return EnsembleConnector(split_comm, ensemble.comm, nmembers)
+    return EnsembleConnector(split_comm, ensemble.comm, split_size)
 
 
 class EnsembleConnector(Ensemble):
     def __init__(self, global_comm, local_comm, nmembers):
-        assert nmembers*local_comm.size == global_comm.size
+        """
+        An Ensemble created from provided spatial communicators (ensemble.comm).
+
+        :arg global_comm: global communicator the Ensemble is defined over.
+        :arg local_comm: communicator to use for the Ensemble.comm member.
+        :arg nmembers: number of Ensemble members (ensemble.ensemble_comm.size).
+        """
+        if nmembers*local_comm.size != global_comm.size:
+            msg = "The global ensemble must have the same number of ranks as the sum of the local comms"
+            raise ValueError(msg)
 
         self.global_comm = global_comm
         self._comm = internal_comm(self.global_comm, self)

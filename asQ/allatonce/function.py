@@ -158,6 +158,19 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         return self._fields[j]
 
     @profiler()
+    def riesz_representation(self, riesz_map='L2', **kwargs):
+        '''
+        Return the Riesz representation with respect to the given Riesz map.
+
+        :arg riesz_map: The Riesz map to use (l2, L2, or H1). This can also be a callable.
+        :arg kwargs: other arguments to be passed to the firedrake.riesz_map.
+        '''
+        DualType = AllAtOnceCofunction if type(self) is AllAtOnceFunction else AllAtOnceFunction
+        riesz = DualType(self.ensemble, self.time_partition, self.field_function_space.dual())
+        riesz._fbuf.assign(self._fbuf.riesz_representation(riesz_map=riesz_map, **kwargs))
+        return riesz
+
+    @profiler()
     def bcast_field(self, step, u):
         """
         Broadcast solution at given timestep `step` to Function `u` on all time-ranks.

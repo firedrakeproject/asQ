@@ -5,7 +5,6 @@ from asQ.allatonce.mixin import TimePartitionMixin
 from utils import units
 from utils import diagnostics
 import utils.shallow_water as swe
-from utils import mg
 
 
 class ShallowWaterMiniApp(TimePartitionMixin):
@@ -112,17 +111,6 @@ class ShallowWaterMiniApp(TimePartitionMixin):
             reference_state = self.reference_state
         else:
             reference_state = None
-
-        # non-petsc information for block solve
-
-        # mesh transfer operators
-        # probably shouldn't be here, but has to be at the moment because we can't get at the mesh to make W before initialising.
-        # should look at removing this once the manifold transfer manager has found a proper home
-        transfer_managers = []
-        for _ in range(self.nlocal_timesteps):
-            transfer_managers.append(mg.ManifoldTransferManager())
-
-        appctx['diagfft_transfer_managers'] = transfer_managers
 
         self.paradiag = asQ.Paradiag(
             ensemble=self.ensemble,

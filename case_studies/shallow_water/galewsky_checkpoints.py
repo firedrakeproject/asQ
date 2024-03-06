@@ -115,35 +115,10 @@ lu_params.update(factorisation_params)
 icc_params = {'pc_type': 'icc'}
 icc_params.update(factorisation_params)
 
-gamg_sparams = {
-    'ksp_type': 'preonly',
-    'pc_type': 'gamg',
-    'pc_gamg_sym_graph': None,
-    'pc_mg_type': 'multiplicative',
-    'pc_mg_cycle_type': 'v',
-    'mg': {
-        'levels': {
-            'ksp_type': 'cg',
-            'ksp_max_it': 3,
-            'pc_type': 'bjacobi',
-            'sub': icc_params,
-        },
-        'coarse': lu_params
-    }
-}
-
-hybridization_sparams = {
-    "mat_type": "matfree",
-    "pc_type": "python",
-    "pc_python_type": "firedrake.HybridizationPC",
-    "hybridization": gamg_sparams
-}
-
 aux_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": "utils.serial.AuxiliarySerialPC",
-    # "aux": hybridization_sparams
     "aux": lu_params
 }
 

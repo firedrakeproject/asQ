@@ -199,7 +199,9 @@ patch_parameters = {
     }
 }
 
+from utils.mg import ManifoldTransferManager  # noqa: F401
 mg_parameters = {
+    'transfer_manager': f'{__name__}.ManifoldTransferManager',
     'levels': {
         'ksp_type': 'gmres',
         'ksp_max_it': 4,
@@ -289,7 +291,6 @@ slice_jacobi_parameters = {
     'pc_python_type': 'asQ.SliceJacobiPC',
     'slice_jacobi_nsteps': args.slice_jacobi_nsteps,
     'slice_jacobi_slice_ksp_type': 'preonly',
-    # 'slice_jacobi_slice': jacobi_parameters,
     'slice_jacobi_slice': circulant_parameters,
 }
 
@@ -442,4 +443,3 @@ if timer.ntimes() > 1:
 
 PETSc.Sys.Print(timer.string(timesteps_per_solve=window_length,
                              total_iterations=lits, ndigits=5))
-PETSc.Sys.Print('')
