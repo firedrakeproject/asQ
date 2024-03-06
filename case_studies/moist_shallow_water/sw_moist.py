@@ -3,6 +3,7 @@ from firedrake.petsc import PETSc
 from pyop2.mpi import MPI
 PETSc.Sys.popErrorHandler()
 
+from math import sqrt
 from utils import units
 from utils.planets import earth
 from utils import shallow_water as swe
@@ -71,8 +72,8 @@ V0 = fd.FunctionSpace(mesh, "CG", args.degree+2)
 W = fd.MixedFunctionSpace((V1, V2, V2, V2, V2, V2))
 # velocity, depth, temperature, vapour, cloud, rain
 
-PETSc.Sys.Print(f"DoFs: {W.dim()}")
-PETSc.Sys.Print(f"DoFs/core: {W.dim()/ensemble.comm.size}")
+PETSc.Sys.Print(f"DoFs/timestep: {W.dim()}")
+PETSc.Sys.Print(f"DoFs/core: {args.slice_length*W.dim()/ensemble.comm.size}")
 
 Omega = earth.Omega  # rotation rate
 f = w5.coriolis_expression(x, y, z)  # Coriolis parameter
@@ -247,12 +248,12 @@ lu_params = {
     "ksp_type": "preonly",
     "pc_type": "lu",
     "pc_factor_mat_solver_type": "mumps",
-    "pc_factor_mat_ordering_type": "rcm",
     "pc_factor_reuse_ordering": None,
     "pc_factor_reuse_fill": None,
 }
 
-atol = 1e5
+atol = 1e4
+patol = sqrt(window_length)*atol
 sparameters = {
     "mat_type": "matfree",
     "ksp_type": "fgmres",
@@ -305,12 +306,11 @@ sparameters_diag = {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': atol,
+        'atol': patol,
         'rtol': 1e-10,
         'stol': 1e-12,
         'ksp_ew': None,
         'ksp_ew_version': 1,
-        'ksp_ew_threshold': 1e-2,
     },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
@@ -318,7 +318,7 @@ sparameters_diag = {
         'monitor': None,
         'converged_rate': None,
         'rtol': 1e-2,
-        'atol': atol,
+        'atol': patol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
@@ -326,7 +326,7 @@ sparameters_diag = {
 }
 
 for i in range(sum(time_partition)):
-    sparameters_diag["diagfft_block_"+str(i)+"_"] = lu_params
+    sparameters_diag["diagfft_block_"+str(i)+"_"] = sparameters
 
 dt = units.hour*args.dt
 dT.assign(dt)
@@ -438,6 +438,11 @@ def window_postproc(pdg, wndw, rhs):
     PETSc.Sys.Print(f'Window solution time: {duration}', comm=global_comm)
     PETSc.Sys.Print('', comm=global_comm)
 
+    nt = pdg.total_windows*pdg.ntimesteps
+    time = nt*pdg.aaoform.dt
+    PETSc.Sys.Print(f'Hours = {round(time/units.hour, 2)}')
+    PETSc.Sys.Print(f'Days = {round(time/earth.day, 2)}')
+
     # postprocess this timeslice
     if is_last_slice:
         etan.assign(hout - H + b)
@@ -450,8 +455,7 @@ def window_postproc(pdg, wndw, rhs):
 
         cfl = max_cfl(uout, dt)
         cfl_series.append(cfl)
-        PETSc.Sys.Print('', comm=ensemble.comm)
-        PETSc.Sys.Print(f'Maximum CFL = {cfl}', comm=ensemble.comm)
+        PETSc.Sys.Print(f'Maximum CFL = {round(cfl, 4)}', comm=ensemble.comm)
 
 
 # solve for each window
