@@ -32,6 +32,8 @@ parser.add_argument('--atol', type=float, default=1e0, help='Average atol of eac
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
+parser.add_argument('--brtol', type=float, default=1e-5, help='Relative tolerance on the block solves.')
+parser.add_argument('--bits', type=int, default=30, help='Max block iterations per solve.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
 parser.add_argument('--metrics_dir', type=str, default='metrics', help='Directory to save paradiag metrics to.')
@@ -78,7 +80,7 @@ block_appctx = {
 # parameters for the implicit diagonal solve in step-(b)
 factorisation_params = {
     'ksp_type': 'preonly',
-    # 'pc_factor_mat_ordering_type': 'rcm',
+    'pc_factor_mat_ordering_type': 'rcm',
     'pc_factor_reuse_ordering': None,
     'pc_factor_reuse_fill': None,
 }
@@ -98,9 +100,9 @@ sparameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-5,
-        'rtol': 1e-5,
-        'max_it': 30,
+        'atol': 1e-100,
+        'rtol': args.brtol,
+        'max_it': args.bits,
         'converged_maxits': None,
     },
 }
@@ -123,17 +125,17 @@ sparameters_diag = {
         'convergence_test': 'skip',
     },
     'mat_type': 'matfree',
-    'ksp_type': 'preonly',
+    'ksp_type': 'fgmres',
     'ksp': {
         # 'monitor': None,
-        # 'converged_reason': None,
-        # 'max_it': 2,
-        # 'converged_maxits': None,
+        'converged_rate': None,
+        'max_it': 2,
+        'converged_maxits': None,
         'rtol': 1e-2,
         'atol': patol,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
+    'pc_python_type': 'asQ.CirculantPC',
     'diagfft_alpha': args.alpha,
     'diagfft_state': 'window',
     'aaos_jacobian_state': 'current'

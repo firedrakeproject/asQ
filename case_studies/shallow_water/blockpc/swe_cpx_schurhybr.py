@@ -6,6 +6,7 @@ from utils import shallow_water as swe
 from utils.planets import earth
 from utils.misc import function_mean
 from utils import units
+from utils.mg import ManifoldTransferManager
 
 import numpy as np
 from scipy.fft import fft, fftfreq
@@ -64,9 +65,12 @@ parser.add_argument('--nt', type=int, default=16, help='Number of timesteps (use
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for implicit theta method. 0.5 for trapezium rule, 1 for backwards Euler (used to calculate the circulant eigenvalues).')
 parser.add_argument('--alpha', type=float, default=1e-3, help='Circulant parameter (used to calculate the circulant eigenvalues).')
 parser.add_argument('--eigenvalue', type=int, default=-1, help='Index of the circulant eigenvalues to use for the complex coefficients.')
+parser.add_argument('--rtol', type=float, default=1e-4, help='Relative tolerance for the linear solve.')
 parser.add_argument('--seed', type=int, default=12345, help='Seed for the random right hand side.')
 parser.add_argument('--nrhs', type=int, default=1, help='Number of random right hand sides to solve for.')
 parser.add_argument('--method', type=str, default='lu', choices=['lu', 'mg', 'aux', 'hybr'], help='Preconditioning method.')
+parser.add_argument('--schur_its', type=int, default=-1, help='Number of ksp iterations on the hybrid schur complement. preonly if -1.')
+parser.add_argument('--schur_rtol', type=float, default=1e-100, help='Relative tolerance on the hybrid schur complement.')
 parser.add_argument('--foutname', type=str, default='iterations', help='Name of output file to write iteration counts.')
 parser.add_argument('--checkpoint', type=str, default='swe_series', help='Name of checkpoint file.')
 parser.add_argument('--funcname', type=str, default='swe', help='Name of the Function in the checkpoint file.')
@@ -141,6 +145,8 @@ wref = fd.Function(W)
 cpx.set_real(wref, u)
 cpx.set_imag(wref, u)
 
+wref_copy = wref.copy(deepcopy=True)
+
 # eigenvalues
 nt, theta, alpha = args.nt, args.theta, args.alpha
 dt = args.dt*units.hour
@@ -177,10 +183,23 @@ l = fd.Function(W)
 # L = fd.Cofunction(W.dual())
 L = fd.inner(l, fd.TestFunction(W))*fd.dx
 
-
 # PC forming approximate hybridisable system (without advection)
 # solve it using hybridisation and then return the DG part
 # (for use in a Schur compement setup)
+
+factorisation_params = {
+    'ksp_type': 'preonly',
+    # 'pc_factor_mat_ordering_type': 'rcm',
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
+}
+
+lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
+lu_params.update(factorisation_params)
+
+ilu_params = {'pc_type': 'ilu'}
+ilu_params.update(factorisation_params)
+
 class ApproxHybridPC(fd.PCBase):
     def initialize(self, pc):
         if pc.getType() != "python":
@@ -202,15 +221,13 @@ class ApproxHybridPC(fd.PCBase):
 
         Ltr = fd.inner(q, self.xf)*fd.dx
 
-        condensed_params = {'ksp_type': 'preonly',
-                            'pc_type': 'lu',
-                            "pc_factor_mat_solver_type": "mumps"}
+        condensed_params = lu_params
 
         hbps = {
-            "mat_type": "matfree",
-            "ksp_type": "preonly",
-            "pc_type": "python",
-            "pc_python_type": "firedrake.SCPC",
+            'mat_type': 'matfree',
+            'ksp_type': 'preonly',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.SCPC',
             'pc_sc_eliminate_fields': '0, 1',
             'condensed_field': condensed_params
         }
@@ -239,19 +256,6 @@ class ApproxHybridPC(fd.PCBase):
 
 
 # PETSc solver parameters
-factorisation_params = {
-    'ksp_type': 'preonly',
-    # 'pc_factor_mat_ordering_type': 'rcm',
-    'pc_factor_reuse_ordering': None,
-    'pc_factor_reuse_fill': None,
-}
-
-lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
-lu_params.update(factorisation_params)
-
-ilu_params = {'pc_type': 'ilu'}
-ilu_params.update(factorisation_params)
-
 patch_parameters = {
     'pc_patch': {
         'save_operators': True,
@@ -271,6 +275,7 @@ patch_parameters = {
 }
 
 mg_parameters = {
+    'transfer_manager': f'{__name__}.ManifoldTransferManager',
     'levels': {
         'ksp_type': 'gmres',
         'ksp_max_it': 5,
@@ -304,24 +309,26 @@ hybr_sparams = {
     'pc_type': 'fieldsplit',
     'pc_fieldsplit_type': 'schur',
     'pc_fieldsplit_schur_fact_type': 'full',
-    'fieldsplit_0': {
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_mat_solver_type': 'mumps',
-    },
+    'fieldsplit_0': lu_params,
     'fieldsplit_1': {
-        'ksp_type': 'preonly',
+        'ksp': {
+            'type': 'preonly' if args.schur_its < 1 else 'gmres',
+            'converged_rate': None,
+            'max_it': args.schur_its,
+            'converged_maxits': None,
+            'rtol': args.schur_rtol,
+            'gmres_restart': 100
+        },
         'pc_type': 'python',
         'pc_python_type': f'{__name__}.ApproxHybridPC',
     },
 }
 
-rtol = 1e-4
 sparams = {
     'ksp': {
         # 'monitor': None,
-        # 'converged_rate': None,
-        'rtol': rtol,
+        'converged_rate': None,
+        'rtol': args.rtol,
         # 'view': None
     },
     'ksp_type': 'fgmres',
@@ -355,6 +362,12 @@ solver = fd.LinearVariationalSolver(problem, appctx=appctx,
                                     solver_parameters=sparams,
                                     options_prefix='')
 
+from json import dumps
+PETSc.Sys.Print("")
+PETSc.Sys.Print("solver_parameters =")
+PETSc.Sys.Print(dumps(sparams, indent=4))
+PETSc.Sys.Print("")
+
 np.random.seed(args.seed)
 
 if args.eigenvalue < 0:
@@ -373,7 +386,8 @@ for i in eig_range:
     d2 = D2[i]
     dhat = (d1/d2) / (1/(theta*dt))
 
-    # PETSc.Sys.Print(f"Eigenvalues {i}")
+    PETSc.Sys.Print("")
+    PETSc.Sys.Print(f"Eigenvalue {i}")
     # PETSc.Sys.Print(f"d1 = {d1}")
     # PETSc.Sys.Print(f"d2 = {d2}")
     # PETSc.Sys.Print(f"dhat = {dhat}")
@@ -385,6 +399,8 @@ for i in eig_range:
     d2r.assign(d2.real)
     d2i.assign(d2.imag)
 
+    wref.assign(wref_copy)
+
     np.random.seed(args.seed)
     for j in range(args.nrhs):
         wout.assign(0)
@@ -393,6 +409,8 @@ for i in eig_range:
             dat.data[:] = np.random.rand(*(dat.data.shape))
         solver.solve()
         nits[i, j] = solver.snes.getLinearSolveIterations()
+
+PETSc.Sys.Print("")
 
 meanit = np.mean(nits, axis=1)
 maxit = np.max(nits, axis=1)
