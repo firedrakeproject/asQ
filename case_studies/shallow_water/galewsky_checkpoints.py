@@ -155,9 +155,12 @@ miniapp = SerialMiniApp(dt, args.theta,
                         sparameters,
                         appctx=appctx)
 
-miniapp.nlsolver.set_transfer_manager(
-    mg.ManifoldTransferManager())
+potential_vorticity = diagnostics.potential_vorticity_calculator(
+    u_initial.function_space(), name='vorticity')
 
+uout = fd.Function(u_initial.function_space(), name='velocity')
+hout = fd.Function(h_initial.function_space(), name='elevation')
+ofile = fd.File(f"output/{args.filename}.pvd")
 # save initial conditions
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
@@ -184,6 +187,14 @@ def postproc(app, step, t):
         wout.assign(app.w1)
         checkpoint.save_function(wout, idx=idx)
         idx += 1
+    global linear_its, nonlinear_its
+
+    linear_its += app.nlsolver.snes.getLinearSolveIterations()
+    nonlinear_its += app.nlsolver.snes.getIterationNumber()
+
+    uout.assign(miniapp.w0.subfunctions[0])
+    hout.assign(miniapp.w0.subfunctions[1])
+    ofile.write(uout, hout, potential_vorticity(uout), time=t)
 
 
 miniapp.solve(args.nt,
