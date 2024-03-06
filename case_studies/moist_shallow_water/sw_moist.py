@@ -295,11 +295,7 @@ sparameters = {
         "coarse": {
             "pc_type": "python",
             "pc_python_type": "firedrake.AssembledPC",
-            "assembled_pc_type": "lu",
-            "assembled_pc_factor_mat_solver_type": "mumps",
-            "assembled_pc_factor_mat_ordering_type": "rcm",
-            "assembled_pc_factor_reuse_ordering": None,
-            "assembled_pc_factor_reuse_fill": None,
+            "assembled": lu_params
         },
     },
 }
@@ -400,7 +396,7 @@ if is_last_slice:
                                          solver_parameters=qparams)
 
     uout, hout, Bout, qvout, qcout, qrout = pdg.aaofunc[-1].subfunctions
-    file_sw = fd.File(f'output/{name}.pvd')
+    file_sw = fd.File(f'output/{name}.pvd', comm=ensemble.comm)
     etan.assign(hout - H + b)
     un.assign(uout)
     qsolver.solve()
