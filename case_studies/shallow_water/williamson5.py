@@ -1,5 +1,6 @@
 from firedrake.petsc import PETSc
 
+from math import sqrt
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
@@ -38,7 +39,7 @@ PETSc.Sys.Print('')
 
 # time steps
 
-time_partition = [args.slice_length for _ in range(args.nslices)]
+time_partition = tuple(args.slice_length for _ in range(args.nslices))
 window_length = sum(time_partition)
 
 dt = args.dt*units.hour
@@ -85,21 +86,22 @@ sparameters = {
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
-        'max_it': 60
+        'max_it': 50
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
+    'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
 
-atol = 1e0
+atol = 1e5
+patol = sqrt(window_length)*atol
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
-        'atol': atol,
+        'atol': patol,
         'rtol': 1e-10,
         'stol': 1e-12,
         'ksp_ew': None,
@@ -110,16 +112,12 @@ sparameters_diag = {
     'ksp': {
         'monitor': None,
         'converged_reason': None,
-        'rtol': 1e-5,
-        'atol': atol,
+        'rtol': 1e-2,
+        'atol': patol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
     'diagfft_alpha': args.alpha,
-    'diagfft_state': 'window',
-    'diagfft_linearisation': 'consistent',
-    'aaos_jacobian_state': 'current',
-    'aaos_jacobian_linearisation': 'consistent',
 }
 
 for i in range(window_length):
@@ -153,6 +151,7 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   dt=dt, theta=0.5,
                                   time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
+                                  record_diagnostics={'cfl': True, 'file': False},
                                   file_name='output/'+args.filename)
 
 
