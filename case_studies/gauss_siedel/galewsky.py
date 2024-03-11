@@ -7,7 +7,7 @@ from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
 
-from functools import partial
+import numpy as np
 from math import sqrt
 
 PETSc.Sys.popErrorHandler()
@@ -50,24 +50,44 @@ PETSc.Sys.Print('')
 
 # time steps
 
-time_partition = tuple((args.slice_length for _ in range(args.nslices)))
-chunk_length = sum(time_partition)
+chunk_partition = tuple((args.slice_length for _ in range(args.nslices)))
+chunk_length = sum(chunk_partition)
+total_timesteps = chunk_length*args.nchunks
+total_slices = args.nslices*args.nchunks
+
+global_comm = fd.COMM_WORLD
+global_time_partition = tuple((args.slice_length for _ in range(total_slices)))
+global_ensemble = asQ.create_ensemble(global_time_partition, global_comm)
+chunk_ensemble = asQ.split_ensemble(global_ensemble, args.nslices)
+
+# which chunk are we?
+chunk_id = global_ensemble.ensemble_comm.rank // args.nslices
 
 dt = args.dt*units.hour
 
+mesh = swe.create_mg_globe_mesh(
+    ref_level=args.ref_level, base_level=args.base_level,
+    coords_degree=1, comm=chunk_ensemble.comm)
+coords = fd.SpatialCoordinate(mesh)
 
 # alternative operator to precondition blocks
+g = earth.Gravity
+f = swe.earth_coriolis_expression(*coords)
+H = galewsky.H0
+b = galewsky.topography_expression(*coords)
 
-def aux_form_function(u, h, v, q, t):
-    mesh = v.ufl_domain()
-    coords = fd.SpatialCoordinate(mesh)
 
-    gravity = earth.Gravity
-    coriolis = swe.earth_coriolis_expression(*coords)
+def form_mass(u, h, v, q):
+    return swe.nonlinear.form_mass(mesh, u, h, v, q)
 
-    H = galewsky.H0
 
-    return swe.linear.form_function(mesh, gravity, H, coriolis,
+def form_function(u, h, v, q, t=None):
+    return swe.nonlinear.form_function(mesh, g, b, f,
+                                       u, h, v, q, t)
+
+
+def aux_form_function(u, h, v, q, t=None):
+    return swe.linear.form_function(mesh, g, H, f,
                                     u, h, v, q, t)
 
 
@@ -142,55 +162,38 @@ sparameters_diag = {
 for i in range(chunk_length):
     sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
 
-create_mesh = partial(
-    swe.create_mg_globe_mesh,
-    ref_level=args.ref_level,
-    base_level=args.base_level,
-    coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
-
-# check convergence of each timestep
-
-
-def post_function_callback(aaosolver, X, F):
-    if args.print_res:
-        residuals = asQ.SharedArray(time_partition,
-                                    comm=aaosolver.ensemble.ensemble_comm)
-        # all-at-once residual
-        res = aaosolver.aaoform.F
-        for i in range(res.nlocal_timesteps):
-            with res[i].dat.vec_ro as vec:
-                residuals.dlocal[i] = vec.norm()
-        residuals.synchronise()
-        PETSc.Sys.Print('')
-        PETSc.Sys.Print([f"{r:.4e}" for r in residuals.data()])
-        PETSc.Sys.Print('')
-
-
-PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
-
 appctx = {'block_appctx': block_appctx}
 
-miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
-                                  topography_expression=galewsky.topography_expression,
-                                  velocity_expression=galewsky.velocity_expression,
-                                  depth_expression=galewsky.depth_expression,
-                                  reference_depth=galewsky.H0,
-                                  reference_state=True,
-                                  create_mesh=create_mesh,
-                                  dt=dt, theta=0.5,
-                                  time_partition=time_partition,
-                                  appctx=appctx,
-                                  paradiag_sparameters=sparameters_diag,
-                                  file_name='output/'+args.filename,
-                                  post_function_callback=post_function_callback,
-                                  record_diagnostics={'cfl': True, 'file': False})
+# function spaces and initial conditions
 
-paradiag = miniapp.paradiag
-aaosolver = paradiag.solver
-aaofunc = aaosolver.aaofunc
-aaoform = aaosolver.aaoform
+W = swe.default_function_space(mesh)
 
-chunks = tuple(aaofunc.copy() for _ in range(args.nchunks))
+winitial = fd.Function(W)
+uinitial, hinitial = winitial.subfunctions
+uinitial.project(galewsky.velocity_expression(*coords))
+hinitial.interpolate(galewsky.depth_expression(*coords))
+
+# all at once solver
+
+chunk_aaofunc = asQ.AllAtOnceFunction(chunk_ensemble, chunk_partition, W)
+chunk_aaofunc.assign(winitial)
+
+theta = 0.5
+chunk_aaoform = asQ.AllAtOnceForm(chunk_aaofunc, dt, theta,
+                                  form_mass, form_function)
+
+chunk_solver = asQ.AllAtOnceSolver(chunk_aaoform, chunk_aaofunc,
+                                   solver_parameters=sparameters_diag,
+                                   appctx=appctx)
+
+# which part of total timeseries is each chunk currently?
+chunk_indexes = np.array((i for i in range(args.nchunks)), dtype=int)
+
+# which chunks are currently at the beginning/end of the sweep?
+first_chunk = 0
+last_chunk = args.nchunks - 1
+
+PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
 
 nconverged = 0
 PETSc.Sys.Print('')
@@ -204,7 +207,7 @@ for j in range(args.nsweeps):
 
         global_comm.Barrier()
         if chunk_id == i:
-            aaosolver.solve()
+            chunk_solver.solve()
         global_comm.Barrier()
 
         PETSc.Sys.Print("")
@@ -234,11 +237,6 @@ for j in range(args.nsweeps):
 
 nsweeps = j
 
-pc_block_its = aaosolver.jacobian.pc.block_iterations
-pc_block_its.synchronise()
-pc_block_its = pc_block_its.data(deepcopy=True)
-pc_block_its = pc_block_its/args.nchunks
-
 niterations = nsweeps*args.nsmooth
 
 PETSc.Sys.Print(f"Number of chunks: {args.nchunks}")
@@ -249,5 +247,3 @@ PETSc.Sys.Print(f"Number of chunks converged per sweep: {nconverged/nsweeps}")
 PETSc.Sys.Print(f"Number of sweeps per converged chunk: {nsweeps/nconverged if nconverged else 'n/a'}")
 PETSc.Sys.Print(f"Number of iterations per converged chunk: {niterations/nconverged if nconverged else 'n/a'}")
 PETSc.Sys.Print(f"Number of timesteps per iteration: {nconverged*chunk_length/niterations}")
-PETSc.Sys.Print(f'Block iterations: {pc_block_its}')
-PETSc.Sys.Print(f'Block iterations per block solve: {pc_block_its/niterations}')
