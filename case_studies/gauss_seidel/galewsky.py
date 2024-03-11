@@ -187,22 +187,53 @@ chunk_solver = asQ.AllAtOnceSolver(chunk_aaoform, chunk_aaofunc,
                                    appctx=appctx)
 
 # which part of total timeseries is each chunk currently?
-chunk_indexes = np.array((i for i in range(args.nchunks)), dtype=int)
+chunk_indexes = np.array([i for i in range(args.nchunks)], dtype=int)
 
 # which chunks are currently at the beginning/end of the sweep?
 first_chunk = 0
 last_chunk = args.nchunks - 1
 
+# update chunk ics from previous chunk
+uprev = fd.Function(W)
+
+
+def update_chunk_halos(uhalo):
+    chunk_begin = chunk_aaofunc.layout.is_local(0)
+    chunk_end = chunk_aaofunc.layout.is_local(-1)
+
+    global_rank = global_ensemble.ensemble_comm.rank
+    global_size = global_ensemble.ensemble_comm.size
+
+    # ring communication so the first chunk can
+    # pick up after last chunk after convergence
+
+    # send forward
+    if chunk_end:
+        dst = (global_rank + 1) % global_size
+        global_ensemble.send(chunk_aaofunc[-1], dest=dst, tag=dst)
+
+    # recv previous
+    if chunk_begin:
+        src = (global_rank - 1) % global_size
+        global_ensemble.recv(uhalo, source=src, tag=global_rank)
+
+    # broadcast new ics to all ranks
+    chunk_ensemble.bcast(uhalo)
+
+
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
+PETSc.Sys.Print('')
 
 nconverged = 0
+
+PETSc.Sys.Print('### === --- Initialising all chunks --- === ###')
 PETSc.Sys.Print('')
-for j in range(args.nsweeps):
-    PETSc.Sys.Print(f'### === --- Calculating nonlinear sweep {j} --- === ###')
+for j in range(args.nchunks):
+    PETSc.Sys.Print(f'    === --- Initial nonlinear sweep {j} --- ===    ')
     PETSc.Sys.Print('')
 
-    # 1) one smoothing application on each chunk
-    for i in range(args.nchunks):
+    # only smooth chunks that the first sweep has reached
+    for i in range(j+1):
         PETSc.Sys.Print(f'        --- Calculating chunk {i} ---        ')
 
         global_comm.Barrier()
@@ -212,38 +243,67 @@ for j in range(args.nsweeps):
 
         PETSc.Sys.Print("")
 
-    # 2) update ics of each chunk from previous chunk
-    update_ics(global_aaofunc, chunk_aaofunc)
+    # propogate solution
+    update_chunk_halos(uprev)
 
-    # 3) shuffle earlier chunks if converged
-    if j < args.ninitialise:
-        break
+    # update initial conditions
+    if chunk_id != 0:
+        chunk_aaofunc.initial_condition.assign(uprev)
 
-    update_chunk_residuals(chunk_aaofunc, chunk_residuals)
-    nshuffle = count_converged(chunk_residuals, args.nchecks)
-    shuffle_chunks(global_aaofunc, chunk_aaofunc, nshuffle)
+    # initial guess before first sweep is persistence forecast
+    if chunk_id > j:
+        chunk_aaofunc.assign(chunk_aaofunc.initial_condition)
 
-    nconverged += nshuffle
+PETSc.Sys.Print('### === --- All chunks initialised  --- === ###')
+PETSc.Sys.Print('')
 
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print(f">>> Converged chunks: {int(nconverged)}.")
-    converged_time = nconverged*chunk_length*args.dt
-    PETSc.Sys.Print(f">>> Converged time: {converged_time} hours.")
-    PETSc.Sys.Print('')
-
-    if nconverged >= args.nwindows:
-        PETSc.Sys.Print(f"Finished iterating to {args.nwindows}.")
-        break
-
-nsweeps = j
-
-niterations = nsweeps*args.nsmooth
-
-PETSc.Sys.Print(f"Number of chunks: {args.nchunks}")
-PETSc.Sys.Print(f"Maximum number of sweeps: {args.nsweeps}")
-PETSc.Sys.Print(f"Actual number of sweeps: {nsweeps}")
-PETSc.Sys.Print(f"Number of chunks converged: {int(nconverged)}")
-PETSc.Sys.Print(f"Number of chunks converged per sweep: {nconverged/nsweeps}")
-PETSc.Sys.Print(f"Number of sweeps per converged chunk: {nsweeps/nconverged if nconverged else 'n/a'}")
-PETSc.Sys.Print(f"Number of iterations per converged chunk: {niterations/nconverged if nconverged else 'n/a'}")
-PETSc.Sys.Print(f"Number of timesteps per iteration: {nconverged*chunk_length/niterations}")
+# for j in range(args.nsweeps):
+#     PETSc.Sys.Print(f'    === --- Calculating nonlinear sweep {j} --- ===    ')
+#     PETSc.Sys.Print('')
+#
+#     # 1) one smoothing application on each chunk
+#     for i in range(args.nchunks):
+#         PETSc.Sys.Print(f'        --- Calculating chunk {i} ---        ')
+#
+#         global_comm.Barrier()
+#         if chunk_id == i:
+#             chunk_solver.solve()
+#         global_comm.Barrier()
+#
+#         PETSc.Sys.Print("")
+#
+#     # 2) update ics of each chunk from previous chunk
+#     update_chunk_ics()
+#
+#     # 3) shuffle earlier chunks if converged
+#     if j < args.ninitialise:
+#         break
+#
+#     update_chunk_residuals(chunk_aaofunc, chunk_residuals)
+#     nshuffle = count_converged(chunk_residuals, args.nchecks)
+#     shuffle_chunks(global_aaofunc, chunk_aaofunc, nshuffle)
+#
+#     nconverged += nshuffle
+#
+#     PETSc.Sys.Print('')
+#     PETSc.Sys.Print(f">>> Converged chunks: {int(nconverged)}.")
+#     converged_time = nconverged*chunk_length*args.dt
+#     PETSc.Sys.Print(f">>> Converged time: {converged_time} hours.")
+#     PETSc.Sys.Print('')
+#
+#     if nconverged >= args.nwindows:
+#         PETSc.Sys.Print(f"Finished iterating to {args.nwindows}.")
+#         break
+#
+# nsweeps = j
+#
+# niterations = nsweeps*args.nsmooth
+#
+# PETSc.Sys.Print(f"Number of chunks: {args.nchunks}")
+# PETSc.Sys.Print(f"Maximum number of sweeps: {args.nsweeps}")
+# PETSc.Sys.Print(f"Actual number of sweeps: {nsweeps}")
+# PETSc.Sys.Print(f"Number of chunks converged: {int(nconverged)}")
+# PETSc.Sys.Print(f"Number of chunks converged per sweep: {nconverged/nsweeps}")
+# PETSc.Sys.Print(f"Number of sweeps per converged chunk: {nsweeps/nconverged if nconverged else 'n/a'}")
+# PETSc.Sys.Print(f"Number of iterations per converged chunk: {niterations/nconverged if nconverged else 'n/a'}")
+# PETSc.Sys.Print(f"Number of timesteps per iteration: {nconverged*chunk_length/niterations}")
