@@ -43,6 +43,7 @@ ensemble = fd.Ensemble(fd.COMM_WORLD, args.nspatial_domains)
 trank = ensemble.ensemble_comm.rank
 
 # block solver options
+from utils.mg import ManifoldTransferManager  # noqa: F401
 sparameters = {
     "snes_atol": 1e-8,
     "mat_type": "matfree",
@@ -52,6 +53,7 @@ sparameters = {
     "pc_type": "mg",
     "pc_mg_cycle_type": "v",
     "pc_mg_type": "multiplicative",
+    'mg_transfer_manager': f'{__name__}.ManifoldTransferManager',
     "mg_levels_ksp_type": "gmres",
     "mg_levels_ksp_max_it": 3,
     "mg_levels_pc_type": "python",
@@ -87,7 +89,7 @@ sparameters_diag = {
     'ksp_type': 'gmres',
     'ksp_max_it': 10,
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC'}
+    'pc_python_type': 'asQ.CirculantPC'}
 
 
 # list of serial timesteps

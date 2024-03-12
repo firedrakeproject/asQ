@@ -1,5 +1,6 @@
 from firedrake.petsc import PETSc
 
+from utils.timing import SolverTimer
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
@@ -64,7 +65,9 @@ patch_parameters = {
     }
 }
 
+from utils.mg import ManifoldTransferManager  # noqa: F401
 mg_parameters = {
+    'transfer_manager': f'{__name__}.ManifoldTransferManager',
     'levels': {
         'ksp_type': 'gmres',
         'ksp_max_it': 5,
@@ -114,7 +117,7 @@ sparameters_diag = {
         'atol': atol,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
+    'pc_python_type': 'asQ.CirculantPC',
     'diagfft_alpha': args.alpha,
     'diagfft_state': 'linear',
     'aaos_jacobian_state': 'linear',
@@ -144,14 +147,18 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
 
 paradiag = miniapp.paradiag
 
+timer = SolverTimer()
+
 
 def window_preproc(swe_app, pdg, wndw):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
+    timer.start_timing()
 
 
 def window_postproc(swe_app, pdg, wndw):
+    timer.stop_timing()
     if pdg.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
         time = nt*pdg.aaoform.dt
@@ -190,4 +197,10 @@ PETSc.Sys.Print('')
 
 PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
 PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+PETSc.Sys.Print('')
+
+if timer.ntimes() > 1:
+    timer.times[0] = timer.times[1]
+
+PETSc.Sys.Print(timer.string(timesteps_per_solve=window_length, ndigits=5))
 PETSc.Sys.Print('')

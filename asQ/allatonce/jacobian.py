@@ -1,4 +1,6 @@
 import firedrake as fd
+from firedrake.petsc import PETSc
+
 from functools import partial
 
 from asQ.profiling import profiler
@@ -29,7 +31,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
     prefix = "aaos_jacobian_"
 
     @profiler()
-    def __init__(self, aaoform, current_state,
+    def __init__(self, aaoform,
                  reference_state=None,
                  options_prefix="",
                  appctx={}):
@@ -37,20 +39,17 @@ class AllAtOnceJacobian(TimePartitionMixin):
         Python context for a PETSc Mat for the Jacobian of an AllAtOnceForm.
 
         :arg aaoform: The AllAtOnceForm object to linearise.
-        :arg current_state: The AllAtOnceFunction being solved for.
         :arg reference_state: A firedrake.Function for a single timestep.
             Only needed if 'aaos_jacobian_state' is 'reference'.
         :arg options_prefix: string prefix for the Jacobian PETSc options.
         :arg appctx: the appcontext for the Jacobian and the preconditioner.
         """
         self._time_partition_setup(aaoform.ensemble, aaoform.time_partition)
-        prefix = self.prefix + options_prefix
+        prefix = options_prefix + self.prefix
 
         aaofunc = aaoform.aaofunc
         self.aaoform = aaoform
         self.aaofunc = aaofunc
-
-        self.current_state = current_state
 
         self.appctx = appctx
 
@@ -110,33 +109,31 @@ class AllAtOnceJacobian(TimePartitionMixin):
         Update the state to linearise around according to aaos_jacobian_state.
 
         :arg X: an optional AllAtOnceFunction or global PETSc Vec.
-            If X is not None and aaos_jacobian_state = 'current' then the state
-            is updated from X instead of self.current_state.
+            If X is not None then the state is updated from X.
         """
 
         aaofunc = self.aaofunc
         jacobian_state = self.jacobian_state()
 
-        if jacobian_state == 'linear':
-            pass
+        if jacobian_state in ('linear', 'user'):
+            return
 
-        elif jacobian_state == 'current':
-            if X is None:
-                X = self.current_state
+        if X is not None:
             self.aaofunc.assign(X)
 
+        if jacobian_state == 'current':
+            return
+
         elif jacobian_state in ('window', 'slice'):
-            time_average(self.current_state, self.ureduce, self.uwrk, average=jacobian_state)
+            time_average(self.aaofunc, self.ureduce, self.uwrk,
+                         average=jacobian_state)
             aaofunc.assign(self.ureduce)
 
         elif jacobian_state == 'initial':
-            aaofunc.assign(self.current_state.initial_condition)
+            aaofunc.assign(self.aaofunc.initial_condition)
 
         elif jacobian_state == 'reference':
             aaofunc.assign(self.reference_state)
-
-        elif jacobian_state == 'user':
-            pass
 
         return
 
@@ -168,3 +165,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         with self.F.global_vec_ro() as v:
             v.copy(Y)
+
+    @profiler()
+    def petsc_mat(self):
+        """
+        Return a petsc4py.PETSc.Mat with this AllAtOnceJacobian as the python context.
+        """
+        mat = PETSc.Mat().create(comm=self.ensemble.global_comm)
+        mat.setType("python")
+        sizes = (self.aaofunc.nlocal_dofs, self.aaofunc.nglobal_dofs)
+        mat.setSizes((sizes, sizes))
+        mat.setPythonContext(self)
+        mat.setUp()
+        return mat

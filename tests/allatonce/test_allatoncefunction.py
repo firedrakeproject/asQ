@@ -358,6 +358,36 @@ def test_assign(aaof):
         assert (err < 1e-12)
 
 
+riesz_kwargs = [
+    pytest.param({}, id="default_map"),
+    pytest.param({'riesz_map': 'L2'}, id="L2_map"),
+    pytest.param({'riesz_map': 'l2'}, id="l2_map"),
+    pytest.param({'riesz_map': 'H1'}, id="H1_map")
+]
+
+
+@pytest.mark.parallel(nprocs=nprocs)
+@pytest.mark.parametrize("riesz_kwarg", riesz_kwargs)
+def test_riesz_representation(aaof, riesz_kwarg):
+    """
+    test setting all timesteps/ics to given function.
+    """
+    # random state
+    np.random.seed(572046)
+    random_aaof(aaof)
+
+    riesz_repr = aaof.riesz_representation(**riesz_kwarg)
+
+    if type(aaof) is asQ.AllAtOnceFunction:
+        assert type(riesz_repr) is asQ.AllAtOnceCofunction
+    else:
+        assert type(riesz_repr) is asQ.AllAtOnceFunction
+
+    for step in range(aaof.nlocal_timesteps):
+        err = errornorm(aaof[step].riesz_representation(**riesz_kwarg), riesz_repr[step])
+        assert (err < 1e-12)
+
+
 @pytest.mark.parallel(nprocs=nprocs)
 def test_axpy(aaof):
     """

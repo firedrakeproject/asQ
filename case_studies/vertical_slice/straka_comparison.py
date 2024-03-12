@@ -136,7 +136,7 @@ parallel_parameters = {
         "stol": stol,
     },
     "pc_type": "python",
-    "pc_python_type": "asQ.DiagFFTPC",
+    "pc_python_type": "asQ.CirculantPC",
     "diagfft_alpha": 1e-4,
 }
 

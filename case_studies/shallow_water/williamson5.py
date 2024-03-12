@@ -61,7 +61,9 @@ patch_parameters = {
     }
 }
 
+from utils.mg import ManifoldTransferManager  # noqa: F401
 mg_parameters = {
+    'transfer_manager': f'{__name__}.ManifoldTransferManager',
     'levels': {
         'ksp_type': 'gmres',
         'ksp_max_it': 5,
@@ -112,7 +114,7 @@ sparameters_diag = {
         'atol': atol,
     },
     'pc_type': 'python',
-    'pc_python_type': 'asQ.DiagFFTPC',
+    'pc_python_type': 'asQ.CirculantPC',
     'diagfft_alpha': args.alpha,
     'diagfft_state': 'window',
     'diagfft_linearisation': 'consistent',
