@@ -129,11 +129,13 @@ class HybridisedSCPC(fd.PCBase):
         L = self.xtr
 
         scpc_params = {
+            'snes': linear_snes_params,
             "mat_type": "matfree",
             "ksp_type": "preonly",
             "pc_type": "python",
             "pc_python_type": "firedrake.SCPC",
             "pc_sc_eliminate_fields": "0, 1",
+            "condensed_field_snes": linear_snes_params,
             "condensed_field": condensed_params
         }
 
@@ -177,6 +179,14 @@ class HybridisedSCPC(fd.PCBase):
 
 
 # parameters for the implicit diagonal solve in step-(b)
+
+linear_snes_params = {
+    'type': 'ksponly',
+    'lag_jacobian': -2,
+    'lag_jacobian_persists': None,
+    'lag_preconditioner': -2,
+    'lag_preconditioner_persists': None,
+}
 
 lu_params = {
     'ksp_type': 'preonly',
@@ -236,6 +246,7 @@ hybrid_params = {
 condensed_params = lu_params
 
 sparameters = {
+    'snes': linear_snes_params,
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
@@ -251,7 +262,6 @@ atol = 1e0
 sparameters_diag = {
     'snes_type': 'ksponly',
     'snes': {
-        'linesearch_type': 'basic',
         'monitor': None,
         'converged_reason': None,
         'rtol': rtol,
