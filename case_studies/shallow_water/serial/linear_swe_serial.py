@@ -96,7 +96,7 @@ class HybridisedSCPC(fd.PCBase):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
 
-        from broken_projections import BrokenHDivProjector
+        from utils.broken_projections import BrokenHDivProjector
         self.projector = BrokenHDivProjector(Vu)
 
         self.x = fd.Cofunction(W.dual())
@@ -125,14 +125,15 @@ class HybridisedSCPC(fd.PCBase):
         A = dt1*M + tht*K
         L = self.xtr
 
-        condensed_params = gamg_sparams
         scpc_params = {
+            "snes": linear_snes_params,
             "mat_type": "matfree",
             "ksp_type": "preonly",
             "pc_type": "python",
             "pc_python_type": "firedrake.SCPC",
-            'pc_sc_eliminate_fields': '0, 1',
-            'condensed_field': condensed_params
+            "pc_sc_eliminate_fields": "0, 1",
+            "condensed_field_snes": linear_snes_params,
+            "condensed_field": condensed_params
         }
 
         problem = fd.LinearVariationalProblem(A, L, self.ytr)
@@ -171,9 +172,18 @@ class HybridisedSCPC(fd.PCBase):
 
 
 # solver parameters for the implicit solve
+
+linear_snes_params = {
+    'type': 'ksponly',
+    'lag_jacobian': -2,
+    'lag_jacobian_persists': None,
+    'lag_preconditioner': -2,
+    'lag_preconditioner_persists': None,
+}
+
 factorisation_params = {
     'ksp_type': 'preonly',
-    'pc_factor_mat_ordering_type': 'rcm',
+    # 'pc_factor_mat_ordering_type': 'rcm',
     # 'pc_factor_reuse_ordering': None,
     # 'pc_factor_reuse_fill': None,
 }
@@ -257,20 +267,14 @@ scpc_sparams = {
     "pc_type": "python",
     "pc_python_type": f"{__name__}.HybridisedSCPC",
 }
+condensed_params = lu_params
 
 atol = 1e2
 sparameters = {
-    'snes_type': 'ksponly',
     'snes': {
-        # 'monitor': None,
-        # 'converged_reason': None,
         'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
-        'lag_jacobian': -2,
-        'lag_jacobian_persists': None,
-        'lag_preconditioner': -2,
-        'lag_preconditioner_persists': None,
     },
     'ksp_type': 'fgmres',
     'ksp': {
@@ -281,6 +285,7 @@ sparameters = {
         'converged_rate': None
     },
 }
+sparameters['snes'].update(linear_snes_params)
 
 # sparameters.update(lu_params)
 # sparameters.update(mg_sparams)

@@ -129,7 +129,7 @@ class HybridisedSCPC(fd.PCBase):
         L = self.xtr
 
         scpc_params = {
-            'snes': linear_snes_params,
+            "snes": linear_snes_params,
             "mat_type": "matfree",
             "ksp_type": "preonly",
             "pc_type": "python",
