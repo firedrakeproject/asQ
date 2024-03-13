@@ -15,8 +15,8 @@ asQ implements the ParaDiag-II family of methods based on creating a block-circu
 
 ## Requirements
 
-To run asQ you will need a working Firedrake installation ([see instructions here](https://www.firedrakeproject.org/download)).
-You will then need to clone/fork the asQ repository and run `make` in the asQ directory with the Firedrake python venv activated.
+asQ can be installed as part of a Firedrake installation. You can find instructions for installing Firedrake here: ([download instructions](https://www.firedrakeproject.org/download)).
+To install asQ, pass the arguments `--install asQ` to the `firedrake-install` script.
 
 ## Getting started
 
