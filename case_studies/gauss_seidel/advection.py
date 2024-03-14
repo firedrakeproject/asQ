@@ -5,7 +5,7 @@ import firedrake as fd
 
 from time import sleep  # noqa: F401
 import numpy as np
-from math import sqrt
+from math import sqrt, pi, cos, sin
 
 PETSc.Sys.popErrorHandler()
 
@@ -25,12 +25,11 @@ parser.add_argument('--nwindows', type=int, default=1, help='Total number of tim
 parser.add_argument('--nchunks', type=int, default=4, help='Number of chunks to solve simultaneously.')
 parser.add_argument('--nsweeps', type=int, default=4, help='Number of nonlinear sweeps.')
 parser.add_argument('--nsmooth', type=int, default=1, help='Number of nonlinear iterations per chunk at each sweep.')
-parser.add_argument('--atol', type=float, default=1e5, help='Average atol of each timestep.')
+parser.add_argument('--atol', type=float, default=1e-6, help='Average atol of each timestep.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=1e-1, help='Circulant coefficient.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
-parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--serial', action='store_true', help='Calculate each chunk in serial.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
@@ -119,32 +118,36 @@ def form_function(q, phi, t):
 
 # # # === --- PETSc solver parameters --- === # # #
 
+snes_linear_params = {
+    'type': 'ksponly',
+    'lag_jacobian': -2,
+    'lag_jacobian_persists': None,
+    'lag_preconditioner': -2,
+    'lag_preconditioner_persists': None,
+}
+
 # parameters for the implicit diagonal solve in step-(b)
 block_parameters = {
+    'snes': snes_linear_params,
     'ksp_type': 'preonly',
     'pc_type': 'lu',
     'pc_factor_mat_solver_type': 'mumps'
-    # 'pc_factor_mat_ordering_type': 'rcm',
 }
 
 atol = args.atol
 patol = sqrt(chunk_length)*atol
 sparameters_diag = {
     'snes': {
-        'linesearch_type': 'ksponly',
         'monitor': None,
         'converged_reason': None,
         'atol': patol,
         'rtol': 1e-10,
         'stol': 1e-12,
-        # 'ksp_ew': None,
-        # 'ksp_ew_version': 1,
-        # 'ksp_ew_threshold': 1e-2,
         'max_it': args.nsmooth,
         'convergence_test': 'skip',
     },
     'mat_type': 'matfree',
-    'ksp_type': 'richardson',
+    'ksp_type': 'preonly',
     'ksp': {
         'rtol': 1e-2,
         'atol': patol,
@@ -152,36 +155,27 @@ sparameters_diag = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
     'diagfft_alpha': args.alpha,
-    'diagfft_state': 'window',
-    'aaos_jacobian_state': 'current'
+    'diagfft_state': 'linear',
+    'aaos_jacobian_state': 'linear'
 }
+sparameters_diag['snes'].update(snes_linear_params)
 
 for i in range(chunk_length):
     sparameters_diag['diagfft_block_'+str(i)+'_'] = block_parameters
 
-appctx = {'block_appctx': block_appctx}
-
 # function spaces and initial conditions
-
-W = swe.default_function_space(mesh)
-
-winitial = fd.Function(W)
-uinitial, hinitial = winitial.subfunctions
-uinitial.project(galewsky.velocity_expression(*coords))
-hinitial.interpolate(galewsky.depth_expression(*coords))
 
 # all at once solver
 
-chunk_aaofunc = asQ.AllAtOnceFunction(chunk_ensemble, chunk_partition, W)
-chunk_aaofunc.assign(winitial)
+chunk_aaofunc = asQ.AllAtOnceFunction(chunk_ensemble, chunk_partition, V)
+chunk_aaofunc.assign(q0)
 
 theta = 0.5
 chunk_aaoform = asQ.AllAtOnceForm(chunk_aaofunc, dt, theta,
                                   form_mass, form_function)
 
 chunk_solver = asQ.AllAtOnceSolver(chunk_aaoform, chunk_aaofunc,
-                                   solver_parameters=sparameters_diag,
-                                   appctx=appctx)
+                                   solver_parameters=sparameters_diag)
 
 # which chunk_id is holding which part of the total timeseries?
 chunk_indexes = np.array([*range(args.nchunks)], dtype=int)
@@ -196,7 +190,7 @@ chunk_root = lambda c: c*chunk_ensemble.global_comm.size
 earliest = lambda: (chunk_id == chunk_indexes[0])
 
 # update chunk ics from previous chunk
-uprev = fd.Function(W)
+uprev = fd.Function(V)
 
 
 def update_chunk_halos(uhalo):
@@ -311,7 +305,7 @@ for j in range(args.nsweeps):
     if convergence_flag[0]:
         nconverged += 1
 
-    converged_time = nconverged*chunk_length*args.dt
+    converged_time = nconverged*chunk_length*dt
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f">>> Converged chunks: {nconverged}.")
     PETSc.Sys.Print(f">>> Converged time: {converged_time} hours.")
@@ -332,6 +326,17 @@ for j in range(args.nsweeps):
         # update record of which chunk_id is in which position
         for i in range(args.nchunks):
             chunk_indexes[i] = (chunk_indexes[i] + 1) % args.nchunks
+
+global_comm.Barrier()
+sleep(sleep_time)
+if earliest() and chunk_aaofunc.layout.is_local(-1):
+    from utils.serial import SerialMiniApp
+    serialapp = SerialMiniApp(dt, theta, q0, form_mass, form_function, block_parameters)
+    serialapp.solve(nt=nconverged*chunk_length)
+    PETSc.Sys.Print(f"serial error: {fd.errornorm(serialapp.w0, chunk_aaofunc[-1])}", comm=chunk_ensemble.comm)
+    PETSc.Sys.Print('')
+global_comm.Barrier()
+sleep(sleep_time)
 
 nsweeps = j
 
