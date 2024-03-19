@@ -62,15 +62,15 @@ class EnsembleConnector(Ensemble):
             raise ValueError(msg)
 
         self.global_comm = global_comm
-        self._global_comm = internal_comm(self.global_comm)
+        self._comm = internal_comm(self.global_comm, self)
 
         self.comm = local_comm
-        self._comm = internal_comm(self.comm)
+        self._spatial_comm = internal_comm(self.comm, self)
 
         self.ensemble_comm = self.global_comm.Split(color=self.comm.rank,
                                                     key=global_comm.rank)
 
-        self._ensemble_comm = internal_comm(self.ensemble_comm)
+        self._ensemble_comm = internal_comm(self.ensemble_comm, self)
 
     def __del__(self):
         if hasattr(self, "ensemble_comm"):
