@@ -5,7 +5,7 @@ from firedrake.petsc import PETSc
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
-from utils.shallow_water import galewsky
+from utils.shallow_water.williamson1992 import case5
 from utils import diagnostics
 
 from utils.serial import SerialMiniApp
@@ -24,7 +24,7 @@ parser.add_argument('--nt', type=int, default=10, help='Number of time steps.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--degree', type=float, default=swe.default_degree(), help='Degree of the depth function space.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for implicit theta method. 0.5 for trapezium rule, 1 for backwards Euler.')
-parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
+parser.add_argument('--filename', type=str, default='williamson5', help='Name of output vtk files')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -53,7 +53,7 @@ W = swe.default_function_space(mesh, degree=args.degree)
 # parameters
 gravity = earth.Gravity
 
-topography = galewsky.topography_expression(*x)
+topography = case5.topography_expression(*x)
 coriolis = swe.earth_coriolis_expression(*x)
 
 # initial conditions
@@ -61,8 +61,8 @@ w_initial = fd.Function(W)
 u_initial = w_initial.subfunctions[0]
 h_initial = w_initial.subfunctions[1]
 
-u_initial.project(galewsky.velocity_expression(*x))
-h_initial.project(galewsky.depth_expression(*x))
+u_initial.project(case5.velocity_expression(*x))
+h_initial.project(case5.depth_expression(*x))
 
 # current and next timestep
 w0 = fd.Function(W).assign(w_initial)
