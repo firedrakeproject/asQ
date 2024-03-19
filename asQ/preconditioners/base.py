@@ -2,7 +2,7 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 
 from asQ.profiling import profiler
-from asQ.common import get_option_from_list
+from asQ.common import get_option_from_list, get_deprecated_option
 from asQ.parallel_arrays import SharedArray
 
 from asQ.allatonce.mixin import TimePartitionMixin
@@ -39,6 +39,10 @@ class AllAtOncePCBase(TimePartitionMixin):
         # grab aao objects off petsc mat python context
         prefix = pc.getOptionsPrefix()
         self.full_prefix = prefix + self.prefix
+        if hasattr(self, "deprecated_prefix"):
+            self.deprecated_prefix = prefix + self.deprecated_prefix
+        else:
+            self.deprecated_prefix = None
 
         A, _ = pc.getOperators()
         jacobian = A.getPythonContext()
@@ -140,31 +144,38 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
         super().initialize(pc, final_initialize=False)
 
         # option for what state to linearise PC around
-        jac_option = f"{self.full_prefix}state"
-
         self.jacobian_state = get_option_from_list(
-            jac_option, self.valid_jacobian_states, default_index=0)
+            self.full_prefix, "state", self.valid_jacobian_states,
+            default_index=0, deprecated_prefix=self.deprecated_prefix)
 
         if self.jacobian_state == 'reference' and self.jacobian.reference_state is None:
             msg = f"AllAtOnceJacobian must be provided a reference state to use \'reference\' for {self.full_prefix}state."
             raise ValueError(msg)
 
         # Problem parameter options
-        self.dt = PETSc.Options().getReal(
-            f"{self.full_prefix}dt", default=self.aaoform.dt)
+        if self.deprecated_prefix is None:
+            self.dt = PETSc.Options().getReal(
+                f"{self.full_prefix}dt", default=self.aaoform.dt)
 
-        self.theta = PETSc.Options().getReal(
-            f"{self.full_prefix}theta", default=self.aaoform.theta)
+            self.theta = PETSc.Options().getReal(
+                f"{self.full_prefix}theta", default=self.aaoform.theta)
+        else:
+            self.dt = get_deprecated_option(
+                PETSc.Options().getReal, self.full_prefix,
+                self.deprecated_prefix, "dt", default=self.aaoform.dt)
+
+            self.theta = get_deprecated_option(
+                PETSc.Options().getReal, self.full_prefix,
+                self.deprecated_prefix, "theta", default=self.aaoform.theta)
 
         self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
 
         # which form to linearise around
         valid_linearisations = ['consistent', 'user']
-        linearisation_option = f"{self.full_prefix}linearisation"
 
-        linearisation = get_option_from_list(linearisation_option,
-                                             valid_linearisations,
-                                             default_index=0)
+        linearisation = get_option_from_list(
+            self.full_prefix, "linearisation", valid_linearisations,
+            default_index=0, deprecated_prefix=self.deprecated_prefix)
 
         if linearisation == 'consistent':
             form_mass = self.aaoform.form_mass
@@ -175,7 +186,7 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
                 form_function = self.appctx['pc_form_function']
             except KeyError as err:
                 err_msg = "appctx must contain 'pc_form_mass' and 'pc_form_function' if " \
-                          + f"{linearisation_option} = 'user'"
+                          + "'linearisation' = 'user'"
                 raise type(err)(err_msg) from err
 
         self.form_mass = form_mass

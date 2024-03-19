@@ -1,12 +1,13 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 
+from warnings import warn
 import numpy as np
 from scipy.fft import fft, ifft
 
 from asQ.pencil import Pencil, Subcomm
 from asQ.profiling import profiler
-from asQ.common import get_option_from_list
+from asQ.common import get_option_from_list, get_deprecated_option
 
 from asQ.allatonce.function import time_average as time_average_function
 from asQ.preconditioners.base import AllAtOnceBlockPCBase
@@ -139,7 +140,8 @@ class CirculantPC(AllAtOnceBlockPCBase):
         'form_mass': function used to build the block mass matrix.
         'form_function': function used to build the block stiffness matrix.
     """
-    prefix = "diagfft_"
+    prefix = "circulant_"
+    deprecated_prefix = "diagfft_"
     valid_jacobian_states = tuple(('window', 'slice', 'linear', 'initial', 'reference'))
 
     default_alpha = 1e-3
@@ -159,8 +161,9 @@ class CirculantPC(AllAtOnceBlockPCBase):
         # Input/Output wrapper Functions for all-at-once residual being acted on
         self.yf = fd.Function(aaofunc.function_space)  # output
 
-        self.alpha = PETSc.Options().getReal(
-            f"{prefix}alpha", default=self.default_alpha)
+        self.alpha = get_deprecated_option(
+            PETSc.Options().getReal, prefix, self.deprecated_prefix,
+            "alpha", default=self.default_alpha)
 
         dt = self.dt
         self.t_average = fd.Constant(self.aaoform.t0 + (self.aaofunc.ntimesteps + 1)*self.dt/2)
@@ -189,11 +192,10 @@ class CirculantPC(AllAtOnceBlockPCBase):
         # Block system setup
         # First need to build the complex function space version of blockV
         valid_cpx_type = ['vector', 'mixed']
-        cpx_option = f"{prefix}complex_proxy"
 
-        cpx_type = get_option_from_list(cpx_option,
-                                        valid_cpx_type,
-                                        default_index=0)
+        cpx_type = get_option_from_list(
+            prefix, "complex_proxy", valid_cpx_type,
+            default_index=0, deprecated_prefix=self.deprecated_prefix)
 
         if cpx_type == 'vector':
             import asQ.complex_proxy.vector as cpx
@@ -297,6 +299,13 @@ class CirculantPC(AllAtOnceBlockPCBase):
             # block number, then this prefix is used instead (like pc fieldsplit)
 
             block_prefix = f"{prefix}block_"
+            deprecated_block_prefix = f"{self.deprecated_prefix}block_"
+            for k, v in PETSc.Options().getAll().items():
+                if k.startswith(f"{deprecated_block_prefix}"):
+                    msg = "Prefix 'diagfft' is deprecated and will be removed in the future. Use 'circulant' instead."
+                    warn(msg)
+                    block_prefix = deprecated_block_prefix
+
             for k, v in PETSc.Options().getAll().items():
                 if k.startswith(f"{block_prefix}{str(ii)}_"):
                     block_prefix = f"{block_prefix}{str(ii)}_"
