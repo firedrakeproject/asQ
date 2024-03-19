@@ -63,7 +63,7 @@ f = w5.coriolis_expression(x, y, z)  # Coriolis parameter
 g = earth.Gravity  # Gravitational constant
 b = fd.Function(V2, name="Topography")
 
-# h = D + b
+# h = H0 + b
 
 # finite element forms
 
