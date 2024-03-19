@@ -153,12 +153,9 @@ class Paradiag(TimePartitionMixin):
             self.block_iterations.data(deepcopy=False)[:] = pc_block_iterations.data(deepcopy=False)
 
     @profiler()
-    def solve(self,
-              nwindows=1,
-              preproc=lambda pdg, w, rhs: None,
-              postproc=lambda pdg, w, rhs: None,
-              rhs=None,
-              verbose=False):
+    def solve(self, nwindows=1,
+              preproc=None, postproc=None,
+              rhs=None, verbose=False):
         """
         Solve multiple windows of the all-at-once system.
 
@@ -169,6 +166,13 @@ class Paradiag(TimePartitionMixin):
         :arg preproc: callback called before each window solve
         :arg postproc: callback called after each window solve
         """
+        def passthrough(*args, **kwargs):
+            pass
+
+        if preproc is None:
+            preproc = passthrough
+        if postproc is None:
+            postproc = passthrough
 
         for wndw in range(nwindows):
 
