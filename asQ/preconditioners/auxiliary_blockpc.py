@@ -9,6 +9,7 @@ __all__ = ['AuxiliaryRealBlockPC', 'AuxiliaryComplexBlockPC']
 class AuxiliaryBlockPCBase(fd.AuxiliaryOperatorPC):
     def _setup(self, pc, v, u):
         appctx = self.get_appctx(pc)
+        self.appctx = appctx
 
         self.prefix = pc.getOptionsPrefix() + self.prefix
         self.options = PETSc.Options(self.prefix)
@@ -47,10 +48,8 @@ class AuxiliaryRealBlockPC(AuxiliaryBlockPCBase):
     def form(self, pc, v, u):
         self._setup(pc, v, u)
 
-        appctx = self.get_appctx(pc)
-
-        dt = appctx['dt']
-        theta = appctx['theta']
+        dt = self.appctx['dt']
+        theta = self.appctx['theta']
 
         dt = self.options.getReal('dt', default=dt)
         theta = self.options.getReal('theta', default=theta)
@@ -90,15 +89,22 @@ class AuxiliaryComplexBlockPC(fd.AuxiliaryOperatorPC):
         'aux_%d_d2': complex coefficient on the stiffness matrix of the %d'th block.
     """
     def form(self, pc, v, u):
-        appctx = self.get_appctx(pc)
+        self._setup(pc, v, u)
 
-        cpx = appctx['cpx']
+        cpx = self.appctx['cpx']
 
-        d1 = appctx['d1']
-        d2 = appctx['d2']
+        d1 = self.appctx['d1']
+        d2 = self.appctx['d2']
 
-        d1 = self.options.getReal('d1', default=d1)
-        d2 = self.options.getReal('d2', default=d2)
+        # PETScScalar is real so we can't get a complex number directly from options
+        d1r = self.options.getReal('d1r', default=d1.real)
+        d1i = self.options.getReal('d1i', default=d1.imag)
+
+        d2r = self.options.getReal('d2r', default=d1.real)
+        d2i = self.options.getReal('d2i', default=d1.imag)
+
+        d1 = complex(d1r, d1i)
+        d2 = complex(d2r, d2i)
 
         # complex and real valued function spaces
         W = v.function_space()
