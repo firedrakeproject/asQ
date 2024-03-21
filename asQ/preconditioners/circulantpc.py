@@ -14,61 +14,7 @@ from asQ.preconditioners.base import AllAtOnceBlockPCBase
 
 from functools import partial
 
-__all__ = ['CirculantPC', 'AuxiliaryBlockPC']
-
-
-class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
-    """
-    A preconditioner for the complex blocks that builds a PC using a specified form.
-
-    This preconditioner is analogous to firedrake.AuxiliaryOperatorPC. Given
-    `form_mass` and `form_function` functions on the real function space (with the
-    usual call-signatures), it constructs an AuxiliaryOperatorPC on the complex
-    block function space.
-
-    By default, the circulant eigenvalues and the form_mass and form_function of the
-    circulant preconditioner are used (i.e. exactly the same operator as the block).
-
-    User-defined `form_mass` and `form_function` functions and complex coeffiecients
-    can be passed through the block_appctx using the following keys:
-        'aux_form_mass': function used to build the mass matrix.
-        'aux_form_function': function used to build the stiffness matrix.
-        'aux_%d_d1': complex coefficient on the mass matrix of the %d'th block.
-        'aux_%d_d2': complex coefficient on the stiffness matrix of the %d'th block.
-    """
-    def form(self, pc, v, u):
-        appctx = self.get_appctx(pc)
-
-        cpx = appctx['cpx']
-
-        u0 = appctx['u0']
-        assert u0.function_space() == v.function_space()
-
-        bcs = appctx['bcs']
-        t0 = appctx['t0']
-
-        d1 = appctx['d1']
-        d2 = appctx['d2']
-
-        blockid = appctx.get('blockid', None)
-        blockid_str = f'{blockid}_' if blockid is not None else ''
-
-        aux_d1 = appctx.get(f'aux_{blockid_str}d1', d1)
-        aux_d2 = appctx.get(f'aux_{blockid_str}d2', d2)
-
-        form_mass = appctx['form_mass']
-        form_function = appctx['form_function']
-
-        aux_form_mass = appctx.get('aux_form_mass', form_mass)
-        aux_form_function = appctx.get('aux_form_function', form_function)
-
-        Vc = v.function_space()
-        M = cpx.BilinearForm(Vc, aux_d1, aux_form_mass)
-        K = cpx.derivative(aux_d2, partial(aux_form_function, t=t0), u0)
-
-        A = M + K
-
-        return (A, bcs)
+__all__ = ['CirculantPC']
 
 
 class CirculantPC(AllAtOnceBlockPCBase):
