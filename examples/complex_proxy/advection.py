@@ -123,12 +123,10 @@ sparams = {
         'converged_reason': None,
         'rtol': rtol,
     },
-    'ksp_type': 'gmres',
+    'ksp_type': 'preonly',
     'pc_type': 'python',
-    'pc_python_type': 'asQ.AuxiliaryBlockPC',
-    'aux': {
-        'pc_type': 'ilu'
-    }
+    'pc_python_type': 'asQ.AuxiliaryComplexBlockPC',
+    'aux': lu_pc
 }
 
 # All of these are given to the block solver by the diagpc
@@ -139,8 +137,8 @@ sparams = {
 
 appctx = {
     'cpx': cpx,
-    'u0': w,
-    't0': None,
+    'uref': w,
+    'tref': None,
     'd1': D1pc,
     'd2': D2pc,
     'bcs': [],
