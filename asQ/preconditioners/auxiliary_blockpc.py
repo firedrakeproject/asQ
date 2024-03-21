@@ -11,7 +11,7 @@ class AuxiliaryBlockPCBase(fd.AuxiliaryOperatorPC):
         appctx = self.get_appctx(pc)
         self.appctx = appctx
 
-        self.prefix = pc.getOptionsPrefix() + self.prefix
+        self.prefix = pc.getOptionsPrefix() + self._prefix
         self.options = PETSc.Options(self.prefix)
 
         self.uref = appctx.get('uref')
@@ -69,7 +69,7 @@ class AuxiliaryRealBlockPC(AuxiliaryBlockPCBase):
         return (a, self.bcs)
 
 
-class AuxiliaryComplexBlockPC(fd.AuxiliaryOperatorPC):
+class AuxiliaryComplexBlockPC(AuxiliaryBlockPCBase):
     """
     A preconditioner for the complex blocks that builds a PC using a specified form.
 
@@ -100,8 +100,8 @@ class AuxiliaryComplexBlockPC(fd.AuxiliaryOperatorPC):
         d1r = self.options.getReal('d1r', default=d1.real)
         d1i = self.options.getReal('d1i', default=d1.imag)
 
-        d2r = self.options.getReal('d2r', default=d1.real)
-        d2i = self.options.getReal('d2i', default=d1.imag)
+        d2r = self.options.getReal('d2r', default=d2.real)
+        d2i = self.options.getReal('d2i', default=d2.imag)
 
         d1 = complex(d1r, d1i)
         d2 = complex(d2r, d2i)
