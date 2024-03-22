@@ -35,15 +35,27 @@ class AuxiliaryRealBlockPC(AuxiliaryBlockPCBase):
     `form_mass` and `form_function` functions (with the usual call-signatures),
     it constructs an AuxiliaryOperatorPC.
 
-    By default, the timestep, theta parameter, and the form_mass and form_function
-    of the original problem are used (i.e. exactly the same operator as the Jacobian).
+    Required appctx entries (usually filled by the all-at-once preconditioner):
 
-    User-defined `form_mass` and `form_function` functions and dt and theta can be
-    passed through the appctx using the following keys:
-        'aux_form_mass': function used to build the mass matrix.
-        'aux_form_function': function used to build the stiffness matrix.
-        'aux_dt': timestep size.
-        'aux_theta': implicit theta parameter.
+    'uref': Firedrake Function around which to linearise the form_function.
+    'tref': The time at which to linearise the form_function.
+    'bcs': A list of the boundary conditions.
+    'form_mass': The function to generate the mass matrix.
+    'form_function': The function to generate the stiffness matrix.
+    'dt': The timestep size.
+    'theta': The implicit parameter.
+
+    Optional appctx entries. Used instead of the required entries if present.
+
+    'aux_form_mass': Alternative function used to generate the mass matrix.
+    'aux_form_function': Alternative function used to generate the stiffness matrix.
+
+    PETSc options. Used instead of the appctx entries if present.
+
+    'aux_dt': <float>
+        Alternative timestep size.
+    'aux_theta': <float>
+        Alternative implicit theta parameter.
     """
     def form(self, pc, v, u):
         self._setup(pc, v, u)
@@ -58,13 +70,14 @@ class AuxiliaryRealBlockPC(AuxiliaryBlockPCBase):
         vs = fd.split(v)
 
         M = self.form_mass(*us, *vs)
-        K = self.form_function(*us, *vs, self.tref)
+
+        F = self.form_function(*us, *vs, self.tref)
+        K = fd.derivative(F, self.uref)
 
         dt1 = fd.Constant(1/dt)
         thet = fd.Constant(theta)
 
-        F = dt1*M + thet*K
-        a = fd.derivative(F, self.uref)
+        a = dt1*M + thet*K
 
         return (a, self.bcs)
 
@@ -78,15 +91,32 @@ class AuxiliaryComplexBlockPC(AuxiliaryBlockPCBase):
     usual call-signatures), it constructs an AuxiliaryOperatorPC on the complex
     block function space.
 
-    By default, the circulant eigenvalues and the form_mass and form_function of the
-    circulant preconditioner are used (i.e. exactly the same operator as the block).
+    Required appctx entries (usually filled by the all-at-once preconditioner).
 
-    User-defined `form_mass` and `form_function` functions and complex coeffiecients
-    can be passed through the block_appctx using the following keys:
-        'aux_form_mass': function used to build the mass matrix.
-        'aux_form_function': function used to build the stiffness matrix.
-        'aux_%d_d1': complex coefficient on the mass matrix of the %d'th block.
-        'aux_%d_d2': complex coefficient on the stiffness matrix of the %d'th block.
+    'uref': Firedrake Function around which to linearise the form_function.
+    'tref': The time at which to linearise the form_function.
+    'bcs': A list of the boundary conditions on the real space.
+    'form_mass': The function to generate the mass matrix.
+    'form_function': The function to generate the stiffness matrix.
+    'd1': The complex coefficient on the mass matrix.
+    'd2': The complex coefficient on the stiffness matrix.
+    'cpx': The complex_proxy submodule to generate the complex-valued forms.
+
+    Optional appctx entries. Used instead of the required entries if present.
+
+    'aux_form_mass': Alternative function used to generate the mass matrix.
+    'aux_form_function': Alternative function used to generate the stiffness matrix.
+
+    PETSc options. Used instead of the appctx entries if present.
+
+    'aux_d1r': <float>
+        Real part of an alternative complex coefficient on the mass matrix.
+    'aux_d1i': <float>
+        Imaginary part of an alternative complex coefficient on the mass matrix.
+    'aux_d2r': <float>
+        Real part of an alternative complex coefficient on the stiffness matrix.
+    'aux_d2i': <float>
+        Imaginary part of an alternative complex coefficient on the stiffness matrix.
     """
     def form(self, pc, v, u):
         self._setup(pc, v, u)
