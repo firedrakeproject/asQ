@@ -41,20 +41,11 @@ sparams = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.AuxiliaryComplexBlockPC',
     'aux': {
-        'pc_type': 'ilu',
+        'pc_type': 'lu',
         'd1r': d1.real,
         'd1i': d1.imag,
     }
 }
-
-# sparams = {
-#     'ksp': {
-#         'monitor': None,
-#         'converged_rate': None,
-#     },
-#     'ksp_type': 'preonly',
-#     'pc_type': 'ilu',
-# }
 
 appctx = {
     'cpx': cpx,
