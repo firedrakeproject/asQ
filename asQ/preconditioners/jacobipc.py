@@ -112,11 +112,10 @@ class JacobiPC(AllAtOnceBlockPCBase):
 
             # pass parameters into PC:
             appctx_h = {
-                "blockid": i,
                 "dt": self.dt,
                 "theta": self.theta,
-                "t0": t0,
-                "u0": u0,
+                "tref": t0,
+                "uref": u0,
                 "bcs": self.block_bcs,
                 "form_mass": self.form_mass,
                 "form_function": self.form_function,

@@ -76,12 +76,11 @@ class CirculantPC(AllAtOnceBlockPCBase):
     If the AllAtOnceSolver's appctx contains a 'block_appctx' dictionary, this is
     added to the appctx of each block solver.  The appctx of each block solver also
     contains the following:
-        'blockid': index of the block.
         'd1': circulant eigenvalue of the mass matrix.
         'd2': circulant eigenvalue of the stiffness matrix.
         'cpx': complex-proxy module implementation set with 'diagfft_complex_proxy'.
-        'u0': state around which the blocks are linearised.
-        't0': time at which the blocks are linearised.
+        'uref': state around which the blocks are linearised.
+        'tref': time at which the blocks are linearised.
         'bcs': block boundary conditions.
         'form_mass': function used to build the block mass matrix.
         'form_function': function used to build the block stiffness matrix.
@@ -227,12 +226,11 @@ class CirculantPC(AllAtOnceBlockPCBase):
 
             # pass parameters into PC:
             appctx_h = {
-                "blockid": i,
                 "d1": d1,
                 "d2": d2,
                 "cpx": cpx,
-                "u0": self.u0,
-                "t0": self.t_average,
+                "uref": self.u0,
+                "tref": self.t_average,
                 "bcs": self.block_bcs,
                 "form_mass": self.form_mass,
                 "form_function": self.form_function,
