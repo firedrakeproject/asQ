@@ -45,7 +45,7 @@ def create_complex_solver(cpx, mesh, V, W, bcs, sparams):
     return solver, u
 
 
-bcopts = ['none', 'dirichlet']
+bcopts = ['nobc', 'dirichlet']
 cpxopts = ['cpx_vector', 'cpx_mixed']
 
 
@@ -64,7 +64,7 @@ def test_complex_blockpc(bcopt, cpxopt):
     V = fd.FunctionSpace(mesh, "CG", 1)
     W = cpx.FunctionSpace(V)
 
-    if bcopt == 'none':
+    if bcopt == 'nobc':
         bcs = []
     elif bcopt == 'dirichlet':
         bcs = [fd.DirichletBC(V, 0, sub_domain=1)]
@@ -87,6 +87,84 @@ def test_complex_blockpc(bcopt, cpxopt):
 
     direct_solver, udirect = create_complex_solver(cpx, mesh, V, W, bcs, direct_sparams)
     aux_solver, uaux = create_complex_solver(cpx, mesh, V, W, bcs, aux_sparams)
+
+    direct_solver.solve()
+    aux_solver.solve()
+
+    assert fd.errornorm(udirect, uaux) < 1e-12
+
+
+def create_real_solver(mesh, V, bcs, sparams):
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    def form_function(u, v, t=None):
+        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+
+    dt = 0.05
+    theta = 0.75
+
+    dt1 = fd.Constant(1/0.05)
+    thet = fd.Constant(0.75)
+
+    u = fd.Function(V)
+    v = fd.TestFunction(V)
+
+    M = form_mass(u, v)
+    K = form_function(u, v)
+    F = dt1*M + thet*K
+    A = fd.derivative(F, u)
+
+    L = fd.Cofunction(V.dual())
+    np.random.seed(12345)
+    for dat in L.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+
+    appctx = {
+        'uref': u,
+        'tref': None,
+        'dt': dt,
+        'theta': theta,
+        'bcs': bcs,
+        'form_mass': form_mass,
+        'form_function': form_function
+    }
+
+    problem = fd.LinearVariationalProblem(A, L, u, bcs=bcs)
+    solver = fd.LinearVariationalSolver(problem, appctx=appctx,
+                                        solver_parameters=sparams)
+    return solver, u
+
+
+@pytest.mark.parametrize("bcopt", bcopts)
+def test_real_blockpc(bcopt):
+    mesh = fd.UnitSquareMesh(4, 4)
+
+    V = fd.FunctionSpace(mesh, "CG", 1)
+
+    if bcopt == 'nobc':
+        bcs = []
+    elif bcopt == 'dirichlet':
+        bcs = [fd.DirichletBC(V, 0, sub_domain=1)]
+    else:
+        assert False and "boundary condition option not recognised"
+
+    pc_type = 'ilu'
+
+    aux_sparams = {
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.AuxiliaryRealBlockPC',
+        'aux_pc_type': pc_type
+    }
+
+    direct_sparams = {
+        'ksp_type': 'preonly',
+        'pc_type': pc_type,
+    }
+
+    direct_solver, udirect = create_real_solver(mesh, V, bcs, direct_sparams)
+    aux_solver, uaux = create_real_solver(mesh, V, bcs, aux_sparams)
 
     direct_solver.solve()
     aux_solver.solve()

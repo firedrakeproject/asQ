@@ -69,13 +69,13 @@ class AuxiliaryRealBlockPC(AuxiliaryBlockPCBase):
         us = fd.split(self.uref)
         vs = fd.split(v)
 
-        M = self.form_mass(*us, *vs)
+        dt1 = fd.Constant(1/dt)
+        thet = fd.Constant(theta)
+
+        M = self.form_mass(*fd.split(u), *vs)
 
         F = self.form_function(*us, *vs, self.tref)
         K = fd.derivative(F, self.uref)
-
-        dt1 = fd.Constant(1/dt)
-        thet = fd.Constant(theta)
 
         a = dt1*M + thet*K
 
