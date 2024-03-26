@@ -9,6 +9,7 @@ from utils import mg
 from utils.planets import earth
 import utils.shallow_water as swe
 import utils.shallow_water.gravity_bumps as gcase
+from utils.hybridisation import HybridisedSCPC  # noqa: F401
 
 from utils.serial import SerialMiniApp
 
@@ -93,12 +94,12 @@ def form_function_tr(u, h, tr, v, q, dtr, t=None):
     return K + Khybr
 
 
-class HybridisedSCPC(fd.PCBase):
+class OldHybridisedSCPC(fd.PCBase):
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
 
-        from utils.broken_projections import BrokenHDivProjector
+        from utils.hybridisation import BrokenHDivProjector
         self.projector = BrokenHDivProjector(Vu)
 
         self.x = fd.Cofunction(W.dual())
@@ -294,12 +295,15 @@ sparameters['snes'].update(linear_snes_params)
 # sparameters.update(hybridization_sparams)
 sparameters.update(scpc_sparams)
 
+appctx = {'broken_space': Vub}
+
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta,
                         w_initial,
                         form_mass,
                         form_function,
-                        sparameters)
+                        sparameters,
+                        appctx=appctx)
 
 miniapp.nlsolver.set_transfer_manager(mg.ManifoldTransferManager())
 

@@ -147,6 +147,7 @@ class HybridisedSCPC(fd.PCBase):
         tests, trials = fd.split(test), fd.split(trial)
 
         V = test.function_space()
+        print(f"V = {V}")
         mesh = V.mesh()
         ncpts = len(V)
 
@@ -154,6 +155,8 @@ class HybridisedSCPC(fd.PCBase):
         # leaving the rest untouched
         Vtr, iu = _break_function_space(V, appctx)
         self.iu = iu
+        print(f"Vtr = {Vtr}")
+        print(f"iu = {iu}")
 
         # breaks/mends the velocity residual
         self.projector = BrokenHDivProjector(V[iu], Vtr[iu])
@@ -168,6 +171,18 @@ class HybridisedSCPC(fd.PCBase):
         # build the hybridised system
         utrs = fd.TrialFunctions(Vtr)
         vtrs = fd.TestFunctions(Vtr)
+
+        print("utrs =")
+        print()
+        for u in utrs:
+            print(u)
+        print()
+
+        print("vtrs =")
+        print()
+        for v in vtrs:
+            print(v)
+        print()
 
         # break the original form
         olds = (*tests, *trials)
