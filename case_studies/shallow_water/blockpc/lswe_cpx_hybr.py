@@ -6,7 +6,7 @@ import utils.shallow_water.gravity_bumps as lcase
 from utils import shallow_water as swe
 from utils.planets import earth
 from utils import units
-from utils.hybridisation import HybridisedSCPC
+from utils.hybridisation import HybridisedSCPC  # noqa: F401
 
 import numpy as np
 from scipy.fft import fft, fftfreq
@@ -109,103 +109,6 @@ def form_function(u, h, v, q, t=None):
                                     u, h, v, q, t)
 
 
-# shallow water equation forms with trace variable
-def form_mass_tr(u, h, tr, v, q, s):
-    return form_mass(u, h, v, q)
-
-
-def form_function_tr(u, h, tr, v, q, dtr, t=None):
-    K = form_function(u, h, v, q, t)
-    n = fd.FacetNormal(mesh)
-    K += (
-        g*fd.jump(v, n)*tr('+')
-    )*fd.dS
-    return K
-
-
-def form_trace(u, h, tr, v, q, dtr, t=None):
-    n = fd.FacetNormal(mesh)
-    K = (
-        + fd.jump(u, n)*dtr('+')
-    )*fd.dS
-    return K
-
-
-class OldHybridisedSCPC(fd.PCBase):
-    def initialize(self, pc):
-        if pc.getType() != "python":
-            raise ValueError("Expecting PC type python")
-
-        from utils.hybridisation import BrokenHDivProjector
-        self.projector = BrokenHDivProjector(Wu, Wub)
-
-        self.x = fd.Cofunction(W.dual())
-        self.y = fd.Function(W)
-
-        self.xu, self.xh = self.x.subfunctions
-        self.yu, self.yh = self.y.subfunctions
-
-        self.xtr = fd.Cofunction(Wtr.dual()).assign(0)
-        self.ytr = fd.Function(Wtr)
-
-        self.xbu, self.xbh, self.xbt = self.xtr.subfunctions
-        self.ybu, self.ybh, self.ybt = self.ytr.subfunctions
-
-        M = cpx.BilinearForm(Wtr, d1c, form_mass_tr)
-        K = cpx.BilinearForm(Wtr, d2c, form_function_tr)
-        Tr = cpx.BilinearForm(Wtr, 1, form_trace)
-
-        A = M + K + Tr
-        L = self.xtr
-
-        scpc_params = {
-            "mat_type": "matfree",
-            "ksp_type": "preonly",
-            "pc_type": "python",
-            "pc_python_type": "firedrake.SCPC",
-            "pc_sc_eliminate_fields": "0, 1",
-            "condensed_field": condensed_params
-        }
-
-        problem = fd.LinearVariationalProblem(A, L, self.ytr)
-        self.solver = fd.LinearVariationalSolver(
-            problem, solver_parameters=scpc_params)
-
-    def apply(self, pc, x, y):
-        # copy into unbroken vector
-        with self.x.dat.vec_wo as v:
-            x.copy(v)
-
-        # break each component of velocity
-        self.projector.project(self.xu, self.xbu)
-
-        # depth already broken
-        self.xbh.assign(self.xh)
-
-        # zero trace residual
-        self.xbt.assign(0)
-
-        # eliminate and solve the trace system
-        self.ytr.assign(0)
-        self.solver.solve()
-
-        # mend each component of velocity
-        self.projector.project(self.ybu, self.yu)
-
-        # depth already mended
-        self.yh.assign(self.ybh)
-
-        # copy out to petsc
-        with self.y.dat.vec_ro as v:
-            v.copy(y)
-
-    def update(self, pc):
-        pass
-
-    def applyTranspose(self, pc, x, y):
-        raise NotImplementedError
-
-
 # random rhs
 L = fd.Cofunction(W.dual())
 
@@ -213,37 +116,7 @@ L = fd.Cofunction(W.dual())
 lu_params = {
     'ksp_type': 'preonly',
     'pc_type': 'lu',
-    # 'pc_factor_mat_ordering_type': 'rcm',
     'pc_factor_mat_solver_type': 'mumps'
-}
-
-ilu_params = {
-    'ksp_type': 'preonly',
-    'pc_type': 'ilu',
-}
-
-gamg_params = {
-    'ksp_type': 'richardson',
-    # 'ksp_view': None,
-    'ksp_rtol': 1e-12,
-    'ksp_monitor': ':trace_monitor.log',
-    'ksp_converged_rate': None,
-    'pc_type': 'gamg',
-    'pc_gamg_threshold': 0.1,
-    'pc_gamg_agg_nsmooths': 0,
-    'pc_gamg_esteig_ksp_maxit': 10,
-    'pc_mg_cycle_type': 'v',
-    'pc_mg_type': 'multiplicative',
-    'mg_levels': {
-        'ksp_type': 'gmres',
-        # 'ksp_chebyshev_esteig': None,
-        # 'ksp_chebyshev_esteig_noisy': None,
-        # 'ksp_chebyshev_esteig_steps': 30,
-        'ksp_max_it': 5,
-        'pc_type': 'bjacobi',
-        'sub': ilu_params,
-    },
-    'mg_coarse': lu_params,
 }
 
 condensed_params = lu_params
@@ -253,6 +126,7 @@ scpc_params = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": f"{__name__}.HybridisedSCPC",
+    "hybridscpc_condensed_field": lu_params
 }
 
 rtol = 1e-3
@@ -261,10 +135,8 @@ params = {
         'monitor': None,
         'converged_rate': None,
         'rtol': rtol,
-        # 'view': None
     },
 }
-# params.update(lu_params)
 params.update(scpc_params)
 
 # trace component should have zero rhs
@@ -279,7 +151,7 @@ K = cpx.BilinearForm(W, d2c, form_function)
 
 A = M + K
 
-appctx = {'broken_space': Wub}
+appctx = {'cpx': cpx}
 
 wout = fd.Function(W).assign(0)
 problem = fd.LinearVariationalProblem(A, L, wout)

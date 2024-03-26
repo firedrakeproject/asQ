@@ -85,6 +85,52 @@ class BrokenHDivProjector:
                   "dst": (dst, INC)})
 
 
+def _break_function_space(V, appctx):
+    cpx = appctx.get('cpx', None)
+    mesh = V.mesh()
+
+    # find HDiv space
+    iu = None
+    for i, Vi in enumerate(V):
+        if Vi.ufl_element().sobolev_space.name == "HDiv":
+            iu = i
+            break
+    if iu is None:
+        msg = "Hybridised space must have one HDiv component"
+        raise ValueError(msg)
+
+    # hybridisable space - broken HDiv and Trace
+    Vs = V.subfunctions
+
+    Vu = Vs[iu]
+
+    # broken HDiv space - either we are given one or we build one.
+    # If we are using complex-proxy then we need to build the real
+    # broken space first and then convert to complex-proxy.
+    if 'broken_space' in appctx:
+        Vub = appctx['broken_space']
+    else:
+        if cpx is None:
+            broken_element = fd.BrokenElement(Vu.ufl_element())
+            Vub = fd.FunctionSpace(mesh, broken_element)
+        else:
+            broken_element = fd.BrokenElement(Vu.sub(0).ufl_element())
+            broken_element = cpx.FiniteElement(broken_element)
+            Vub = fd.FunctionSpace(mesh, broken_element)
+
+    # trace space - possibly complex-valued
+    Tr = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
+    if cpx is not None:
+        Tr = cpx.FunctionSpace(Tr)
+
+    # trace space always last component
+    trsubs = [Vs[i] if (i != iu) else Vub
+              for i in range(len(Vs))] + [Tr]
+    Vtr = fd.MixedFunctionSpace(trsubs)
+
+    return Vtr, iu
+
+
 class HybridisedSCPC(fd.PCBase):
     _prefix = "hybridscpc"
 
@@ -102,40 +148,15 @@ class HybridisedSCPC(fd.PCBase):
 
         V = test.function_space()
         mesh = V.mesh()
+        ncpts = len(V)
 
-        # find HDiv space
-        iu = None
-        for i, Vi in enumerate(V):
-            if Vi.ufl_element().sobolev_space.name == "HDiv":
-                iu = i
-                break
-        if iu is None:
-            msg = "Hybridised space must have one HDiv component"
-            raise ValueError(msg)
+        # break the HDiv component of the function space,
+        # leaving the rest untouched
+        Vtr, iu = _break_function_space(V, appctx)
         self.iu = iu
 
-        # hybridisable space - broken HDiv and Trace
-        Vs = V.subfunctions
-        ncpts = len(Vs)
-
-        Vu = Vs[iu]
-
-        if 'broken_space' in appctx:
-            Vub = appctx['broken_space']
-        else:
-            broken_element = fd.BrokenElement(Vu.ufl_element())
-            Vub = fd.FunctionSpace(mesh, broken_element)
-
-        Tr = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
-
-        # trace space always last component
-        trsubs = [Vs[i] if (i != iu) else Vub
-                  for i in range(ncpts)] + [Tr]
-        Vtr = fd.MixedFunctionSpace(trsubs)
-        print(Vtr)
-
         # breaks/mends the velocity residual
-        self.projector = BrokenHDivProjector(Vu, Vub)
+        self.projector = BrokenHDivProjector(V[iu], Vtr[iu])
 
         # build working buffers
         self.x = fd.Cofunction(V.dual())
@@ -156,6 +177,7 @@ class HybridisedSCPC(fd.PCBase):
 
         # add the trace bit
         n = fd.FacetNormal(mesh)
+
         def form_trace(*args):
             trls = args[:ncpts+1]
             tsts = args[ncpts+1:]
@@ -169,10 +191,6 @@ class HybridisedSCPC(fd.PCBase):
             cpx = appctx['cpx']
             A += cpx.BilinearForm(Vtr, 1, form_trace)
         else:
-            # A += (
-            #     fd.jump(vtrs[iu], n)*utrs[-1]('+')
-            #     + fd.jump(utrs[iu], n)*vtrs[-1]('+')
-            # )*fd.dS
             A += form_trace(*utrs, *vtrs)
 
         L = self.xtr
