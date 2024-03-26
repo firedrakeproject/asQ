@@ -5,6 +5,7 @@ import utils.shallow_water.gravity_bumps as lcase
 from utils import shallow_water as swe
 from utils.planets import earth
 from utils import units
+from utils.hybridisation import HybridisedSCPC  # noqa: F401
 
 import numpy as np
 
@@ -48,26 +49,6 @@ f = lcase.coriolis_expression(*x)
 H = lcase.H
 
 
-# generate linear solver
-def make_solver(W, form_mass, form_function,
-                d1, d2, L, sparams):
-
-    # block forms
-    us = fd.TrialFunctions(W)
-    vs = fd.TestFunctions(W)
-
-    M = form_mass(*us, *vs)
-    K = form_function(*us, *vs)
-
-    A = d1*M + d2*K
-
-    wout = fd.Function(W)
-    problem = fd.LinearVariationalProblem(A, L, wout)
-    solver = fd.LinearVariationalSolver(problem,
-                                        solver_parameters=sparams)
-    return wout, solver
-
-
 # shallow water equation forms
 def form_mass(u, h, v, q):
     return swe.linear.form_mass(mesh, u, h, v, q)
@@ -78,91 +59,51 @@ def form_function(u, h, v, q, t=None):
                                     u, h, v, q, t)
 
 
-# shallow water equation forms with trace variable
-def form_mass_tr(u, h, tr, v, q, s):
-    return swe.linear.form_mass(mesh, u, h, v, q)
-
-
-def form_function_tr(u, h, tr, v, q, s, t=None):
-    K = swe.linear.form_function(mesh, g, H, f,
-                                 u, h, v, q, t)
-    n = fd.FacetNormal(mesh)
-    Khybr = (
-        g*fd.jump(v, n)*tr('+')
-        + fd.jump(u, n)*s('+')
-    )*fd.dS
-
-    return K + Khybr
-
-
 V = swe.default_function_space(mesh, degree=0)
-
-Vu, Vh = V.subfunctions
-Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
-Tr = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
-Vtr = Vub*Vh*Tr
 
 # random rhs
 L = fd.Cofunction(V.dual())
-Ltr = fd.Cofunction(Vtr.dual())
 
 # PETSc solver parameters
 lu_params = {
     'ksp_type': 'preonly',
     'pc_type': 'lu',
-    'pc_factor_mat_solver_type': 'mumps'
+    'pc_factor_mat_solver_type': 'petsc'
 }
 
-rtol = 1e-6
+hybrid_params = {
+    'mat_type': 'matfree',
+    'ksp_type': 'preonly',
+    'pc_type': 'python',
+    'pc_python_type': f'{__name__}.HybridisedSCPC',
+    'hybridscpc_condensed_field': lu_params
+}
+
 sparams = {
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
-        'rtol': rtol,
-        # 'view': None
-    },
-}
-sparams.update(lu_params)
-
-sparams_tr = {
-    'ksp': {
-        'monitor': None,
         'converged_rate': None,
-        'rtol': rtol,
-        # 'view': None
     },
-    'mat_type': 'matfree',
-    'ksp_type': 'gmres',
-    'pc_type': 'python',
-    'pc_python_type': 'firedrake.SCPC',
-    'pc_sc_eliminate_fields': '0, 1',
-    'condensed_field': lu_params,
 }
+sparams.update(hybrid_params)
 
 # trace component should have zero rhs
 np.random.seed(args.seed)
 L.assign(0)
-Ltr.assign(0)
-for ldat, trdat in zip(L.dat, Ltr.dat):
+for ldat in L.dat:
     ldat.data[:] = np.random.rand(*(ldat.data.shape))
-    trdat.data[:] = np.random.rand(*(trdat.data.shape))
 
-w, solver = make_solver(V, form_mass, form_function,
-                        d1, d2, L, sparams)
-wtr, solver_tr = make_solver(Vtr, form_mass_tr, form_function_tr,
-                             d1, d2, Ltr, sparams_tr)
+# block forms
+us = fd.TrialFunctions(V)
+vs = fd.TestFunctions(V)
 
-PETSc.Sys.Print("")
-PETSc.Sys.Print("Solving original system")
+M = form_mass(*us, *vs)
+K = form_function(*us, *vs)
+
+A = d1*M + d2*K
+
+wout = fd.Function(V)
+problem = fd.LinearVariationalProblem(A, L, wout)
+solver = fd.LinearVariationalSolver(problem,
+                                    solver_parameters=sparams)
 solver.solve()
-PETSc.Sys.Print("")
-PETSc.Sys.Print("Solving system with trace")
-solver_tr.solve()
-
-u, h = w.subfunctions
-utr, htr, tr = wtr.subfunctions
-uerr = fd.errornorm(u, utr)/fd.norm(u)
-herr = fd.errornorm(h, htr)/fd.norm(h)
-PETSc.Sys.Print("")
-PETSc.Sys.Print(f"Velocity errornorm = {uerr}")
-PETSc.Sys.Print(f"Depth errornorm    = {herr}")
