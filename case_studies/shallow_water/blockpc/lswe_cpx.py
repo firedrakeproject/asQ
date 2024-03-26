@@ -54,9 +54,6 @@ freqs = fftfreq(nt, dt)
 d1 = D1[args.eigenvalue]
 d2 = D2[args.eigenvalue]
 
-# d1 = 1 + 1j
-# d2 = 1
-
 d1c = cpx.ComplexConstant(d1)
 d2c = cpx.ComplexConstant(d2)
 
@@ -85,18 +82,6 @@ Vtr = Vub*Vh*Vt
 Wtr = cpx.FunctionSpace(Vtr)
 
 Wub, _, Wt = Wtr.subfunctions
-
-# Print(f"V DoFs:   {V.dim()}")
-# Print(f"Vu DoFs:  {Vu.dim()}")
-# Print(f"Vh DoFs:  {Vh.dim()}")
-# Print(f"Vub DoFs: {Vub.dim()}")
-# Print(f"Vt DoFs:  {Vt.dim()}")
-# Print("")
-# Print(f"W DoFs:   {W.dim()}")
-# Print(f"Wu DoFs:  {Wu.dim()}")
-# Print(f"Wh DoFs:  {Wh.dim()}")
-# Print(f"Wub DoFs: {Wub.dim()}")
-# Print(f"Wt DoFs : {Wt.dim()}")
 
 
 # shallow water equation forms
@@ -158,5 +143,5 @@ problem = fd.LinearVariationalProblem(A, L, wout)
 solver = fd.LinearVariationalSolver(problem, appctx=appctx,
                                     solver_parameters=params)
 
-# Print(f"dhat = {np.round(dhat, 4)}")
+Print(f"dhat = {np.round(dhat, 4)}")
 solver.solve()
