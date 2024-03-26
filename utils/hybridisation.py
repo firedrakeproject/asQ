@@ -116,19 +116,26 @@ class HybridisedSCPC(fd.PCBase):
 
         # hybridisable space - broken HDiv and Trace
         Vs = V.subfunctions
+        ncpts = len(Vs)
 
         Vu = Vs[iu]
-        Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
+
+        if 'broken_space' in appctx:
+            Vub = appctx['broken_space']
+        else:
+            broken_element = fd.BrokenElement(Vu.ufl_element())
+            Vub = fd.FunctionSpace(mesh, broken_element)
 
         Tr = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
 
         # trace space always last component
         trsubs = [Vs[i] if (i != iu) else Vub
-                  for i in range(len(Vs))] + [Tr]
+                  for i in range(ncpts)] + [Tr]
         Vtr = fd.MixedFunctionSpace(trsubs)
+        print(Vtr)
 
         # breaks/mends the velocity residual
-        self.projector = BrokenHDivProjector(Vu)
+        self.projector = BrokenHDivProjector(Vu, Vub)
 
         # build working buffers
         self.x = fd.Cofunction(V.dual())
@@ -149,10 +156,24 @@ class HybridisedSCPC(fd.PCBase):
 
         # add the trace bit
         n = fd.FacetNormal(mesh)
-        A += (
-            fd.jump(vtrs[iu], n)*utrs[-1]('+')
-            + fd.jump(utrs[iu], n)*vtrs[-1]('+')
-        )*fd.dS
+        def form_trace(*args):
+            trls = args[:ncpts+1]
+            tsts = args[ncpts+1:]
+            return (
+                fd.jump(tsts[iu], n)*trls[-1]('+')
+                + fd.jump(trls[iu], n)*tsts[-1]('+')
+            )*fd.dS
+
+        # are we using complex-proxy?
+        if 'cpx' in appctx:
+            cpx = appctx['cpx']
+            A += cpx.BilinearForm(Vtr, 1, form_trace)
+        else:
+            # A += (
+            #     fd.jump(vtrs[iu], n)*utrs[-1]('+')
+            #     + fd.jump(utrs[iu], n)*vtrs[-1]('+')
+            # )*fd.dS
+            A += form_trace(*utrs, *vtrs)
 
         L = self.xtr
 
@@ -163,7 +184,7 @@ class HybridisedSCPC(fd.PCBase):
         }
 
         # eliminate everything except the trace variable
-        eliminate_fields = ", ".join(map(str, range(len(Vs))))
+        eliminate_fields = ", ".join(map(str, range(ncpts)))
 
         scpc_params = {
             "mat_type": "matfree",
