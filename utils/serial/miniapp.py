@@ -47,6 +47,16 @@ class SerialMiniApp(object):
                                              self.dt, self.theta,
                                              self.w0, self.w1)
 
+        appctx.update({
+            'uref': self.w1,
+            'tref': self.time,
+            'bcs': bcs,
+            'dt': dt,
+            'theta': theta,
+            'form_mass': form_mass,
+            'form_function': form_function,
+        })
+
         self.nlproblem = fd.NonlinearVariationalProblem(self.form_full, self.w1, bcs=bcs)
 
         self.nlsolver = fd.NonlinearVariationalSolver(self.nlproblem, appctx=appctx,
