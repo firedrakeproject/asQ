@@ -5,7 +5,6 @@ from firedrake.petsc import PETSc
 from firedrake.output import VTKFile
 
 from utils import units
-from utils import mg
 from utils.planets import earth
 import utils.shallow_water as swe
 import utils.shallow_water.gravity_bumps as gcase
