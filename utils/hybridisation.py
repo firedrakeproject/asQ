@@ -1,6 +1,7 @@
 import firedrake as fd
 from firedrake.parloops import par_loop, READ, INC
 from math import prod
+from functools import partial
 
 __all__ = ['BrokenHDivProjector', 'HybridisedSCPC']
 
@@ -132,36 +133,61 @@ def _break_function_space(V, appctx):
 
 
 class HybridisedSCPC(fd.PCBase):
+    """
+    A preconditioner to solve a mixed Hdiv problem using hybridisation.
+
+    Hybridises the HDiv component of the mixed space, and reduces the
+    system down to the trace variable. The petsc options for the trace
+    problem have the prefix:
+    "-hybridscpc_condensed_field"
+
+    This preconditioner can be applied to an Hdiv problem formed with
+    the vector module of complex_proxy.
+
+    Required appctx entries (usually filled by the all-at-once preconditioner):
+
+    'uref': Firedrake Function around which to linearise the form_function.
+    'tref': The time at which to linearise the form_function.
+    'bcs': A list of the boundary conditions.
+    'form_mass': The function to generate the mass matrix.
+    'form_function': The function to generate the stiffness matrix.
+
+    If solving a real-valued problem the following entries are also required:
+
+    'dt': The timestep size.
+    'theta': The implicit parameter.
+
+    If solving a complex-valued problem the following entries are also required:
+
+    'cpx': The complex_proxy submodule to generate the complex-valued forms.
+    'd1': The complex coefficient on the mass matrix.
+    'd2': The complex coefficient on the stiffness matrix.
+
+    Optional appctx entries. Used instead of the required entries if present.
+
+    'hybridscpc_form_mass': Alternative function used to generate the mass matrix.
+    'hybridscpc_form_function': Alternative function used to generate the stiffness matrix.
+    """
+
     _prefix = "hybridscpc"
 
     def initialize(self, pc):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
 
-        from ufl import replace
-
-        appctx = self.get_appctx(pc)
-        _, P = pc.getOperators()
-        ctx = P.getPythonContext()
-        test, trial = ctx.a.arguments()
-        tests, trials = fd.split(test), fd.split(trial)
-
-        V = test.function_space()
-        print(f"V = {V}")
-        mesh = V.mesh()
-        ncpts = len(V)
+        self._process_context(pc)
 
         # break the HDiv component of the function space,
         # leaving the rest untouched
-        Vtr, iu = _break_function_space(V, appctx)
+        V = self.V
+        Vtr, iu = _break_function_space(V, self.appctx)
+        self.Vtr = Vtr
         self.iu = iu
-        print(f"Vtr = {Vtr}")
-        print(f"iu = {iu}")
 
         # breaks/mends the velocity residual
         self.projector = BrokenHDivProjector(V[iu], Vtr[iu])
 
-        # build working buffers
+        # allocate working buffers
         self.x = fd.Cofunction(V.dual())
         self.y = fd.Function(V)
 
@@ -169,29 +195,14 @@ class HybridisedSCPC(fd.PCBase):
         self.ytr = fd.Function(Vtr)
 
         # build the hybridised system
+        self.utr_ref = fd.Function(Vtr)
+        us = fd.split(self.utr_ref)
         utrs = fd.TrialFunctions(Vtr)
         vtrs = fd.TestFunctions(Vtr)
 
-        print("utrs =")
-        print()
-        for u in utrs:
-            print(u)
-        print()
-
-        print("vtrs =")
-        print()
-        for v in vtrs:
-            print(v)
-        print()
-
-        # break the original form
-        olds = (*tests, *trials)
-        news = (*vtrs[:-1], *utrs[:-1])
-        arg_map = {old: new for old, new in zip(olds, news)}
-        A = replace(ctx.a, arg_map)
-
-        # add the trace bit
-        n = fd.FacetNormal(mesh)
+        # the trace bit
+        n = fd.FacetNormal(self.mesh)
+        ncpts = len(V.subfunctions)
 
         def form_trace(*args):
             trls = args[:ncpts+1]
@@ -201,11 +212,37 @@ class HybridisedSCPC(fd.PCBase):
                 + fd.jump(trls[iu], n)*tsts[-1]('+')
             )*fd.dS
 
-        # are we using complex-proxy?
-        if 'cpx' in appctx:
-            cpx = appctx['cpx']
+        if self._complex_proxy:
+            cpx = self.cpx
+
+            # forms from only the broken components (not the trace component)
+            def form_mass(*args):
+                trls = args[:ncpts+1]
+                tsts = args[ncpts+1:]
+                return self.form_mass(*trls[:-1], *tsts[:-1])
+
+            def form_function(*args):
+                trls = args[:ncpts+1]
+                tsts = args[ncpts+1:]
+                return self.form_function(*trls[:-1], *tsts[:-1])
+
+            M = cpx.BilinearForm(Vtr, self.d1, form_mass)
+            K = cpx.derivative(self.d2, form_function, self.utr_ref)
+
+            A = M + K
+
+            # now add the trace bit
             A += cpx.BilinearForm(Vtr, 1, form_trace)
+
         else:
+            M = self.form_mass(*utrs[:-1], *vtrs[:-1])
+            F = self.form_function(*us[:-1], *vtrs[:-1])
+            K = fd.derivative(F, self.utr_ref)
+
+            dt1 = fd.Constant(1/self.dt)
+            tht = fd.Constant(self.theta)
+
+            A = dt1*M + tht*K
             A += form_trace(*utrs, *vtrs)
 
         L = self.xtr
@@ -230,9 +267,9 @@ class HybridisedSCPC(fd.PCBase):
 
         problem = fd.LinearVariationalProblem(A, L, self.ytr)
         self.solver = fd.LinearVariationalSolver(
-            problem, appctx=appctx,
+            problem, appctx=self.appctx,
             solver_parameters=scpc_params,
-            options_prefix=pc.getOptionsPrefix()+self._prefix)
+            options_prefix=self.prefix)
 
     def apply(self, pc, x, y):
         # copy into unbroken vector
@@ -240,31 +277,61 @@ class HybridisedSCPC(fd.PCBase):
             x.copy(v)
 
         # break velocity, other spaces already broken
-        iu = self.iu
         xs = zip(self.x.subfunctions, self.xtr.subfunctions[:-1])
-        for i, (vi, vbi) in enumerate(xs):
-            if i == iu:
-                self.projector.project(vi, vbi)
-            else:
-                vbi.assign(vi)
+        self._mend_or_break(xs)
 
         self.ytr.assign(0)
         self.solver.solve()
 
         # mend velocity, other spaces already mended
-        ys = zip(self.y.subfunctions, self.ytr.subfunctions[:-1])
-        for i, (vi, vbi) in enumerate(ys):
-            if i == iu:
-                self.projector.project(vbi, vi)
-            else:
-                vi.assign(vbi)
+        ys = zip(self.ytr.subfunctions[:-1], self.y.subfunctions)
+        self._mend_or_break(ys)
 
         # copy out to petsc
         with self.y.dat.vec_ro as v:
             v.copy(y)
 
     def update(self, pc):
-        pass
+        usubs = zip(self.uref.subfunctions, self.utr_ref.subfunctions[:-1])
+        self._mend_or_break(usubs)
+
+    def _process_context(self, pc):
+        appctx = self.get_appctx(pc)
+        self.appctx = appctx
+
+        self.prefix = pc.getOptionsPrefix() + self._prefix
+
+        self.uref = appctx.get('uref')
+        self.V = self.uref.function_space()
+        self.mesh = self.V.mesh()
+
+        self.bcs = appctx['bcs']
+        self.tref = appctx['tref']
+
+        form_mass = appctx['form_mass']
+        form_function = appctx['form_function']
+
+        self.form_mass = appctx.get('hybridscpc_form_mass', form_mass)
+        self.form_function = appctx.get('hybridscpc_form_function', form_function)
+
+        self.form_function = partial(self.form_function, t=self.tref)
+
+        if 'cpx' in self.appctx:
+            self.cpx = self.appctx['cpx']
+            self.d1 = self.appctx['d1']
+            self.d2 = self.appctx['d2']
+            self._complex_proxy = True
+        else:
+            self.dt = self.appctx['dt']
+            self.theta = self.appctx['theta']
+            self._complex_proxy = False
+
+    def _mend_or_break(self, usubs):
+        for i, (ux, uy) in enumerate(usubs):
+            if i == self.iu:
+                self.projector.project(ux, uy)
+            else:
+                uy.assign(ux)
 
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError
