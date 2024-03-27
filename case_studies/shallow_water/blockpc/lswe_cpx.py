@@ -136,7 +136,16 @@ K = cpx.BilinearForm(W, d2c, form_function)
 
 A = M + K
 
-appctx = {'cpx': cpx}
+appctx = {
+    'cpx': cpx,
+    'uref': fd.Function(W),
+    'bcs': None,
+    'tref': None,
+    'form_mass': form_mass,
+    'form_function': form_function,
+    'd1': d1c,
+    'd2': d2c,
+}
 
 wout = fd.Function(W).assign(0)
 problem = fd.LinearVariationalProblem(A, L, wout)

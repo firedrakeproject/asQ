@@ -62,116 +62,15 @@ u_initial, h_initial = w_initial.subfunctions
 u_initial.project(gcase.velocity_expression(*x))
 h_initial.project(gcase.depth_expression(*x))
 
-# broken space
-Vu, Vh = W.subfunctions
-
-Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
-Tr = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
-Wtr = Vub*Vh*Tr
-
 
 # shallow water equation forms
-def form_function(u, h, v, q, t):
-    return swe.linear.form_function(mesh, g, H, f,
-                                    u, h, v, q, t)
-
-
 def form_mass(u, h, v, q):
     return swe.linear.form_mass(mesh, u, h, v, q)
 
 
-def form_mass_tr(u, h, tr, v, q, s):
-    return form_mass(u, h, v, q)
-
-
-def form_function_tr(u, h, tr, v, q, dtr, t=None):
-    K = form_function(u, h, v, q, t)
-    n = fd.FacetNormal(mesh)
-    Khybr = (
-        g*fd.jump(v, n)*tr('+')
-        + fd.jump(u, n)*dtr('+')
-    )*fd.dS
-    return K + Khybr
-
-
-class OldHybridisedSCPC(fd.PCBase):
-    def initialize(self, pc):
-        if pc.getType() != "python":
-            raise ValueError("Expecting PC type python")
-
-        from utils.hybridisation import BrokenHDivProjector
-        self.projector = BrokenHDivProjector(Vu)
-
-        self.x = fd.Cofunction(W.dual())
-        self.y = fd.Function(W)
-
-        self.xu, self.xh = self.x.subfunctions
-        self.yu, self.yh = self.y.subfunctions
-
-        self.xtr = fd.Cofunction(Wtr.dual())
-        self.ytr = fd.Function(Wtr)
-
-        self.xbu, self.xbh, _ = self.xtr.subfunctions
-        self.ybu, self.ybh, _ = self.ytr.subfunctions
-
-        utr = fd.TrialFunction(Wtr)
-        vtr = fd.TestFunction(Wtr)
-
-        utrs = fd.split(utr)
-        vtrs = fd.split(vtr)
-
-        dt1 = fd.Constant(1/dt)
-        tht = fd.Constant(args.theta)
-        M = form_mass_tr(*utrs, *vtrs)
-        K = form_function_tr(*utrs, *vtrs)
-
-        A = dt1*M + tht*K
-        L = self.xtr
-
-        scpc_params = {
-            "snes": linear_snes_params,
-            "mat_type": "matfree",
-            "ksp_type": "preonly",
-            "pc_type": "python",
-            "pc_python_type": "firedrake.SCPC",
-            "pc_sc_eliminate_fields": "0, 1",
-            "condensed_field_snes": linear_snes_params,
-            "condensed_field": condensed_params
-        }
-
-        problem = fd.LinearVariationalProblem(A, L, self.ytr)
-        self.solver = fd.LinearVariationalSolver(
-            problem, solver_parameters=scpc_params)
-
-    def apply(self, pc, x, y):
-        # copy into unbroken vector
-        with self.x.dat.vec_wo as v:
-            x.copy(v)
-
-        # break velocity
-        self.projector.project(self.xu, self.xbu)
-
-        # depth already broken
-        self.xbh.assign(self.xh)
-
-        self.ytr.assign(0)
-        self.solver.solve()
-
-        # mend velocity
-        self.projector.project(self.ybu, self.yu)
-
-        # depth already mended
-        self.yh.assign(self.ybh)
-
-        # copy out to petsc
-        with self.y.dat.vec_ro as v:
-            v.copy(y)
-
-    def update(self, pc):
-        pass
-
-    def applyTranspose(self, pc, x, y):
-        raise NotImplementedError
+def form_function(u, h, v, q, t):
+    return swe.linear.form_function(mesh, g, H, f,
+                                    u, h, v, q, t)
 
 
 # solver parameters for the implicit solve
@@ -186,9 +85,8 @@ linear_snes_params = {
 
 factorisation_params = {
     'ksp_type': 'preonly',
-    # 'pc_factor_mat_ordering_type': 'rcm',
-    # 'pc_factor_reuse_ordering': None,
-    # 'pc_factor_reuse_fill': None,
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
 }
 
 lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
@@ -219,6 +117,7 @@ patch_parameters = {
 }
 
 mg_parameters = {
+    'transfer_manager': f'{__name__}.ManifoldTransferManager',
     'levels': {
         'ksp_type': 'gmres',
         'ksp_max_it': 5,
@@ -233,10 +132,11 @@ mg_parameters = {
     },
 }
 
+from utils.mg import ManifoldTransferManager  # noqa: F401
 mg_sparams = {
     'mat_type': 'matfree',
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
+    'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
@@ -247,7 +147,7 @@ gamg_sparams = {
     'ksp_converged_rate': None,
     'pc_type': 'gamg',
     'pc_mg_cycle_type': 'v',
-    'pc_mg_type': 'full',
+    'pc_mg_type': 'multiplicative',
     'mg_levels': {
         'ksp_type': 'gmres',
         'ksp_max_it': 5,
@@ -265,12 +165,14 @@ hybridization_sparams = {
     # "hybridization": gamg_sparams
 }
 
+condensed_params = gamg_sparams
+
 scpc_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": f"{__name__}.HybridisedSCPC",
+    "hybridscpc_condensed_field": condensed_params,
 }
-condensed_params = lu_params
 
 atol = 1e2
 sparameters = {
@@ -292,20 +194,12 @@ sparameters['snes'].update(linear_snes_params)
 
 # sparameters.update(lu_params)
 # sparameters.update(mg_sparams)
-# sparameters.update(hybridization_sparams)
 sparameters.update(scpc_sparams)
 
-appctx = {'broken_space': Vub}
-
 # set up nonlinear solver
-miniapp = SerialMiniApp(dt, args.theta,
-                        w_initial,
-                        form_mass,
-                        form_function,
-                        sparameters,
-                        appctx=appctx)
-
-miniapp.nlsolver.set_transfer_manager(mg.ManifoldTransferManager())
+miniapp = SerialMiniApp(dt, args.theta, w_initial,
+                        form_mass, form_function,
+                        sparameters)
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0

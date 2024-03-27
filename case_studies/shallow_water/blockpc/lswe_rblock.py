@@ -102,8 +102,18 @@ K = form_function(*us, *vs)
 
 A = d1*M + d2*K
 
+appctx = {
+    'uref': fd.Function(V),
+    'bcs': None,
+    'tref': None,
+    'form_mass': form_mass,
+    'form_function': form_function,
+    'dt': dt,
+    'theta': theta,
+}
+
 wout = fd.Function(V)
 problem = fd.LinearVariationalProblem(A, L, wout)
-solver = fd.LinearVariationalSolver(problem,
+solver = fd.LinearVariationalSolver(problem, appctx=appctx,
                                     solver_parameters=sparams)
 solver.solve()
