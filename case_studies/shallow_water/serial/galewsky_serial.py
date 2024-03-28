@@ -1,6 +1,7 @@
 
 import firedrake as fd
 from firedrake.petsc import PETSc
+from firedrake.output import VTKFile
 
 from utils import units
 from utils.planets import earth
@@ -9,6 +10,7 @@ from utils.shallow_water import galewsky
 from utils import diagnostics
 
 from utils.serial import SerialMiniApp
+from utils.hybridisation import HybridisedSCPC  # noqa: F401
 
 PETSc.Sys.popErrorHandler()
 
@@ -51,10 +53,10 @@ dt = args.dt*units.hour
 W = swe.default_function_space(mesh, degree=args.degree)
 
 # parameters
-gravity = earth.Gravity
+g = earth.Gravity
 
-topography = galewsky.topography_expression(*x)
-coriolis = swe.earth_coriolis_expression(*x)
+b = galewsky.topography_expression(*x)
+f = swe.earth_coriolis_expression(*x)
 
 # initial conditions
 w_initial = fd.Function(W)
@@ -68,13 +70,12 @@ h_initial.project(galewsky.depth_expression(*x))
 w0 = fd.Function(W).assign(w_initial)
 w1 = fd.Function(W).assign(w_initial)
 
+H = galewsky.H0
+
 
 # shallow water equation forms
 def form_function(u, h, v, q, t):
-    return swe.nonlinear.form_function(mesh,
-                                       gravity,
-                                       topography,
-                                       coriolis,
+    return swe.nonlinear.form_function(mesh, g, b, f,
                                        u, h, v, q, t)
 
 
@@ -82,71 +83,125 @@ def form_mass(u, h, v, q):
     return swe.nonlinear.form_mass(mesh, u, h, v, q)
 
 
+def aux_form_function(u, h, v, q, t):
+    return swe.linear.form_function(mesh, g, H, f,
+                                    u, h, v, q, t)
+
+
+appctx = {
+    'aux_form_function': aux_form_function,
+    'hybridscpc_form_function': aux_form_function
+}
+
+
 # solver parameters for the implicit solve
 from utils.mg import ManifoldTransferManager  # noqa: F401
+
+linear_snes_params = {
+    'type': 'ksponly',
+    'lag_jacobian': -2,
+    'lag_jacobian_persists': None,
+    'lag_preconditioner': -2,
+    'lag_preconditioner_persists': None,
+}
+
+lu_params = {
+    'ksp_type': 'preonly',
+    'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps',
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
+}
+
+patch_params = {
+    'pc_patch': {
+        'save_operators': True,
+        'partition_of_unity': True,
+        'sub_mat_type': 'seqdense',
+        'construct_dim': 0,
+        'construct_type': 'vanka',
+        'local_type': 'additive',
+        'precompute_element_tensors': True,
+        'symmetrise_sweep': False
+    },
+    'sub': {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
+    }
+}
+
+mg_params = {
+    'transfer_manager': f'{__name__}.ManifoldTransferManager',
+    'levels': {
+        'ksp_type': 'gmres',
+        'ksp_max_it': 3,
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.PatchPC',
+        'patch': patch_params
+    },
+    'coarse': {
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.AssembledPC',
+        'assembled': lu_params
+    },
+}
+
+mg_sparameters = {
+    'mat_type': 'matfree',
+    'pc_type': 'mg',
+    'pc_mg_cycle_type': 'v',
+    'pc_mg_type': 'multiplicative',
+    'mg': mg_params
+}
+
+hybridscpc_sparameters = {
+    'mat_type': 'matfree',
+    'pc_type': 'python',
+    'pc_python_type': f'{__name__}.HybridisedSCPC',
+    'hybridscpc_condensed_field': lu_params,
+    'hybridscpc_condensed_field_snes': linear_snes_params,
+}
+
+aux_sparameters = {
+    'mat_type': 'matfree',
+    'pc_type': 'python',
+    'pc_python_type': 'asQ.AuxiliaryRealBlockPC',
+    'aux': lu_params,
+    'aux_snes': linear_snes_params
+}
+
+atol = 1e6
 sparameters = {
     'snes': {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-12,
-        'atol': 1e-0,
+        'atol': atol,
         'ksp_ew': None,
         'ksp_ew_version': 1,
     },
-    'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
-        'atol': 1e-5,
+        'converged_rate': None,
+        'atol': atol,
         'rtol': 1e-5,
     },
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'multiplicative',
-    'mg': {
-        'transfer_manager': f'{__name__}.ManifoldTransferManager',
-        'levels': {
-            'ksp_type': 'gmres',
-            'ksp_max_it': 5,
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.PatchPC',
-            'patch': {
-                'pc_patch_save_operators': True,
-                'pc_patch_partition_of_unity': True,
-                'pc_patch_sub_mat_type': 'seqdense',
-                'pc_patch_construct_dim': 0,
-                'pc_patch_construct_type': 'vanka',
-                'pc_patch_local_type': 'additive',
-                'pc_patch_precompute_element_tensors': True,
-                'pc_patch_symmetrise_sweep': False,
-                'sub_ksp_type': 'preonly',
-                'sub_pc_type': 'lu',
-                'sub_pc_factor_shift_type': 'nonzero',
-            },
-        },
-        'coarse': {
-            'pc_type': 'python',
-            'pc_python_type': 'firedrake.AssembledPC',
-            'assembled_pc_type': 'lu',
-            'assembled_pc_factor_mat_solver_type': 'mumps',
-        },
-    }
 }
+sparameters.update(hybridscpc_sparameters)
 
 # set up nonlinear solver
-miniapp = SerialMiniApp(dt, args.theta,
-                        w_initial,
-                        form_mass,
-                        form_function,
-                        sparameters)
+miniapp = SerialMiniApp(dt, args.theta, w_initial,
+                        form_mass, form_function,
+                        sparameters, appctx=appctx)
 
 potential_vorticity = diagnostics.potential_vorticity_calculator(
     u_initial.function_space(), name='vorticity')
 
 uout = fd.Function(u_initial.function_space(), name='velocity')
 hout = fd.Function(h_initial.function_space(), name='elevation')
-ofile = fd.File(f"output/{args.filename}.pvd")
+ofile = VTKFile(f"output/{args.filename}.pvd")
 # save initial conditions
 uout.assign(u_initial)
 hout.assign(h_initial)

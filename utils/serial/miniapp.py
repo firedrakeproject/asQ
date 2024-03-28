@@ -12,6 +12,7 @@ class SerialMiniApp(object):
                  form_mass,
                  form_function,
                  solver_parameters,
+                 appctx={},
                  bcs=[]):
         '''
         A miniapp to integrate a finite element form forward in time using the implicit theta method
@@ -46,9 +47,19 @@ class SerialMiniApp(object):
                                              self.dt, self.theta,
                                              self.w0, self.w1)
 
+        appctx.update({
+            'uref': self.w1,
+            'tref': self.time,
+            'bcs': bcs,
+            'dt': dt,
+            'theta': theta,
+            'form_mass': form_mass,
+            'form_function': form_function,
+        })
+
         self.nlproblem = fd.NonlinearVariationalProblem(self.form_full, self.w1, bcs=bcs)
 
-        self.nlsolver = fd.NonlinearVariationalSolver(self.nlproblem,
+        self.nlsolver = fd.NonlinearVariationalSolver(self.nlproblem, appctx=appctx,
                                                       solver_parameters=self.solver_parameters)
 
     def set_theta_form(self, form_mass, form_function, dt, theta, w0, w1):
