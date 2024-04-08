@@ -167,7 +167,7 @@ aux_sparameters = {
     'mat_type': 'matfree',
     'pc_type': 'python',
     'pc_python_type': 'asQ.AuxiliaryRealBlockPC',
-    'aux': lu_params,
+    'aux': hybridscpc_sparameters,
     'aux_snes': linear_snes_params
 }
 
@@ -189,7 +189,7 @@ sparameters = {
         'rtol': 1e-5,
     },
 }
-sparameters.update(hybridscpc_sparameters)
+sparameters.update(aux_sparameters)
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta, w_initial,

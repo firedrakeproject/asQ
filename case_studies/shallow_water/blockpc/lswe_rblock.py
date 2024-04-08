@@ -16,7 +16,7 @@ Print = PETSc.Sys.Print
 # get command arguments
 import argparse
 parser = argparse.ArgumentParser(
-    description='Test preconditioners for the complex linear shallow water equations.',
+    description='Test preconditioners for the real-valued linear shallow water equations.',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 

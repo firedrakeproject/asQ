@@ -46,12 +46,6 @@ nsteps = args.nwindows*window_length
 dt = args.dt*units.hour
 
 # parameters for the implicit diagonal solve in step-(b)
-lu_params = {
-    'ksp_type': 'preonly',
-    'pc_type': 'lu',
-    'pc_factor_mat_solver_type': 'mumps'
-}
-
 
 from utils.hybridisation import HybridisedSCPC  # noqa: F401
 hybridscpc_parameters = {
@@ -59,7 +53,17 @@ hybridscpc_parameters = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": f"{__name__}.HybridisedSCPC",
-    "hybridscpc_condensed_field": lu_params,
+    "hybridscpc_condensed_field": {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps',
+        'snes': {  # reuse factorisation
+            'lag_jacobian': -2,
+            'lag_jacobian_persists': None,
+            'lag_preconditioner': -2,
+            'lag_preconditioner_persists': None,
+        }
+    }
 }
 
 rtol = 1e-10

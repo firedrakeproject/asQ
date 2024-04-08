@@ -115,6 +115,7 @@ patch_parameters = {
     }
 }
 
+from utils.mg import ManifoldTransferManager  # noqa: F401
 mg_parameters = {
     'transfer_manager': f'{__name__}.ManifoldTransferManager',
     'levels': {
@@ -131,7 +132,6 @@ mg_parameters = {
     },
 }
 
-from utils.mg import ManifoldTransferManager  # noqa: F401
 mg_sparams = {
     'mat_type': 'matfree',
     'pc_type': 'mg',
@@ -161,7 +161,6 @@ hybridization_sparams = {
     "pc_type": "python",
     "pc_python_type": "firedrake.HybridizationPC",
     "hybridization": lu_params
-    # "hybridization": gamg_sparams
 }
 
 condensed_params = gamg_sparams
@@ -191,8 +190,6 @@ sparameters = {
 }
 sparameters['snes'].update(linear_snes_params)
 
-# sparameters.update(lu_params)
-# sparameters.update(mg_sparams)
 sparameters.update(scpc_sparams)
 
 # set up nonlinear solver

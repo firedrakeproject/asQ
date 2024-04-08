@@ -72,17 +72,6 @@ H = lcase.H
 V = swe.default_function_space(mesh)
 W = cpx.FunctionSpace(V)
 
-Wu, Wh = W.subfunctions
-
-Vu, Vh = V.subfunctions
-Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
-Vt = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
-Vtr = Vub*Vh*Vt
-
-Wtr = cpx.FunctionSpace(Vtr)
-
-Wub, _, Wt = Wtr.subfunctions
-
 
 # shallow water equation forms
 def form_mass(u, h, v, q):
