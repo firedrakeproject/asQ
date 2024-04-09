@@ -1,73 +1,20 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 
+from warnings import warn
 import numpy as np
 from scipy.fft import fft, ifft
 
 from asQ.pencil import Pencil, Subcomm
 from asQ.profiling import profiler
-from asQ.common import get_option_from_list
+from asQ.common import get_option_from_list, get_deprecated_option
 
 from asQ.allatonce.function import time_average as time_average_function
 from asQ.preconditioners.base import AllAtOnceBlockPCBase
 
 from functools import partial
 
-__all__ = ['CirculantPC', 'AuxiliaryBlockPC']
-
-
-class AuxiliaryBlockPC(fd.AuxiliaryOperatorPC):
-    """
-    A preconditioner for the complex blocks that builds a PC using a specified form.
-
-    This preconditioner is analogous to firedrake.AuxiliaryOperatorPC. Given
-    `form_mass` and `form_function` functions on the real function space (with the
-    usual call-signatures), it constructs an AuxiliaryOperatorPC on the complex
-    block function space.
-
-    By default, the circulant eigenvalues and the form_mass and form_function of the
-    circulant preconditioner are used (i.e. exactly the same operator as the block).
-
-    User-defined `form_mass` and `form_function` functions and complex coeffiecients
-    can be passed through the block_appctx using the following keys:
-        'aux_form_mass': function used to build the mass matrix.
-        'aux_form_function': function used to build the stiffness matrix.
-        'aux_%d_d1': complex coefficient on the mass matrix of the %d'th block.
-        'aux_%d_d2': complex coefficient on the stiffness matrix of the %d'th block.
-    """
-    def form(self, pc, v, u):
-        appctx = self.get_appctx(pc)
-
-        cpx = appctx['cpx']
-
-        u0 = appctx['u0']
-        assert u0.function_space() == v.function_space()
-
-        bcs = appctx['bcs']
-        t0 = appctx['t0']
-
-        d1 = appctx['d1']
-        d2 = appctx['d2']
-
-        blockid = appctx.get('blockid', None)
-        blockid_str = f'{blockid}_' if blockid is not None else ''
-
-        aux_d1 = appctx.get(f'aux_{blockid_str}d1', d1)
-        aux_d2 = appctx.get(f'aux_{blockid_str}d2', d2)
-
-        form_mass = appctx['form_mass']
-        form_function = appctx['form_function']
-
-        aux_form_mass = appctx.get('aux_form_mass', form_mass)
-        aux_form_function = appctx.get('aux_form_function', form_function)
-
-        Vc = v.function_space()
-        M = cpx.BilinearForm(Vc, aux_d1, aux_form_mass)
-        K = cpx.derivative(aux_d2, partial(aux_form_function, t=t0), u0)
-
-        A = M + K
-
-        return (A, bcs)
+__all__ = ['CirculantPC']
 
 
 class CirculantPC(AllAtOnceBlockPCBase):
@@ -129,17 +76,17 @@ class CirculantPC(AllAtOnceBlockPCBase):
     If the AllAtOnceSolver's appctx contains a 'block_appctx' dictionary, this is
     added to the appctx of each block solver.  The appctx of each block solver also
     contains the following:
-        'blockid': index of the block.
         'd1': circulant eigenvalue of the mass matrix.
         'd2': circulant eigenvalue of the stiffness matrix.
         'cpx': complex-proxy module implementation set with 'diagfft_complex_proxy'.
-        'u0': state around which the blocks are linearised.
-        't0': time at which the blocks are linearised.
+        'uref': state around which the blocks are linearised.
+        'tref': time at which the blocks are linearised.
         'bcs': block boundary conditions.
         'form_mass': function used to build the block mass matrix.
         'form_function': function used to build the block stiffness matrix.
     """
-    prefix = "diagfft_"
+    prefix = "circulant_"
+    deprecated_prefix = "diagfft_"
     valid_jacobian_states = tuple(('window', 'slice', 'linear', 'initial', 'reference'))
 
     default_alpha = 1e-3
@@ -159,8 +106,9 @@ class CirculantPC(AllAtOnceBlockPCBase):
         # Input/Output wrapper Functions for all-at-once residual being acted on
         self.yf = fd.Function(aaofunc.function_space)  # output
 
-        self.alpha = PETSc.Options().getReal(
-            f"{prefix}alpha", default=self.default_alpha)
+        self.alpha = get_deprecated_option(
+            PETSc.Options().getReal, prefix, self.deprecated_prefix,
+            "alpha", default=self.default_alpha)
 
         dt = self.dt
         self.t_average = fd.Constant(self.aaoform.t0 + (self.aaofunc.ntimesteps + 1)*self.dt/2)
@@ -189,11 +137,10 @@ class CirculantPC(AllAtOnceBlockPCBase):
         # Block system setup
         # First need to build the complex function space version of blockV
         valid_cpx_type = ['vector', 'mixed']
-        cpx_option = f"{prefix}complex_proxy"
 
-        cpx_type = get_option_from_list(cpx_option,
-                                        valid_cpx_type,
-                                        default_index=0)
+        cpx_type = get_option_from_list(
+            prefix, "complex_proxy", valid_cpx_type,
+            default_index=0, deprecated_prefix=self.deprecated_prefix)
 
         if cpx_type == 'vector':
             import asQ.complex_proxy.vector as cpx
@@ -279,12 +226,11 @@ class CirculantPC(AllAtOnceBlockPCBase):
 
             # pass parameters into PC:
             appctx_h = {
-                "blockid": i,
                 "d1": d1,
                 "d2": d2,
                 "cpx": cpx,
-                "u0": self.u0,
-                "t0": self.t_average,
+                "uref": self.u0,
+                "tref": self.t_average,
                 "bcs": self.block_bcs,
                 "form_mass": self.form_mass,
                 "form_function": self.form_function,
@@ -297,6 +243,13 @@ class CirculantPC(AllAtOnceBlockPCBase):
             # block number, then this prefix is used instead (like pc fieldsplit)
 
             block_prefix = f"{prefix}block_"
+            deprecated_block_prefix = f"{self.deprecated_prefix}block_"
+            for k, v in PETSc.Options().getAll().items():
+                if k.startswith(f"{deprecated_block_prefix}"):
+                    msg = "Prefix 'diagfft' is deprecated and will be removed in the future. Use 'circulant' instead."
+                    warn(msg)
+                    block_prefix = deprecated_block_prefix
+
             for k, v in PETSc.Options().getAll().items():
                 if k.startswith(f"{block_prefix}{str(ii)}_"):
                     block_prefix = f"{block_prefix}{str(ii)}_"

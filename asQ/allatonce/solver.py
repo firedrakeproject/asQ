@@ -16,10 +16,10 @@ class AllAtOnceSolver(TimePartitionMixin):
                  options_prefix="",
                  jacobian_form=None,
                  jacobian_reference_state=None,
-                 pre_function_callback=lambda solver, X: None,
-                 post_function_callback=lambda solver, X, F: None,
-                 pre_jacobian_callback=lambda solver, X, J: None,
-                 post_jacobian_callback=lambda solver, X, J: None):
+                 pre_function_callback=None,
+                 post_function_callback=None,
+                 pre_jacobian_callback=None,
+                 post_jacobian_callback=None):
         """
         Solve an all-at-once form over an all-at-once function.
 

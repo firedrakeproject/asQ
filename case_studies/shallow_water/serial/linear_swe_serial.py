@@ -2,6 +2,7 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 
+from utils.timing import SolverTimer
 from utils import units
 from utils import mg
 from utils.planets import earth
@@ -20,6 +21,7 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument('--ref_level', type=int, default=3, help='Refinement level of icosahedral grid.')
+parser.add_argument('--base_level', type=int, default=1, help='Refinement level of the coarsest grid.')
 parser.add_argument('--nt', type=int, default=20, help='Number of time steps.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours.')
 parser.add_argument('--degree', type=float, default=swe.default_degree(), help='Degree of the depth function space.')
@@ -38,7 +40,9 @@ PETSc.Sys.Print('### === --- Setting up --- === ###')
 PETSc.Sys.Print('')
 
 # icosahedral mg mesh
-mesh = swe.create_mg_globe_mesh(ref_level=args.ref_level, coords_degree=1)
+mesh = swe.create_mg_globe_mesh(ref_level=args.ref_level,
+                                base_level=args.base_level,
+                                coords_degree=1)
 x = fd.SpatialCoordinate(mesh)
 
 # time step
@@ -235,7 +239,7 @@ mg_parameters = {
 mg_sparams = {
     'mat_type': 'matfree',
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
+    'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
     'mg': mg_parameters
 }
@@ -307,32 +311,40 @@ PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0
 nonlinear_its = 0
 
-ofile = fd.File('output/'+args.filename+'.pvd')
-uout = fd.Function(u_initial.function_space(), name='velocity')
-hout = fd.Function(h_initial.function_space(), name='depth')
+# ofile = fd.File('output/'+args.filename+'.pvd')
+# uout = fd.Function(u_initial.function_space(), name='velocity')
+# hout = fd.Function(h_initial.function_space(), name='depth')
+# 
+# uout.assign(u_initial)
+# hout.assign(h_initial - gcase.H)
+# ofile.write(uout, hout, time=0)
 
-uout.assign(u_initial)
-hout.assign(h_initial - gcase.H)
-ofile.write(uout, hout, time=0)
+timer = SolverTimer()
 
 
 def preproc(app, step, t):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'=== --- Timestep {step} --- ===')
     PETSc.Sys.Print('')
+    timer.start_timing()
 
 
 def postproc(app, step, t):
+    timer.stop_timing()
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'Timestep solution time: {timer.times[-1]}')
+    PETSc.Sys.Print('')
+
     global linear_its
     global nonlinear_its
 
     linear_its += app.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += app.nlsolver.snes.getIterationNumber()
 
-    u, h = app.w0.subfunctions
-    uout.assign(u)
-    hout.assign(h-gcase.H)
-    ofile.write(uout, hout, time=t/units.hour)
+    # u, h = app.w0.subfunctions
+    # uout.assign(u)
+    # hout.assign(h-gcase.H)
+    # ofile.write(uout, hout, time=t/units.hour)
 
 
 miniapp.solve(args.nt,
@@ -345,4 +357,18 @@ PETSc.Sys.Print('')
 
 PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {linear_its/args.nt}')
 PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/args.nt}')
+PETSc.Sys.Print('')
+
+W = miniapp.function_space
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}')
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size}')
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
+PETSc.Sys.Print(f'Trace DoFs/rank: {Tr.dim()/mesh.comm.size}')
+PETSc.Sys.Print('')
+
+if timer.ntimes() > 1:
+    timer.times[0] = timer.times[1]
+
+PETSc.Sys.Print(timer.string(timesteps_per_solve=1,
+                             total_iterations=linear_its, ndigits=5))
 PETSc.Sys.Print('')

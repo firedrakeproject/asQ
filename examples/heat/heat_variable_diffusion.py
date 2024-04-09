@@ -49,9 +49,9 @@ lu_parameters = {
 }
 
 aux_parameters = {
-    'ksp_type': 'richardson',
+    'ksp_type': 'gmres',
     'pc_type': 'python',
-    'pc_python_type': 'asQ.AuxiliaryBlockPC',
+    'pc_python_type': 'asQ.AuxiliaryComplexBlockPC',
     'aux': {
         'pc_type': 'ilu'
     }
@@ -68,15 +68,16 @@ solver_parameters = {
     'snes_type': 'ksponly',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
+        'converged_rate': None,
         'rtol': 1e-8,
     },
     'mat_type': 'matfree',
-    'ksp_type': 'gmres',
+    'ksp_type': 'richardson',
+    'ksp_norm_type': 'unpreconditioned',
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
-    'diagfft_alpha': 1e-3,
-    'diagfft_block': block_parameters
+    'circulant_alpha': 1e-3,
+    'circulant_block': block_parameters
 }
 
 appctx = {'block_appctx': block_appctx}

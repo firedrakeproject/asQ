@@ -80,12 +80,18 @@ class SerialMiniApp(object):
 
         return dt1*dqdt + L
 
-    def solve(self, nt,
-              preproc=lambda miniapp, it, t: None,
-              postproc=lambda miniapp, it, t: None):
+    def solve(self, nt, preproc=None, postproc=None):
         '''
         Integrate forward nt timesteps
         '''
+        def passthrough(*args, **kwargs):
+            pass
+
+        if preproc is None:
+            preproc = passthrough
+        if postproc is None:
+            postproc = passthrough
+
         for step in range(nt):
             preproc(self, step, float(self.time))
             self.nlsolver.solve()

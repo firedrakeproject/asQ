@@ -1,6 +1,7 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 
+from math import sqrt
 from utils.timing import SolverTimer
 from utils import units
 from utils.planets import earth
@@ -19,6 +20,7 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid.')
+parser.add_argument('--base_level', type=int, default=1, help='Refinement level of the coarsest grid.')
 parser.add_argument('--nwindows', type=int, default=1, help='Number of time-windows.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
@@ -262,21 +264,22 @@ sparameters.update(hybrid_params)
 
 rtol = 1e-10
 atol = 1e0
+patol = sqrt(window_length)*atol
 sparameters_diag = {
-    'snes_type': 'ksponly',
     'snes': {
         'monitor': None,
         'converged_reason': None,
         'rtol': rtol,
-        'atol': atol,
+        'atol': patol,
     },
     'mat_type': 'matfree',
     'ksp_type': 'richardson',
+    'ksp_norm_type': 'unpreconditioned',
     'ksp': {
         'monitor': None,
         'converged_rate': None,
         'rtol': rtol,
-        'atol': atol,
+        'atol': patol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
@@ -284,6 +287,7 @@ sparameters_diag = {
     'diagfft_state': 'linear',
     'aaos_jacobian_state': 'linear',
 }
+sparameters_diag['snes'].update(linear_snes_params)
 
 for i in range(window_length):
     sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
@@ -291,6 +295,7 @@ for i in range(window_length):
 create_mesh = partial(
     swe.create_mg_globe_mesh,
     ref_level=args.ref_level,
+    base_level=args.base_level,
     coords_degree=1)  # remove coords degree once UFL issue with gradient of cell normals fixed
 
 PETSc.Sys.Print('### === --- Calculating parallel solution --- === ###')
@@ -305,7 +310,7 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   dt=dt, theta=0.5,
                                   time_partition=time_partition,
                                   paradiag_sparameters=sparameters_diag,
-                                  file_name='output/'+args.filename)
+                                  record_diagnostics={'cfl': False, 'file': False})
 
 paradiag = miniapp.paradiag
 
@@ -321,13 +326,17 @@ def window_preproc(swe_app, pdg, wndw):
 
 def window_postproc(swe_app, pdg, wndw):
     timer.stop_timing()
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'Window solution time: {timer.times[-1]}')
+    PETSc.Sys.Print('')
+
     if pdg.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
         time = nt*pdg.aaoform.dt
         comm = miniapp.ensemble.comm
         PETSc.Sys.Print('', comm=comm)
-        PETSc.Sys.Print(f'Hours = {time/units.hour}', comm=comm)
-        PETSc.Sys.Print(f'Days = {time/earth.day}', comm=comm)
+        PETSc.Sys.Print(f'Hours = {float(time/units.hour)}', comm=comm)
+        PETSc.Sys.Print(f'Days = {float(time/earth.day)}', comm=comm)
         PETSc.Sys.Print('', comm=comm)
 
 
@@ -357,12 +366,17 @@ PETSc.Sys.Print(f'nonlinear iterations: {nlits} | iterations per window: {nlits/
 PETSc.Sys.Print(f'block linear iterations: {blits} | iterations per block solve: {blits/lits}')
 PETSc.Sys.Print('')
 
-PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
-PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+mesh = miniapp.mesh
+W = miniapp.W
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}')
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size}')
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
+PETSc.Sys.Print(f'Block DoFs/rank: {2*W.dim()/mesh.comm.size}')
 PETSc.Sys.Print('')
 
 if timer.ntimes() > 1:
     timer.times[0] = timer.times[1]
 
-PETSc.Sys.Print(timer.string(timesteps_per_solve=window_length, ndigits=5))
+PETSc.Sys.Print(timer.string(timesteps_per_solve=window_length,
+                             total_iterations=lits, ndigits=5))
 PETSc.Sys.Print('')

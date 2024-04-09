@@ -1,8 +1,6 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 
-from functools import partial
-
 from asQ.profiling import profiler
 from asQ.common import get_option_from_list
 from asQ.allatonce.mixin import TimePartitionMixin
@@ -84,11 +82,8 @@ class AllAtOnceJacobian(TimePartitionMixin):
         if (prefix != "") and (not prefix.endswith("_")):
             prefix += "_"
 
-        state_option = f"{prefix}state"
-
-        self.jacobian_state = partial(get_option_from_list,
-                                      state_option, valid_jacobian_states,
-                                      default_index=0)
+        self.jacobian_state = get_option_from_list(
+            prefix, "state", valid_jacobian_states, default_index=0)
 
         if reference_state is not None:
             self.reference_state = fd.Function(aaofunc.field_function_space)
@@ -96,9 +91,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         else:
             self.reference_state = None
 
-        jacobian_state = self.jacobian_state()
-
-        if jacobian_state == 'reference' and self.reference_state is None:
+        if self.jacobian_state == 'reference' and self.reference_state is None:
             raise ValueError("AllAtOnceJacobian must be provided a reference state to use \'reference\' for aaos_jacobian_state.")
 
         self.update()
@@ -113,7 +106,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         """
 
         aaofunc = self.aaofunc
-        jacobian_state = self.jacobian_state()
+        jacobian_state = self.jacobian_state
 
         if jacobian_state in ('linear', 'user'):
             return
