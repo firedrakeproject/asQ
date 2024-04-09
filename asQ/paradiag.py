@@ -125,7 +125,9 @@ class Paradiag(TimePartitionMixin):
         self.nonlinear_iterations = 0
         self.total_timesteps = 0
         self.total_windows = 0
-        self.block_iterations.data()[:] = 0
+        self.block_iterations.data(deepcopy=False)[:] = 0
+        if hasattr(self.solver, "jacobian") and hasattr(self.solver.jacobian, "pc"):
+            self.solver.jacobian.pc.block_iterations.data(deepcopy=False)[:] = 0
 
     @profiler()
     def _record_diagnostics(self):
