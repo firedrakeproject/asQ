@@ -1,5 +1,6 @@
 import firedrake as fd
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
+from pyop2.mpi import MPI
 PETSc.Sys.popErrorHandler()
 
 from math import floor
@@ -8,6 +9,7 @@ from utils import units
 from utils.planets import earth
 from utils import shallow_water as swe
 from utils.shallow_water.williamson1992 import case5 as w5
+from utils.diagnostics import convective_cfl_calculator
 
 from utils.mg import ManifoldTransferManager  # noqa: F401
 
@@ -227,7 +229,7 @@ def form_function(*args):
 
 # monolithic solver options
 
-atol = 1e5
+atol = 1e4
 sparameters = {
     "snes": {
         "monitor": None,
@@ -280,9 +282,6 @@ sparameters = {
             "pc_python_type": "firedrake.AssembledPC",
             "assembled_pc_type": "lu",
             "assembled_pc_factor_mat_solver_type": "mumps",
-            "assembled_pc_factor_mat_ordering_type": "rcm",
-            "assembled_pc_factor_reuse_ordering": None,
-            "assembled_pc_factor_reuse_fill": None,
         },
     },
 }
@@ -338,6 +337,8 @@ miniapp = SerialMiniApp(dt, args.theta, w0,
                         form_mass, form_function,
                         sparameters)
 
+u0, h0, B0, qv0, qc0, qr0 = miniapp.w0.subfunctions
+
 q = fd.TrialFunction(V0)
 p = fd.TestFunction(V0)
 
@@ -370,6 +371,15 @@ nonlinear_its = 0
 
 nt = floor((tmax+0.5*dt)/dt)
 
+cfl_calc = convective_cfl_calculator(mesh)
+cfl_series = []
+
+def max_cfl(u, dt):
+    with cfl_calc(u, dt).dat.vec_ro as v:
+        return v.max()[1]
+
+solver_time = []
+
 
 def preproc(app, step, t):
     global tdump
@@ -377,10 +387,25 @@ def preproc(app, step, t):
     PETSc.Sys.Print(f"\n=== --- Timestep {step} at time {t/units.hour} hours --- ===\n")
     PETSc.Sys.Print('')
     tdump += dt
+    stime = MPI.Wtime()
+    solver_time.append(stime)
 
 
 def postproc(app, step, t):
+    etime = MPI.Wtime()
+    stime = solver_time[-1]
+    duration = etime - stime
+    solver_time[-1] = duration
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'Timestep solution time: {duration}')
+    PETSc.Sys.Print('')
+
     global tdump, linear_its, nonlinear_its
+
+    cfl = max_cfl(u0, dt)
+    cfl_series.append(cfl)
+    PETSc.Sys.Print(f'Maximum CFL = {round(cfl, 4)}')
+
     if tdump > dumpt - dt*0.5:
         etan.assign(h0 - H + b)
         un.assign(u0)
@@ -396,7 +421,27 @@ def postproc(app, step, t):
 
 miniapp.solve(nt, preproc, postproc)
 
-PETSc.Sys.Print("\n=== --- Iteration counts --- ===\n")
-PETSc.Sys.Print("Nonlinear iterations", nonlinear_its, "its per step", nonlinear_its/nt)
-PETSc.Sys.Print("Linear iterations", linear_its, "its per step", linear_its/nt)
-PETSc.Sys.Print("dt", dt, "ref_level", args.ref_level, "dmax", args.dmax)
+PETSc.Sys.Print('')
+PETSc.Sys.Print('### === --- Iteration counts --- === ###')
+PETSc.Sys.Print('')
+
+PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {linear_its/nt}')
+PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/nt}')
+PETSc.Sys.Print('')
+
+PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}')
+PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}')
+PETSc.Sys.Print('')
+
+W = miniapp.function_space
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}')
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size}')
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
+PETSc.Sys.Print('')
+
+if len(solver_time) > 1:
+    solver_time[0] = solver_time[1]
+
+PETSc.Sys.Print(f'Total solution time: {sum(solver_time)}')
+PETSc.Sys.Print(f'Average timestep solution time: {sum(solver_time)/len(solver_time)}')
+PETSc.Sys.Print('')
