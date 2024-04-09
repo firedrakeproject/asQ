@@ -430,6 +430,9 @@ class CirculantPC(AllAtOnceBlockPCBase):
                                          self.blockV.node_set.size))
         # transfer forward
         self.a0[:] = parray[:]
+
+        with PETSc.Log.Event("asQ.diag_preconditioner.CirculantPC.apply.Coll_Barrier"):
+            self.ensemble.ensemble_comm.Barrier()
         with PETSc.Log.Event("asQ.diag_preconditioner.CirculantPC.apply.transfer"):
             self.transfer.forward(self.a0, self.a1)
 
