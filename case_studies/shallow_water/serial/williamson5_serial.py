@@ -1,11 +1,13 @@
 
 import firedrake as fd
 from firedrake.petsc import PETSc
+from pyop2.mpi import MPI
 
 from utils import units
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water.williamson1992 import case5
+from utils.diagnostics import convective_cfl_calculator
 from utils import diagnostics
 
 from utils.serial import SerialMiniApp
@@ -84,12 +86,13 @@ def form_mass(u, h, v, q):
 
 # solver parameters for the implicit solve
 from utils.mg import ManifoldTransferManager  # noqa: F401
+atol = 1e4
 sparameters = {
     'snes': {
         'monitor': None,
         'converged_reason': None,
         'rtol': 1e-12,
-        'atol': 1e-0,
+        'atol': atol,
         'ksp_ew': None,
         'ksp_ew_version': 1,
     },
@@ -97,13 +100,14 @@ sparameters = {
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
-        'atol': 1e-5,
+        'converged_rate': None,
+        'atol': atol,
         'rtol': 1e-5,
+        "max_it": 30,
     },
     'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'multiplicative',
+    'pc_mg_cycle_type': 'v',
+    'pc_mg_type': 'full',
     'mg': {
         'transfer_manager': f'{__name__}.ManifoldTransferManager',
         'levels': {
@@ -116,7 +120,7 @@ sparameters = {
                 'pc_patch_partition_of_unity': True,
                 'pc_patch_sub_mat_type': 'seqdense',
                 'pc_patch_construct_dim': 0,
-                'pc_patch_construct_type': 'vanka',
+                'pc_patch_construct_type': 'star',
                 'pc_patch_local_type': 'additive',
                 'pc_patch_precompute_element_tensors': True,
                 'pc_patch_symmetrise_sweep': False,
@@ -146,41 +150,81 @@ potential_vorticity = diagnostics.potential_vorticity_calculator(
 
 uout = fd.Function(u_initial.function_space(), name='velocity')
 hout = fd.Function(h_initial.function_space(), name='elevation')
-ofile = fd.File(f"output/{args.filename}.pvd")
+# ofile = fd.File(f"output/{args.filename}.pvd")
 # save initial conditions
 uout.assign(u_initial)
 hout.assign(h_initial)
-ofile.write(uout, hout, potential_vorticity(uout), time=0)
+# ofile.write(uout, hout, potential_vorticity(uout), time=0)
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0
 nonlinear_its = 0
+
+cfl_calc = convective_cfl_calculator(mesh)
+cfl_series = []
+
+def max_cfl(u, dt):
+    with cfl_calc(u, dt).dat.vec_ro as v:
+        return v.max()[1]
+
+solver_time = []
+
 
 
 def preproc(app, step, t):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'=== --- Timestep {step} --- ===')
     PETSc.Sys.Print('')
+    stime = MPI.Wtime()
+    solver_time.append(stime)
 
 
 def postproc(app, step, t):
+    etime = MPI.Wtime()
+    stime = solver_time[-1]
+    duration = etime - stime
+    solver_time[-1] = duration
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'Timestep solution time: {duration}')
+    PETSc.Sys.Print('')
+
     global linear_its, nonlinear_its
 
     linear_its += app.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += app.nlsolver.snes.getIterationNumber()
 
     uout.assign(miniapp.w0.subfunctions[0])
-    hout.assign(miniapp.w0.subfunctions[1])
-    ofile.write(uout, hout, potential_vorticity(uout), time=t)
+    cfl = max_cfl(uout, dt)
+    cfl_series.append(cfl)
+    PETSc.Sys.Print(f'Maximum CFL = {round(cfl, 4)}')
+
+    # hout.assign(miniapp.w0.subfunctions[1])
+    # ofile.write(uout, hout, potential_vorticity(uout), time=t)
 
 
-miniapp.solve(args.nt,
-              preproc=preproc,
-              postproc=postproc)
+miniapp.solve(args.nt, preproc=preproc, postproc=postproc)
 
+PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
-PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {linear_its/args.nt}')
-PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/args.nt}')
+PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {linear_its/nt}')
+PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/nt}')
+PETSc.Sys.Print('')
+
+PETSc.Sys.Print(f'Maximum CFL = {max(cfl_series)}')
+PETSc.Sys.Print(f'Minimum CFL = {min(cfl_series)}')
+PETSc.Sys.Print('')
+
+W = miniapp.function_space
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}')
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size}')
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
+PETSc.Sys.Print('')
+
+if len(solver_time) > 1:
+    solver_time[0] = solver_time[1]
+
+PETSc.Sys.Print(f'Total solution time: {sum(solver_time)}')
+PETSc.Sys.Print(f'Average timestep solution time: {sum(solver_time)/len(solver_time)}')
 PETSc.Sys.Print('')
