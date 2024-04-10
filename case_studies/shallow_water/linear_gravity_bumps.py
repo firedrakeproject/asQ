@@ -48,233 +48,38 @@ nsteps = args.nwindows*window_length
 
 dt = args.dt*units.hour
 
-# alternative operator to precondition blocks
-H = case.H
-g = earth.Gravity
-
-
-def form_mass_tr(u, h, tr, v, q, s):
-    mesh = v.ufl_domain()
-    return swe.linear.form_mass(mesh, u, h, v, q)
-
-
-def form_function_tr(u, h, tr, v, q, dtr, t=None):
-    mesh = v.ufl_domain()
-    coords = fd.SpatialCoordinate(mesh)
-    f = swe.earth_coriolis_expression(*coords)
-    K = swe.linear.form_function(mesh, g, H, f,
-                                 u, h, v, q, t)
-    n = fd.FacetNormal(mesh)
-    Khybr = (
-        g*fd.jump(v, n)*tr('+')
-    )*fd.dS
-
-    return K + Khybr
-
-
-def form_trace(u, h, tr, v, q, dtr, t=None):
-    mesh = v.ufl_domain()
-    n = fd.FacetNormal(mesh)
-    K = (
-        + fd.jump(u, n)*dtr('+')
-    )*fd.dS
-    return K
-
-
-class HybridisedSCPC(fd.PCBase):
-    def initialize(self, pc):
-        if pc.getType() != "python":
-            raise ValueError("Expecting PC type python")
-
-        appctx = self.get_appctx(pc)
-
-        cpx = appctx['cpx']
-
-        u0 = appctx['u0']
-        d1 = appctx['d1']
-        d2 = appctx['d2']
-
-        mesh = u0.ufl_domain()
-
-        W = u0.function_space()
-        Wu, Wh = W.subfunctions
-
-        # the real space
-        Vu = fd.FunctionSpace(mesh, Wu.sub(0).ufl_element())
-        Vh = fd.FunctionSpace(mesh, Wh.sub(0).ufl_element())
-        Vub = fd.FunctionSpace(mesh, fd.BrokenElement(Vu.ufl_element()))
-        Vt = fd.FunctionSpace(mesh, "HDivT", Vu.ufl_element().degree())
-        Vtr = Vub*Vh*Vt
-
-        Wtr = cpx.FunctionSpace(Vtr)
-        Wub, Wh, Wt = Wtr.subfunctions
-
-        from utils.broken_projections import BrokenHDivProjector
-        self.projector = BrokenHDivProjector(Wu, Wub)
-
-        self.x = fd.Cofunction(W.dual())
-        self.y = fd.Function(W)
-
-        self.xu, self.xh = self.x.subfunctions
-        self.yu, self.yh = self.y.subfunctions
-
-        self.xtr = fd.Cofunction(Wtr.dual()).assign(0)
-        self.ytr = fd.Function(Wtr)
-
-        self.xbu, self.xbh, self.xbt = self.xtr.subfunctions
-        self.ybu, self.ybh, self.ybt = self.ytr.subfunctions
-
-        M = cpx.BilinearForm(Wtr, d1, form_mass_tr)
-        K = cpx.BilinearForm(Wtr, d2, form_function_tr)
-        Tr = cpx.BilinearForm(Wtr, 1, form_trace)
-
-        A = M + K + Tr
-        L = self.xtr
-
-        scpc_params = {
-            "snes": linear_snes_params,
-            "mat_type": "matfree",
-            "ksp_type": "preonly",
-            "pc_type": "python",
-            "pc_python_type": "firedrake.SCPC",
-            "pc_sc_eliminate_fields": "0, 1",
-            "condensed_field_snes": linear_snes_params,
-            "condensed_field": condensed_params
-        }
-
-        problem = fd.LinearVariationalProblem(A, L, self.ytr)
-        self.solver = fd.LinearVariationalSolver(
-            problem, solver_parameters=scpc_params)
-
-    def apply(self, pc, x, y):
-        # copy into unbroken vector
-        with self.x.dat.vec_wo as v:
-            x.copy(v)
-
-        # break each component of velocity
-        self.projector.project(self.xu, self.xbu)
-
-        # depth already broken
-        self.xbh.assign(self.xh)
-
-        # zero trace residual
-        self.xbt.assign(0)
-
-        # eliminate and solve the trace system
-        self.ytr.assign(0)
-        self.solver.solve()
-
-        # mend each component of velocity
-        self.projector.project(self.ybu, self.yu)
-
-        # depth already mended
-        self.yh.assign(self.ybh)
-
-        # copy out to petsc
-        with self.y.dat.vec_ro as v:
-            v.copy(y)
-
-    def update(self, pc):
-        pass
-
-    def applyTranspose(self, pc, x, y):
-        raise NotImplementedError
-
-
 # parameters for the implicit diagonal solve in step-(b)
 
+from utils.hybridisation import HybridisedSCPC  # noqa: F401
 linear_snes_params = {
-    'type': 'ksponly',
     'lag_jacobian': -2,
     'lag_jacobian_persists': None,
     'lag_preconditioner': -2,
     'lag_preconditioner_persists': None,
 }
 
-lu_params = {
-    'ksp_type': 'preonly',
-    'pc_type': 'lu',
-    # 'pc_factor_mat_ordering_type': 'rcm',
-    'pc_factor_mat_solver_type': 'mumps'
-}
-
-patch_parameters = {
-    'pc_patch': {
-        'save_operators': True,
-        'partition_of_unity': True,
-        'sub_mat_type': 'seqdense',
-        'construct_dim': 0,
-        'construct_type': 'vanka',
-        'local_type': 'additive',
-        'precompute_element_tensors': True,
-        'symmetrise_sweep': False
-    },
-    'sub': {
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_shift_type': 'nonzero',
-    }
-}
-
-from utils.mg import ManifoldTransferManager  # noqa: F401
-mg_parameters = {
-    'transfer_manager': f'{__name__}.ManifoldTransferManager',
-    'levels': {
-        'ksp_type': 'gmres',
-        'ksp_max_it': 5,
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.PatchPC',
-        'patch': patch_parameters
-    },
-    'coarse': {
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.AssembledPC',
-        'assembled': lu_params
-    }
-}
-
-mg_params = {
-    'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
-    'pc_mg_type': 'multiplicative',
-    'mg': mg_parameters
-}
-
-hybrid_params = {
-    "mat_type": "matfree",
+hybridscpc_parameters = {
+    "snes": linear_snes_params,
     "ksp_type": 'preonly',
+    "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": f"{__name__}.HybridisedSCPC",
+    "hybridscpc_condensed_field": {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps',
+        'snes': linear_snes_params  # reuse factorisation
+    }
 }
-condensed_params = lu_params
-
-sparameters = {
-    'snes': linear_snes_params,
-    'ksp': {
-        'atol': 1e-5,
-        'rtol': 1e-5,
-        'max_it': 60
-    },
-}
-# sparameters.update(mg_params)
-sparameters.update(hybrid_params)
-# sparameters = lu_params
 
 rtol = 1e-10
 atol = 1e0
 patol = sqrt(window_length)*atol
 sparameters_diag = {
-    'snes': {
-        'monitor': None,
-        'converged_reason': None,
-        'rtol': rtol,
-        'atol': patol,
-    },
+    'snes_type': 'ksponly',
+    'snes': linear_snes_params,
     'mat_type': 'matfree',
-    'ksp_type': 'richardson',
-    'ksp_norm_type': 'unpreconditioned',
+    'ksp_type': 'gmres',
     'ksp': {
         'monitor': None,
         'converged_rate': None,
@@ -283,14 +88,13 @@ sparameters_diag = {
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
-    'diagfft_alpha': args.alpha,
-    'diagfft_state': 'linear',
+    'circulant_alpha': args.alpha,
+    'circulant_state': 'linear',
     'aaos_jacobian_state': 'linear',
 }
-sparameters_diag['snes'].update(linear_snes_params)
 
 for i in range(window_length):
-    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
+    sparameters_diag['circulant_block_'+str(i)+'_'] = hybridscpc_parameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,

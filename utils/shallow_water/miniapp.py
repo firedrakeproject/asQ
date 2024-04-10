@@ -1,4 +1,5 @@
 import firedrake as fd
+from firedrake.output import VTKFile
 import asQ
 from asQ.allatonce.mixin import TimePartitionMixin
 
@@ -145,7 +146,7 @@ class ShallowWaterMiniApp(TimePartitionMixin):
             if self.layout.is_local(self.save_step):
                 self.uout = fd.Function(self.velocity_function_space(), name='velocity')
                 self.hout = fd.Function(self.depth_function_space(), name='elevation')
-                self.ofile = fd.File(file_name+'.pvd',
+                self.ofile = VTKFile(file_name+'.pvd',
                                      comm=self.ensemble.comm)
                 # save initial conditions
                 self.uout.assign(u0)
