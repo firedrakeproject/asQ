@@ -64,6 +64,7 @@ hybridscpc_parameters = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": f"{__name__}.HybridisedSCPC",
+    "hybridscpc_snes": linear_snes_params,
     "hybridscpc_condensed_field": {
         'ksp_type': 'preonly',
         'pc_type': 'lu',
@@ -72,14 +73,14 @@ hybridscpc_parameters = {
     }
 }
 
-rtol = 1e-10
-atol = 1e0
+rtol = 1e-11
+atol = 1e-10
 patol = sqrt(window_length)*atol
 sparameters_diag = {
     'snes_type': 'ksponly',
     'snes': linear_snes_params,
     'mat_type': 'matfree',
-    'ksp_type': 'gmres',
+    'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
         'converged_rate': None,
@@ -93,8 +94,11 @@ sparameters_diag = {
     'aaos_jacobian_state': 'linear',
 }
 
-for i in range(window_length):
-    sparameters_diag['circulant_block_'+str(i)+'_'] = hybridscpc_parameters
+comm_size = fd.COMM_WORLD.size // args.nslices
+block_id = fd.COMM_WORLD.rank // comm_size
+sparameters_diag[f'circulant_block_{block_id}'] = hybridscpc_parameters
+# for i in range(window_length):
+#     sparameters_diag['circulant_block_'+str(i)+'_'] = hybridscpc_parameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
@@ -119,12 +123,16 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
 paradiag = miniapp.paradiag
 
 timer = SolverTimer()
+solver_times = []
+options_times = []
 
 
 def window_preproc(swe_app, pdg, wndw):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
+    with PETSc.Log.Event("window_preproc.Coll_Barrier"):
+        pdg.ensemble.ensemble_comm.Barrier()
     timer.start_timing()
 
 
@@ -133,6 +141,9 @@ def window_postproc(swe_app, pdg, wndw):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'Window solution time: {timer.times[-1]}')
     PETSc.Sys.Print('')
+
+    solver_times.append(pdg.solver._timing_solve)
+    options_times.append(pdg.solver._timing_options)
 
     if pdg.layout.is_local(miniapp.save_step):
         nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
@@ -144,9 +155,23 @@ def window_postproc(swe_app, pdg, wndw):
         PETSc.Sys.Print('', comm=comm)
 
 
-miniapp.solve(nwindows=args.nwindows,
-              preproc=window_preproc,
-              postproc=window_postproc)
+ics = paradiag.solver.aaofunc.initial_condition.copy(deepcopy=True)
+
+with PETSc.Log.Event("warmup_solve"):
+    miniapp.solve(nwindows=1,
+                  preproc=window_preproc,
+                  postproc=window_postproc)
+
+# paradiag.solver.aaofunc.assign(ics)
+paradiag.reset_diagnostics()
+aaofunc = paradiag.solver.aaofunc
+aaofunc.bcast_field(-1, aaofunc.initial_condition)
+aaofunc.assign(aaofunc.initial_condition)
+
+with PETSc.Log.Event("timed_solves"):
+    miniapp.solve(nwindows=args.nwindows,
+                  preproc=window_preproc,
+                  postproc=window_postproc)
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 
@@ -179,8 +204,10 @@ PETSc.Sys.Print(f'Block DoFs/rank: {2*W.dim()/mesh.comm.size}')
 PETSc.Sys.Print('')
 
 if timer.ntimes() > 1:
-    timer.times[0] = timer.times[1]
+    timer.times = timer.times[1:]
 
 PETSc.Sys.Print(timer.string(timesteps_per_solve=window_length,
                              total_iterations=lits, ndigits=5))
 PETSc.Sys.Print('')
+PETSc.Sys.Print(f'solver_times = {solver_times}')
+PETSc.Sys.Print(f'options_times = {options_times}')
