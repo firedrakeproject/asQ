@@ -138,8 +138,8 @@ atol = args.atol
 patol = sqrt(chunk_length)*atol
 sparameters_diag = {
     'snes': {
-        'monitor': None,
-        'converged_reason': None,
+        'monitor': f":snes_monitor_chunk{chunk_id}.log",
+        'converged_reason': f":snes_converged_reason_chunk{chunk_id}.log",
         'atol': patol,
         'rtol': 1e-10,
         'stol': 1e-12,
