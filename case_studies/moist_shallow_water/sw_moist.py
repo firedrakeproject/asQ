@@ -30,6 +30,7 @@ parser.add_argument('--nslices', type=int, default=2, help='Number of time-slice
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
 parser.add_argument('--kspmg', type=int, default=3, help='Max number of KSP iterations in the MG levels.')
+parser.add_argument('--write_file', action='store_true', help='Write vtk file.')
 parser.add_argument('--filename', type=str, default='w5moist')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
@@ -74,6 +75,8 @@ W = fd.MixedFunctionSpace((V1, V2, V2, V2, V2, V2))
 
 PETSc.Sys.Print(f"DoFs/timestep: {W.dim()}")
 PETSc.Sys.Print(f"DoFs/core: {args.slice_length*W.dim()/ensemble.comm.size}")
+PETSc.Sys.Print(f"Block DoFs/timestep: {2*W.dim()}")
+PETSc.Sys.Print(f"Block DoFs/core: {2*W.dim()/ensemble.comm.size}")
 
 Omega = earth.Omega  # rotation rate
 f = w5.coriolis_expression(x, y, z)  # Coriolis parameter
@@ -396,7 +399,8 @@ if is_last_slice:
                                          solver_parameters=qparams)
 
     uout, hout, Bout, qvout, qcout, qrout = pdg.aaofunc[-1].subfunctions
-    file_sw = fd.File(f'output/{name}.pvd', comm=ensemble.comm)
+    if args.write_file:
+        file_sw = fd.File(f'output/{name}.pvd', comm=ensemble.comm)
     etan.assign(hout - H + b)
     un.assign(uout)
     qsolver.solve()
@@ -408,7 +412,8 @@ if is_last_slice:
     qvn.interpolate(qvout)
     qcn.interpolate(qcout)
     qrn.interpolate(qrout)
-    file_sw.write(un, etan, Bn, qvn, qcn, qrn)
+    if args.write_file:
+        file_sw.write(un, etan, Bn, qvn, qcn, qrn)
 
     cfl_calc = convective_cfl_calculator(mesh)
     cfl_series = []
@@ -451,7 +456,8 @@ def window_postproc(pdg, wndw, rhs):
         qvn.interpolate(qvout)
         qcn.interpolate(qcout)
         qrn.interpolate(qrout)
-        file_sw.write(un, etan, Bn, qvn, qcn, qrn)
+        if args.write_file:
+            file_sw.write(un, etan, Bn, qvn, qcn, qrn)
 
         cfl = max_cfl(uout, dt)
         cfl_series.append(cfl)

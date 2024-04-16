@@ -6,6 +6,7 @@ from firedrake.output import VTKFile
 
 from utils import units
 from utils.planets import earth
+from utils.timing import SolverTimer
 import utils.shallow_water as swe
 import utils.shallow_water.gravity_bumps as gcase
 from utils.hybridisation import HybridisedSCPC  # noqa: F401
@@ -27,7 +28,8 @@ parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours.')
 parser.add_argument('--degree', type=float, default=swe.default_degree(), help='Degree of the depth function space.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for implicit theta method. 0.5 for trapezium rule, 1 for backwards Euler.')
 parser.add_argument('--filename', type=str, default='swe', help='Name of output vtk files')
-parser.add_argument('--show_args', action='store_true', default=True, help='Output all the arguments.')
+parser.add_argument('--write_file', action='store_true', help='Write each timestep to file.')
+parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
 args = args[0]
@@ -156,30 +158,32 @@ gamg_sparams = {
     'mg_coarse': lu_params,
 }
 
+trace_params = lu_params
+
 hybridization_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": "firedrake.HybridizationPC",
-    "hybridization": lu_params
+    "hybridization": trace_params
 }
-
-condensed_params = gamg_sparams
 
 scpc_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": f"{__name__}.HybridisedSCPC",
-    "hybridscpc_condensed_field": condensed_params,
+    "hybridscpc_snes": linear_snes_params,
+    "hybridscpc_condensed_field": trace_params,
+    "hybridscpc_condensed_field_snes": linear_snes_params,
 }
 
-atol = 1e2
+atol = 1e0
 sparameters = {
     'snes': {
         'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
     },
-    'ksp_type': 'fgmres',
+    'ksp_type': 'preonly',
     'ksp': {
         'atol': atol,
         'rtol': 1e-10,
@@ -189,7 +193,6 @@ sparameters = {
     },
 }
 sparameters['snes'].update(linear_snes_params)
-
 sparameters.update(scpc_sparams)
 
 # set up nonlinear solver
@@ -201,37 +204,53 @@ PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0
 nonlinear_its = 0
 
-ofile = VTKFile('output/'+args.filename+'.pvd')
-uout = fd.Function(u_initial.function_space(), name='velocity')
-hout = fd.Function(h_initial.function_space(), name='depth')
+if args.write_file:
+    ofile = VTKFile('output/'+args.filename+'.pvd')
+    uout = fd.Function(u_initial.function_space(), name='velocity')
+    hout = fd.Function(h_initial.function_space(), name='depth')
 
-uout.assign(u_initial)
-hout.assign(h_initial - gcase.H)
-ofile.write(uout, hout, time=0)
+    uout.assign(u_initial)
+    hout.assign(h_initial - gcase.H)
+    ofile.write(uout, hout, time=0)
+
+timer = SolverTimer()
 
 
 def preproc(app, step, t):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'=== --- Timestep {step} --- ===')
     PETSc.Sys.Print('')
+    timer.start_timing()
 
 
 def postproc(app, step, t):
-    global linear_its
-    global nonlinear_its
+    global linear_its, nonlinear_its
+    timer.stop_timing()
 
     linear_its += app.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += app.nlsolver.snes.getIterationNumber()
 
-    u, h = app.w0.subfunctions
-    uout.assign(u)
-    hout.assign(h-gcase.H)
-    ofile.write(uout, hout, time=t/units.hour)
+    if args.write_file:
+        u, h = app.w0.subfunctions
+        uout.assign(u)
+        hout.assign(h-gcase.H)
+        ofile.write(uout, hout, time=t/units.hour)
 
 
-miniapp.solve(args.nt,
-              preproc=preproc,
-              postproc=postproc)
+with PETSc.Log.Event("warmup_solve"):
+    miniapp.solve(nt=1,
+                  preproc=preproc,
+                  postproc=postproc)
+
+miniapp.w0.assign(w_initial)
+miniapp.w1.assign(w_initial)
+linear_its -= linear_its
+nonlinear_its -= nonlinear_its
+
+with PETSc.Log.Event("timed_solves"):
+    miniapp.solve(nt=args.nt,
+                  preproc=preproc,
+                  postproc=postproc)
 
 PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
@@ -239,4 +258,16 @@ PETSc.Sys.Print('')
 
 PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {linear_its/args.nt}')
 PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/args.nt}')
+PETSc.Sys.Print('')
+
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}')
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size}')
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
+PETSc.Sys.Print('')
+
+if timer.ntimes() > 1:
+    timer.times = timer.times[1:]
+
+PETSc.Sys.Print(timer.string(timesteps_per_solve=1,
+                             total_iterations=linear_its, ndigits=5))
 PETSc.Sys.Print('')

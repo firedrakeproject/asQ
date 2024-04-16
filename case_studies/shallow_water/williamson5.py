@@ -1,4 +1,5 @@
 from firedrake.petsc import PETSc
+from pyop2.mpi import MPI
 
 from math import sqrt
 from utils import units
@@ -50,7 +51,7 @@ patch_parameters = {
         'partition_of_unity': True,
         'sub_mat_type': 'seqdense',
         'construct_dim': 0,
-        'construct_type': 'vanka',
+        'construct_type': 'star',
         'local_type': 'additive',
         'precompute_element_tensors': True,
         'symmetrise_sweep': False
@@ -90,11 +91,11 @@ sparameters = {
     },
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'v',
-    'pc_mg_type': 'multiplicative',
+    'pc_mg_type': 'full',
     'mg': mg_parameters
 }
 
-atol = 1e5
+atol = 1e4
 patol = sqrt(window_length)*atol
 sparameters_diag = {
     'snes': {
@@ -111,7 +112,7 @@ sparameters_diag = {
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
+        'converged_rate': None,
         'rtol': 1e-2,
         'atol': patol,
     },
@@ -154,22 +155,35 @@ miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
                                   record_diagnostics={'cfl': True, 'file': False},
                                   file_name='output/'+args.filename)
 
+solver_time = []
+
 
 def window_preproc(swe_app, pdg, wndw):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'### === --- Calculating time-window {wndw} --- === ###')
     PETSc.Sys.Print('')
+    stime = MPI.Wtime()
+    solver_time.append(stime)
 
 
 def window_postproc(swe_app, pdg, wndw):
+    etime = MPI.Wtime()
+    stime = solver_time[-1]
+    duration = etime - stime
+    solver_time[-1] = duration
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'Window solution time: {duration}')
+    PETSc.Sys.Print('')
+
+    nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
+    time = nt*pdg.aaoform.dt
+    comm = miniapp.ensemble.comm
+    PETSc.Sys.Print(f'Hours = {round(float(time/units.hour), 2)}')
+    PETSc.Sys.Print(f'Days = {round(float(time/earth.day), 2)}')
+    PETSc.Sys.Print('')
+
     if miniapp.layout.is_local(miniapp.save_step):
-        nt = (pdg.total_windows - 1)*pdg.ntimesteps + (miniapp.save_step + 1)
-        time = nt*pdg.aaoform.dt
-        comm = miniapp.ensemble.comm
-        PETSc.Sys.Print('', comm=comm)
-        PETSc.Sys.Print(f'Maximum CFL = {swe_app.cfl_series[wndw]}', comm=comm)
-        PETSc.Sys.Print(f'Hours = {float(time/units.hour)}', comm=comm)
-        PETSc.Sys.Print(f'Days = {float(time/earth.day)}', comm=comm)
+        PETSc.Sys.Print(f'Maximum CFL = {round(swe_app.cfl_series[wndw], 4)}', comm=comm)
         PETSc.Sys.Print('', comm=comm)
 
 
@@ -202,4 +216,20 @@ PETSc.Sys.Print('')
 
 PETSc.Sys.Print(f'Maximum CFL = {max(miniapp.cfl_series)}')
 PETSc.Sys.Print(f'Minimum CFL = {min(miniapp.cfl_series)}')
+PETSc.Sys.Print('')
+
+W = miniapp.W
+mesh = W.mesh()
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}')
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size} ')
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
+PETSc.Sys.Print(f'Block DoFs/rank: {2*W.dim()/mesh.comm.size}')
+PETSc.Sys.Print('')
+
+if len(solver_time) > 1:
+    solver_time[0] = solver_time[1]
+
+PETSc.Sys.Print(f'Total solution time: {sum(solver_time)}')
+PETSc.Sys.Print(f'Average window solution time: {sum(solver_time)/len(solver_time)}')
+PETSc.Sys.Print(f'Average timestep solution time: {sum(solver_time)/(window_length*len(solver_time))}')
 PETSc.Sys.Print('')
