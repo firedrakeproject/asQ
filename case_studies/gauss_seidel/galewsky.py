@@ -1,5 +1,6 @@
 from firedrake.petsc import PETSc
 
+from pyop2.mpi import MPI
 import asQ
 import firedrake as fd
 from utils import units
@@ -91,6 +92,14 @@ block_appctx = {
     'aux_form_function': aux_form_function
 }
 
+snes_linear_params = {
+    'type': 'ksponly',
+    'lag_jacobian': -2,
+    'lag_jacobian_persists': None,
+    'lag_preconditioner': -2,
+    'lag_preconditioner_persists': None,
+}
+
 # parameters for the implicit diagonal solve in step-(b)
 factorisation_params = {
     'ksp_type': 'preonly',
@@ -99,15 +108,62 @@ factorisation_params = {
     'pc_factor_reuse_fill': None,
 }
 
-lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
+lu_params = {
+    'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps',
+    'pc_factor_shift_type': 'nonzero',
+}
 lu_params.update(factorisation_params)
 
 aux_pc = {
-    'snes_lag_preconditioner': -2,
-    'snes_lag_preconditioner_persists': None,
     'pc_type': 'python',
     'pc_python_type': 'asQ.AuxiliaryBlockPC',
+    'aux_snes': snes_linear_params,
     'aux': lu_params,
+    'ksp_max_it': 50,
+}
+
+patch_parameters = {
+    'pc_patch': {
+        'save_operators': True,
+        'partition_of_unity': True,
+        'sub_mat_type': 'seqdense',
+        'construct_dim': 0,
+        'construct_type': 'vanka',
+        'local_type': 'additive',
+        'precompute_element_tensors': True,
+        'symmetrise_sweep': False
+    },
+    'sub': {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_shift_type': 'nonzero',
+    }
+}
+
+from utils.mg import ManifoldTransferManager  # noqa: F401
+mg_parameters = {
+    'transfer_manager': f'{__name__}.ManifoldTransferManager',
+    'levels': {
+        'ksp_type': 'gmres',
+        'ksp_max_it': 4,
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.PatchPC',
+        'patch': patch_parameters
+    },
+    'coarse': {
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.AssembledPC',
+        'assembled': lu_params,
+    }
+}
+
+mg_pc = {
+    'pc_type': 'mg',
+    'pc_mg_cycle_type': 'v',
+    'pc_mg_type': 'multiplicative',
+    'mg': mg_parameters,
+    'ksp_max_it': 10,
 }
 
 sparameters = {
@@ -116,19 +172,19 @@ sparameters = {
     'ksp': {
         'atol': 1e-5,
         'rtol': 1e-5,
-        'max_it': 30,
         'converged_maxits': None,
     },
 }
-sparameters.update(aux_pc)
+# sparameters.update(aux_pc)
+sparameters.update(mg_pc)
 
 atol = args.atol
 patol = sqrt(chunk_length)*atol
 sparameters_diag = {
     'snes': {
         'linesearch_type': 'basic',
-        'monitor': None,
-        'converged_reason': None,
+        # 'monitor': None,
+        # 'converged_reason': None,
         'atol': patol,
         'rtol': 1e-10,
         'stol': 1e-12,
@@ -186,7 +242,7 @@ chunk_solver = asQ.AllAtOnceSolver(chunk_aaoform, chunk_aaofunc,
 chunk_indexes = np.array([*range(args.nchunks)], dtype=int)
 
 # we need to make this an array so we can send it via mpi
-convergence_flag = np.array([False], dtype=bool)
+convergence_residual = np.array([0.])
 
 # first mpi rank on each chunk (assumes all chunks are equal size):
 chunk_root = lambda c: c*chunk_ensemble.global_comm.size
@@ -231,14 +287,14 @@ PETSc.Sys.Print('### === --- Initialising all chunks --- === ###')
 PETSc.Sys.Print('')
 sleep_time = 0.01
 for j in range(args.nchunks):
-    PETSc.Sys.Print(f'    === --- Initial nonlinear sweep {j} --- ===    ')
+    PETSc.Sys.Print(f'=== --- Initial nonlinear sweep {j} --- ===    ')
     PETSc.Sys.Print('')
 
     # only smooth chunks that the first sweep has reached
 
     if args.serial:
         for i in range(j+1):
-            PETSc.Sys.Print(f'        --- Calculating chunk {i} ---        ')
+            PETSc.Sys.Print(f'--- Calculating chunk {i} ---        ')
 
             global_comm.Barrier()
             sleep(sleep_time)
@@ -249,8 +305,7 @@ for j in range(args.nchunks):
 
             PETSc.Sys.Print("")
     else:
-        if chunk_id < j+1:
-            chunk_solver.solve()
+         chunk_solver.solve()
 
     # propogate solution
     update_chunk_halos(uprev)
@@ -266,14 +321,19 @@ for j in range(args.nchunks):
 PETSc.Sys.Print('### === --- All chunks initialised  --- === ###')
 PETSc.Sys.Print('')
 
+solver_time = []
+
 for j in range(args.nsweeps):
-    PETSc.Sys.Print(f'    === --- Calculating nonlinear sweep {j} --- ===    ')
+    stime = MPI.Wtime()
+    solver_time.append(stime)
+
+    PETSc.Sys.Print(f'=== --- Calculating nonlinear sweep {j} --- ===    ')
     PETSc.Sys.Print('')
 
     # 1) one smoothing application on each chunk
     if args.serial:
         for i in range(args.nchunks):
-            PETSc.Sys.Print(f'        --- Calculating chunk {i} on solver {chunk_indexes[i]} ---        ')
+            PETSc.Sys.Print(f'--- Calculating chunk {i} on solver {chunk_indexes[i]} ---        ')
 
             global_comm.Barrier()
             sleep(sleep_time)
@@ -300,20 +360,29 @@ for j in range(args.nsweeps):
         chunk_aaoform.assemble()
         with chunk_aaoform.F.global_vec_ro() as rvec:
             res = rvec.norm()
-        convergence_flag[0] = (res < patol)
+        convergence_residual[0] = res
 
     # rank 0 on the earliest chunk tells everyone if they've converged
-    global_ensemble.global_comm.Bcast(convergence_flag,
+    global_ensemble.global_comm.Bcast(convergence_residual,
                                       root=chunk_root(chunk_indexes[0]))
 
     # update and report
-    if convergence_flag[0]:
+    iteration_converged = convergence_residual[0] < patol
+    if iteration_converged:
         nconverged += 1
+        PETSc.Sys.Print(f">>> Chunk {nconverged-1} converged with residual {convergence_residual[0]:.3e}")
+    else:
+        PETSc.Sys.Print(f">>> Chunk {nconverged-1} did not converge with residual {convergence_residual[0]:.3e}")
 
     converged_time = nconverged*chunk_length*args.dt
+    PETSc.Sys.Print(f">>> Converged time: {converged_time} hours")
     PETSc.Sys.Print('')
-    PETSc.Sys.Print(f">>> Converged chunks: {nconverged}.")
-    PETSc.Sys.Print(f">>> Converged time: {converged_time} hours.")
+
+    etime = MPI.Wtime()
+    stime = solver_time[-1]
+    duration = etime - stime
+    solver_time[-1] = duration
+    PETSc.Sys.Print(f'Sweep solution time: {duration}')
     PETSc.Sys.Print('')
 
     # 4) stop iterating if we've reached the end
@@ -323,7 +392,7 @@ for j in range(args.nsweeps):
         break
 
     # 5) shuffle and restart if we haven't reached the end
-    if convergence_flag[0]:
+    if iteration_converged:
         # earliest chunk_id becomes last chunk
         if earliest():
             chunk_aaofunc.assign(uprev)
@@ -344,3 +413,9 @@ PETSc.Sys.Print(f"Number of chunks converged per sweep: {nconverged/nsweeps}")
 PETSc.Sys.Print(f"Number of sweeps per converged chunk: {nsweeps/nconverged if nconverged else 'n/a'}")
 PETSc.Sys.Print(f"Number of iterations per converged chunk: {niterations/nconverged if nconverged else 'n/a'}")
 PETSc.Sys.Print(f"Number of timesteps per iteration: {nconverged*chunk_length/niterations}")
+
+PETSc.Sys.Print(f'Total solution time: {sum(solver_time)}')
+PETSc.Sys.Print(f'Average sweep solution time: {sum(solver_time)/len(solver_time)}')
+PETSc.Sys.Print(f'Average chunk solution time: {sum(solver_time)/(nconverged)}')
+PETSc.Sys.Print(f'Average timestep solution time: {sum(solver_time)/(nconverged*chunk_length)}')
+PETSc.Sys.Print('')
