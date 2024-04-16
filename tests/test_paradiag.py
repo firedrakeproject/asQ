@@ -53,7 +53,7 @@ def test_Nitsche_BCs():
     }
 
     M = [2, 2]
-    solver_parameters_diag["diagfft_block_"] = sparameters
+    solver_parameters_diag["circulant_block_"] = sparameters
 
     theta = 0.5
 
@@ -157,7 +157,7 @@ def test_Nitsche_heat_timeseries():
     }
 
     for i in range(sum(time_partition)):
-        parallel_sparameters['diagfft_block_'+str(i)] = block_sparameters
+        parallel_sparameters['circulant_block_'+str(i)] = block_sparameters
     appctx = {}
 
     miniapp = ComparisonMiniapp(ensemble, time_partition,
@@ -341,11 +341,11 @@ def test_galewsky_timeseries():
         },
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
-        'diagfft_alpha': 1e-3,
+        'circulant_alpha': 1e-3,
     }
 
     for i in range(sum(time_partition)):
-        parallel_sparameters['diagfft_block_'+str(i)] = block_sparameters
+        parallel_sparameters['circulant_block_'+str(i)] = block_sparameters
 
     appctx = {}
     transfer_managers = []
@@ -439,12 +439,12 @@ def test_steady_swe_miniapp():
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
         'aaos_jacobian_state': 'initial',
-        'diagfft_state': 'initial',
-        'diagfft_alpha': 1e-5,
+        'circulant_state': 'initial',
+        'circulant_alpha': 1e-5,
     }
 
     for i in range(sum(time_partition)):
-        solver_parameters_diag["diagfft_block_"+str(i)] = sparameters
+        solver_parameters_diag["circulant_block_"+str(i)] = sparameters
 
     dt = 0.2*units.hour
 
@@ -551,7 +551,7 @@ def test_solve_para_form(bc_opt, extruded):
     }
 
     for i in range(ntimesteps):
-        solver_parameters_diag[f"diagfft_block_{i}_"] = sparameters
+        solver_parameters_diag[f"circulant_block_{i}_"] = sparameters
 
     def form_function(u, v, t):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
@@ -633,11 +633,11 @@ def test_diagnostics():
         'ksp_type': 'preonly',
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
-        'diagfft_alpha': 1e-3,
+        'circulant_alpha': 1e-3,
     }
 
     for i in range(sum(time_partition)):
-        diag_sparameters["diagfft_block_" + str(i) + "_"] = block_sparameters
+        diag_sparameters["circulant_block_" + str(i) + "_"] = block_sparameters
 
     def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
