@@ -294,7 +294,6 @@ class HybridisedSCPC(fd.PCBase):
     def update(self, pc):
         usubs = zip(self.uref.subfunctions, self.utr_ref.subfunctions[:-1])
         self._mend_or_break(usubs)
-
         self.solver.invalidate_jacobian()
 
     def _process_context(self, pc):
