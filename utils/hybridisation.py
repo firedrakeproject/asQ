@@ -265,7 +265,7 @@ class HybridisedSCPC(fd.PCBase):
             "condensed_field": default_trace_params
         }
 
-        problem = fd.LinearVariationalProblem(A, L, self.ytr)
+        problem = fd.LinearVariationalProblem(A, L, self.ytr, constant_jacobian=True)
         self.solver = fd.LinearVariationalSolver(
             problem, appctx=self.appctx,
             solver_parameters=scpc_params,
@@ -294,6 +294,8 @@ class HybridisedSCPC(fd.PCBase):
     def update(self, pc):
         usubs = zip(self.uref.subfunctions, self.utr_ref.subfunctions[:-1])
         self._mend_or_break(usubs)
+
+        self.solver._ctx._jacobian_assembled = False
 
     def _process_context(self, pc):
         appctx = self.get_appctx(pc)
