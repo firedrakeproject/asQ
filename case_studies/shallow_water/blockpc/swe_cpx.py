@@ -66,6 +66,7 @@ parser.add_argument('--alpha', type=float, default=1e-3, help='Circulant paramet
 parser.add_argument('--eigenvalue', type=int, default=0, help='Index of the circulant eigenvalues to use for the complex coefficients.')
 parser.add_argument('--seed', type=int, default=12345, help='Seed for the random right hand side.')
 parser.add_argument('--nrhs', type=int, default=1, help='Number of random right hand sides to solve for.')
+parser.add_argument('--method', type=str, default='mg', choices=['lu', 'mg', 'lswe', 'hybr'], help='Preconditioning method to use.')
 parser.add_argument('--rtol', type=float, default=1e-5, help='Relative tolerance for solution of each block.')
 parser.add_argument('--foutname', type=str, default='iterations', help='Name of output file to write iteration counts.')
 parser.add_argument('--checkpoint', type=str, default='swe_series', help='Name of checkpoint file.')
@@ -152,55 +153,12 @@ L = fd.Cofunction(W.dual())
 
 # PETSc solver parameters
 
-linear_snes_params = {
-    'lag_preconditioner': -2,
-    'lag_preconditioner_persists': None,
-}
-
-factorisation_params = {
+lu_params = {
     'ksp_type': 'preonly',
-    # 'pc_factor_mat_ordering_type': 'rcm',
+    'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps',
     'pc_factor_reuse_ordering': None,
     'pc_factor_reuse_fill': None,
-}
-
-lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
-lu_params.update(factorisation_params)
-
-ilu_params = {'pc_type': 'ilu'}
-ilu_params.update(factorisation_params)
-
-patch_parameters = {
-    'pc_patch': {
-        'save_operators': True,
-        'partition_of_unity': True,
-        'sub_mat_type': 'seqdense',
-        'construct_dim': 0,
-        'construct_type': 'vanka',
-        'local_type': 'additive',
-        'precompute_element_tensors': True,
-        'symmetrise_sweep': False
-    },
-    'sub': {
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_shift_type': 'nonzero',
-    }
-}
-
-mg_parameters = {
-    'levels': {
-        'ksp_type': 'gmres',
-        'ksp_max_it': 5,
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.PatchPC',
-        'patch': patch_parameters
-    },
-    'coarse': {
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.AssembledPC',
-        'assembled': lu_params
-    },
 }
 
 mg_sparams = {
@@ -208,7 +166,36 @@ mg_sparams = {
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'full',
-    'mg': mg_parameters
+    'mg': {
+        'levels': {
+            'ksp_type': 'gmres',
+            'ksp_max_it': 5,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.PatchPC',
+            'patch': {
+                'pc_patch': {
+                    'save_operators': True,
+                    'partition_of_unity': True,
+                    'sub_mat_type': 'seqdense',
+                    'construct_dim': 0,
+                    'construct_type': 'vanka',
+                    'local_type': 'additive',
+                    'precompute_element_tensors': True,
+                    'symmetrise_sweep': False
+                },
+                'sub': {
+                    'ksp_type': 'preonly',
+                    'pc_type': 'lu',
+                    'pc_factor_shift_type': 'nonzero',
+                }
+            }
+        },
+        'coarse': {
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled': lu_params
+        },
+    }
 }
 
 from utils.hybridisation import HybridisedSCPC  # noqa: F401
@@ -230,9 +217,17 @@ sparams = {
     'ksp_rtol': args.rtol,
     'ksp_type': 'gmres',
 }
-sparams.update(hybridization_sparams)
-# sparams.update(aux_sparams)
-# sparams.update(mg_sparams)
+
+if args.method == 'lu':
+    sparams.update(lu_params)
+elif args.method == 'mg':
+    sparams.update(mg_sparams)
+elif args.method == 'lswe':
+    sparams.update(aux_sparams)
+elif args.method == 'hybr':
+    sparams.update(hybridization_sparams)
+else:
+    raise ValueError(f"Unknown method {args.method}")
 
 if args.verbose:
     sparams["ksp_monitor"] = None
