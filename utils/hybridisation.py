@@ -295,7 +295,7 @@ class HybridisedSCPC(fd.PCBase):
         usubs = zip(self.uref.subfunctions, self.utr_ref.subfunctions[:-1])
         self._mend_or_break(usubs)
 
-        self.solver._ctx._jacobian_assembled = False
+        self.solver.invalidate_jacobian()
 
     def _process_context(self, pc):
         appctx = self.get_appctx(pc)
