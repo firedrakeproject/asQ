@@ -2,11 +2,13 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 
+from firedrake.output import VTKFile
+
 from utils import units
-from utils import mg
 from utils.planets import earth
 import utils.shallow_water as swe
-import utils.shallow_water.gravity_bumps as case
+import utils.shallow_water.gravity_bumps as gcase
+from utils.hybridisation import HybridisedSCPC  # noqa: F401
 
 from utils.serial import SerialMiniApp
 
@@ -24,6 +26,7 @@ parser.add_argument('--nt', type=int, default=20, help='Number of time steps.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours.')
 parser.add_argument('--degree', type=float, default=swe.default_degree(), help='Degree of the depth function space.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for implicit theta method. 0.5 for trapezium rule, 1 for backwards Euler.')
+parser.add_argument('--method', type=str, default='mg', choices=['lu', 'mg', 'hybr', 'scpc'], help='Preconditioning method to use.')
 parser.add_argument('--filename', type=str, default='swe', help='Name of output vtk files')
 parser.add_argument('--show_args', action='store_true', default=True, help='Output all the arguments.')
 
@@ -48,114 +51,136 @@ dt = args.dt*units.hour
 W = swe.default_function_space(mesh, degree=args.degree)
 
 # parameters
-coriolis = case.coriolis_expression(*x)
-
+g = earth.Gravity
+H = gcase.H
+f = gcase.coriolis_expression(*x)
 
 # initial conditions
 w_initial = fd.Function(W)
 u_initial, h_initial = w_initial.subfunctions
 
-u_initial.project(case.velocity_expression(*x))
-h_initial.project(case.depth_expression(*x))
+u_initial.project(gcase.velocity_expression(*x))
+h_initial.project(gcase.depth_expression(*x))
 
 
 # shallow water equation forms
-def form_function(u, h, v, q, t):
-    return swe.linear.form_function(mesh,
-                                    earth.Gravity, case.H,
-                                    coriolis,
-                                    u, h, v, q, t)
-
-
 def form_mass(u, h, v, q):
     return swe.linear.form_mass(mesh, u, h, v, q)
 
 
-patch_parameters = {
-    'pc_patch': {
-        'save_operators': True,
-        'partition_of_unity': True,
-        'sub_mat_type': 'seqdense',
-        'construct_dim': 0,
-        'construct_type': 'vanka',
-        'local_type': 'additive',
-        'precompute_element_tensors': True,
-        'symmetrise_sweep': False
-    },
-    'sub': {
-        'ksp_type': 'preonly',
-        'pc_type': 'fieldsplit',
-        'pc_fieldsplit_type': 'schur',
-        'pc_fieldsplit_detect_saddle_point': None,
-        'pc_fieldsplit_schur_fact_type': 'full',
-        'pc_fieldsplit_schur_precondition': 'full',
-        'fieldsplit_ksp_type': 'preonly',
-        'fieldsplit_pc_type': 'lu',
-    }
+def form_function(u, h, v, q, t):
+    return swe.linear.form_function(mesh, g, H, f,
+                                    u, h, v, q, t)
+
+
+# solver parameters for the implicit solve
+
+linear_snes_params = {
+    'lag_jacobian': -2,
+    'lag_jacobian_persists': None,
+    'lag_preconditioner': -2,
+    'lag_preconditioner_persists': None,
+}
+
+lu_params = {
+    'ksp_type': 'preonly',
+    'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps',
+    'pc_factor_reuse_ordering': None,
+    'pc_factor_reuse_fill': None,
 }
 
 from utils.mg import ManifoldTransferManager  # noqa: F401
-mg_parameters = {
-    'transfer_manager': f'{__name__}.ManifoldTransferManager',
-    'levels': {
-        'ksp_type': 'gmres',
-        'ksp_max_it': 5,
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.PatchPC',
-        'patch': patch_parameters
-    },
-    'coarse': {
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.AssembledPC',
-        'assembled_pc_type': 'lu',
-        'assembled_pc_factor_mat_solver_type': 'mumps',
-    },
+mg_sparameters = {
+    'mat_type': 'matfree',
+    'pc_type': 'mg',
+    'pc_mg_cycle_type': 'v',
+    'pc_mg_type': 'multiplicative',
+    'mg': {
+        'transfer_manager': f'{__name__}.ManifoldTransferManager',
+        'levels': {
+            'ksp_type': 'gmres',
+            'ksp_max_it': 3,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.PatchPC',
+            'patch': {
+                'pc_patch': {
+                    'save_operators': True,
+                    'partition_of_unity': True,
+                    'sub_mat_type': 'seqdense',
+                    'construct_dim': 0,
+                    'construct_type': 'vanka',
+                    'local_type': 'additive',
+                    'precompute_element_tensors': True,
+                    'symmetrise_sweep': False
+                },
+                'sub': {
+                    'ksp_type': 'preonly',
+                    'pc_type': 'lu',
+                    'pc_factor_shift_type': 'nonzero',
+                }
+            }
+        },
+        'coarse': {
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled': lu_params
+        },
+    }
 }
 
-# solver parameters for the implicit solve
+hybridization_sparams = {
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": "firedrake.HybridizationPC",
+    "hybridization": lu_params
+}
+
+scpc_sparams = {
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": f"{__name__}.HybridisedSCPC",
+    "hybridscpc_condensed_field": lu_params,
+}
+
+atol = 1e2
 sparameters = {
+    'snes': linear_snes_params,
     'snes_type': 'ksponly',
-    'snes': {
-        'monitor': None,
-        'converged_reason': None,
-        'atol': 1e-0,
-        'rtol': 1e-10,
-        'stol': 1e-12,
-    },
-    'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
-        'atol': 1e-0,
+        'atol': atol,
         'rtol': 1e-10,
         'stol': 1e-12,
         'monitor': None,
-        'converged_reason': None
+        'converged_rate': None
     },
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'multiplicative',
-    'mg': mg_parameters
 }
 
-# set up nonlinear solver
-miniapp = SerialMiniApp(dt, args.theta,
-                        w_initial,
-                        form_mass,
-                        form_function,
-                        sparameters)
+if args.method == 'lu':
+    sparameters.update(lu_params)
+elif args.method == 'mg':
+    sparameters.update(mg_sparameters)
+elif args.method == 'hybr':
+    sparameters.update(hybridization_sparams)
+elif args.method == 'scpc':
+    sparameters.update(hybridization_sparams)
 
-miniapp.nlsolver.set_transfer_manager(mg.ManifoldTransferManager())
+# set up nonlinear solver
+miniapp = SerialMiniApp(dt, args.theta, w_initial,
+                        form_mass, form_function,
+                        sparameters)
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0
 nonlinear_its = 0
 
-ofile = fd.File('output/'+args.filename+'.pvd')
+ofile = VTKFile('output/'+args.filename+'.pvd')
 uout = fd.Function(u_initial.function_space(), name='velocity')
 hout = fd.Function(h_initial.function_space(), name='depth')
 
 uout.assign(u_initial)
-hout.assign(h_initial - case.H)
+hout.assign(h_initial - gcase.H)
 ofile.write(uout, hout, time=0)
 
 
@@ -174,7 +199,7 @@ def postproc(app, step, t):
 
     u, h = app.w0.subfunctions
     uout.assign(u)
-    hout.assign(h-case.H)
+    hout.assign(h-gcase.H)
     ofile.write(uout, hout, time=t/units.hour)
 
 
@@ -182,6 +207,7 @@ miniapp.solve(args.nt,
               preproc=preproc,
               postproc=postproc)
 
+PETSc.Sys.Print('')
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 

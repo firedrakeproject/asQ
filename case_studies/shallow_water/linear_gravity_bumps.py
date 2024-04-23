@@ -47,84 +47,46 @@ dt = args.dt*units.hour
 
 # parameters for the implicit diagonal solve in step-(b)
 
-patch_parameters = {
-    'pc_patch': {
-        'save_operators': True,
-        'partition_of_unity': True,
-        'sub_mat_type': 'seqdense',
-        'construct_dim': 0,
-        'construct_type': 'vanka',
-        'local_type': 'additive',
-        'precompute_element_tensors': True,
-        'symmetrise_sweep': False
-    },
-    'sub': {
+from utils.hybridisation import HybridisedSCPC  # noqa: F401
+hybridscpc_parameters = {
+    "ksp_type": 'preonly',
+    "mat_type": "matfree",
+    "pc_type": "python",
+    "pc_python_type": f"{__name__}.HybridisedSCPC",
+    "hybridscpc_condensed_field": {
         'ksp_type': 'preonly',
         'pc_type': 'lu',
-        'pc_factor_shift_type': 'nonzero',
+        'pc_factor_mat_solver_type': 'mumps',
+        'snes': {  # reuse factorisation
+            'lag_jacobian': -2,
+            'lag_jacobian_persists': None,
+            'lag_preconditioner': -2,
+            'lag_preconditioner_persists': None,
+        }
     }
-}
-
-from utils.mg import ManifoldTransferManager  # noqa: F401
-mg_parameters = {
-    'transfer_manager': f'{__name__}.ManifoldTransferManager',
-    'levels': {
-        'ksp_type': 'gmres',
-        'ksp_max_it': 5,
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.PatchPC',
-        'patch': patch_parameters
-    },
-    'coarse': {
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.AssembledPC',
-        'assembled_pc_type': 'lu',
-        'assembled_pc_factor_mat_solver_type': 'mumps'
-    }
-}
-
-sparameters = {
-    'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    'ksp': {
-        'atol': 1e-5,
-        'rtol': 1e-5,
-        'max_it': 60
-    },
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'w',
-    'pc_mg_type': 'multiplicative',
-    'mg': mg_parameters
 }
 
 rtol = 1e-10
 atol = 1e0
 sparameters_diag = {
     'snes_type': 'ksponly',
-    'snes': {
-        'linesearch_type': 'basic',
-        'monitor': None,
-        'converged_reason': None,
-        'rtol': rtol,
-        'atol': atol,
-    },
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
     'ksp': {
         'monitor': None,
-        'converged_reason': None,
+        'converged_rate': None,
         'rtol': rtol,
         'atol': atol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
-    'diagfft_alpha': args.alpha,
-    'diagfft_state': 'linear',
+    'circulant_alpha': args.alpha,
+    'circulant_state': 'linear',
     'aaos_jacobian_state': 'linear',
 }
 
 for i in range(window_length):
-    sparameters_diag['diagfft_block_'+str(i)+'_'] = sparameters
+    sparameters_diag['circulant_block_'+str(i)+'_'] = hybridscpc_parameters
 
 create_mesh = partial(
     swe.create_mg_globe_mesh,
