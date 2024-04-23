@@ -74,7 +74,8 @@ parser.add_argument('--funcname', type=str, default='swe', help='Name of the Fun
 parser.add_argument('--index', type=int, default=0, help='Index of Function in checkpoint file.')
 parser.add_argument('--ref_level', type=int, default=0, help='Icosahedral sphere mesh refinement level with mesh hierarchy. 0 for no mesh hierarchy.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
-parser.add_argument('--verbose', '-v', action='store_true', help='Print KSP outputs.')
+parser.add_argument('-v', action='store_true', help='Print KSP convergence.')
+parser.add_argument('-vv', action='store_true', help='Print KSP convergence and monitor.')
 
 args = parser.parse_known_args()
 args = args[0]
@@ -139,8 +140,6 @@ d1c = cpx.ComplexConstant(d1)
 d2c = cpx.ComplexConstant(d2)
 
 dhat = (d1/d2) / (1/(theta*dt))
-# Print(f"D1 = {D1}")
-# Print(f"D2 = {D2}")
 
 # block forms
 M, d1r, d1i = cpx.BilinearForm(W, d1c, form_mass, return_z=True)
@@ -159,6 +158,7 @@ lu_params = {
     'pc_factor_mat_solver_type': 'mumps',
     'pc_factor_reuse_ordering': None,
     'pc_factor_reuse_fill': None,
+    'pc_factor_shift_type': 'nonzero',
 }
 
 mg_sparams = {
@@ -169,7 +169,7 @@ mg_sparams = {
     'mg': {
         'levels': {
             'ksp_type': 'gmres',
-            'ksp_max_it': 5,
+            'ksp_max_it': 3,
             'pc_type': 'python',
             'pc_python_type': 'firedrake.PatchPC',
             'patch': {
@@ -229,9 +229,10 @@ elif args.method == 'hybr':
 else:
     raise ValueError(f"Unknown method {args.method}")
 
-if args.verbose:
-    sparams["ksp_monitor"] = None
+if args.v:
     sparams["ksp_converged_rate"] = None
+if args.vv:
+    sparams["ksp_monitor"] = None
 
 appctx = {
     'cpx': cpx,
@@ -253,9 +254,12 @@ solver = fd.LinearVariationalSolver(problem, appctx=appctx,
                                     options_prefix="block",
                                     solver_parameters=sparams)
 
+fstr = lambda x, n: str(round(x, n)).rjust(3+n)
+
 neigs = args.nt//2+1
 nits = np.zeros((neigs, args.nrhs), dtype=int)
 for i in range(neigs):
+
     freq = freqs[i]
     d1 = D1[i]
     d2 = D2[i]
@@ -266,6 +270,9 @@ for i in range(neigs):
 
     d2r.assign(d2.real)
     d2i.assign(d2.imag)
+
+    if args.v or args.vv:
+        PETSc.Sys.Print(f"Eigenvalues {str(i).rjust(3)}:\n    d1 = {np.round(d1,4)}, d2 = {np.round(d2,4)}, dhat = {np.round(dhat,4)}")
 
     np.random.seed(args.seed)
     for j in range(args.nrhs):
@@ -281,7 +288,6 @@ maxit = np.max(nits, axis=1)
 minit = np.min(nits, axis=1)
 stdit = np.std(nits, axis=1)
 
-fstr = lambda x, n: str(round(x, n)).rjust(3+n)
 for i in range(neigs):
     PETSc.Sys.Print(f"Eigenvalue {str(i).rjust(2)} iterations: mean = {fstr(meanit[i], 1)} | max = {str(maxit[i]).rjust(2)} | min = {str(minit[i]).rjust(2)} | std = {fstr(stdit[i], 2)}")
 
