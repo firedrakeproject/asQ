@@ -12,6 +12,16 @@ from utils.serial import SerialMiniApp
 
 PETSc.Sys.popErrorHandler()
 
+# Run the Galewsky test case and checkpoint solution to disk at specified intervals.
+#
+# These checkpoints can be used for:
+# 1. converting to vtu to check solution veracity using `checkpoint_to_pvd.py`
+# 2. starting a test from partway through the Galewsky case - e.g. starting
+#    a Paradiag run from several days in once nonlinearity has developed.
+# 3. Testing solvers for the nonlinear blocks using standalone complex-proxy
+#    scripts. The checkpoints are used to linearise the nonlinear operator around
+#    to construct the complex-proxy blocks.
+
 # get command arguments
 import argparse
 parser = argparse.ArgumentParser(
