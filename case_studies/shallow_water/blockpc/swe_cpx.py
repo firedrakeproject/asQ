@@ -42,26 +42,15 @@ class ApproxHybridPC(fd.PCBase):
         Af = fd.inner(w, v)*fd.dx
         Lf = fd.inner(q, self.xf)*fd.dx
 
-        if 'cpx' in appctx:
-            aux_pc_type = 'asQ.AuxiliaryComplexBlockPC'
-        else:
-            aux_pc_type = 'asQ.AuxiliaryRealBlockPC'
-
         subpc_params = {
             'mat_type': 'matfree',
             'ksp_type': 'preonly',
             'pc_type': 'python',
-            'pc_python_type': aux_pc_type,
-            'aux': {
-                "mat_type": "matfree",
+            "pc_python_type": f"{__name__}.HybridisedSCPC",
+            "hybridscpc_condensed_field": {
                 "ksp_type": "preonly",
-                "pc_type": "python",
-                "pc_python_type": f"{__name__}.HybridisedSCPC",
-                "hybridscpc_condensed_field": {
-                    "ksp_type": "preonly",
-                    "pc_type": "lu",
-                    "pc_factor_mat_solver_type": "mumps",
-                }
+                "pc_type": "lu",
+                "pc_factor_mat_solver_type": "mumps",
             }
         }
 
@@ -303,6 +292,7 @@ schurhybr_sparams = {
     },
     'fieldsplit_1': {
         'ksp_type': 'gmres',
+        'gmres_restart': 60,
         'ksp_rtol': 1e-2,
         'pc_type': 'python',
         'pc_python_type': f'{__name__}.ApproxHybridPC',
