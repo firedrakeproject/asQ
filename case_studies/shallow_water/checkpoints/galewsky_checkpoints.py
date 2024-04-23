@@ -4,7 +4,6 @@ from firedrake.petsc import PETSc
 
 from utils import units
 from utils import mg
-from utils.misc import function_mean
 from utils.planets import earth
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
@@ -75,7 +74,7 @@ w0 = fd.Function(W).assign(w_initial)
 w1 = fd.Function(W).assign(w_initial)
 
 # mean height
-H = function_mean(h_initial)
+H = galewsky.H0
 
 
 # shallow water equation forms
