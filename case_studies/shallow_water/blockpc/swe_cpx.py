@@ -14,6 +14,83 @@ PETSc.Sys.popErrorHandler()
 Print = PETSc.Sys.Print
 
 
+# PC forming approximate hybridisable system (without advection)
+# solve it using hybridisation and then return the DG part
+# (for use in a Schur compement setup)
+class ApproxHybridPC(fd.PCBase):
+    def initialize(self, pc):
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
+
+        appctx = self.get_appctx(pc)
+
+        # get function space
+        V = appctx['uref'].function_space()
+
+        # input and output functions
+        _, Vh = V.subfunctions
+        self.xfstar = fd.Cofunction(Vh.dual())
+        self.xf = fd.Function(Vh)  # result of riesz map of the above
+
+        self.wf = fd.Function(V)  # solution of expanded problem
+        _, self.yf = self.wf.subfunctions  # residual result
+
+        w = fd.TrialFunction(V)
+        v = fd.TestFunction(V)
+        _, q = fd.split(v)
+
+        Af = fd.inner(w, v)*fd.dx
+        Lf = fd.inner(q, self.xf)*fd.dx
+
+        if 'cpx' in appctx:
+            aux_pc_type = 'asQ.AuxiliaryComplexBlockPC'
+        else:
+            aux_pc_type = 'asQ.AuxiliaryRealBlockPC'
+
+        subpc_params = {
+            'mat_type': 'matfree',
+            'ksp_type': 'preonly',
+            'pc_type': 'python',
+            'pc_python_type': aux_pc_type,
+            'aux': {
+                "mat_type": "matfree",
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": f"{__name__}.HybridisedSCPC",
+                "hybridscpc_condensed_field": {
+                    "ksp_type": "preonly",
+                    "pc_type": "lu",
+                    "pc_factor_mat_solver_type": "mumps",
+                }
+            }
+        }
+
+        problem = fd.LinearVariationalProblem(Af, Lf, self.wf)
+        self.solver = fd.LinearVariationalSolver(
+            problem,
+            solver_parameters=subpc_params,
+            appctx=appctx)
+
+    def update(self, pc):
+        pass
+
+    def applyTranspose(self, pc, x, y):
+        raise NotImplementedError
+
+    def apply(self, pc, x, y):
+        # copy petsc vec into Function
+        with self.xfstar.dat.vec_wo as v:
+            x.copy(v)
+        self.xf.assign(self.xfstar.riesz_representation())
+
+        self.wf.assign(0)
+        self.solver.solve()
+
+        # copy petsc vec into Function
+        with self.yf.dat.vec_ro as v:
+            v.copy(y)
+
+
 def read_checkpoint(checkpoint_name, funcname, index, ref_level=0):
     with fd.CheckpointFile(f"{checkpoint_name}.h5", "r") as checkpoint:
         mesh = checkpoint.load_mesh()
@@ -66,7 +143,7 @@ parser.add_argument('--alpha', type=float, default=1e-3, help='Circulant paramet
 parser.add_argument('--eigenvalue', type=int, default=0, help='Index of the circulant eigenvalues to use for the complex coefficients.')
 parser.add_argument('--seed', type=int, default=12345, help='Seed for the random right hand side.')
 parser.add_argument('--nrhs', type=int, default=1, help='Number of random right hand sides to solve for.')
-parser.add_argument('--method', type=str, default='mg', choices=['lu', 'mg', 'lswe', 'hybr'], help='Preconditioning method to use.')
+parser.add_argument('--method', type=str, default='mg', choices=['lu', 'mg', 'lswe', 'hybr', 'schur'], help='Preconditioning method to use.')
 parser.add_argument('--rtol', type=float, default=1e-5, help='Relative tolerance for solution of each block.')
 parser.add_argument('--foutname', type=str, default='iterations', help='Name of output file to write iteration counts.')
 parser.add_argument('--checkpoint', type=str, default='swe_series', help='Name of checkpoint file.')
@@ -148,7 +225,9 @@ K, d2r, d2i = cpx.derivative(d2c, form_function, wref, return_z=True)
 A = M + K
 
 # random rhs
-L = fd.Cofunction(W.dual())
+l = fd.Function(W)
+L = fd.inner(fd.TestFunction(W), l)*fd.dx
+# L = fd.Cofunction(W.dual())
 
 # PETSc solver parameters
 
@@ -213,6 +292,23 @@ aux_sparams = {
     "aux": lu_params,
 }
 
+schurhybr_sparams = {
+    'pc_type': 'fieldsplit',
+    'pc_fieldsplit_type': 'schur',
+    'pc_fieldsplit_schur_fact_type': 'full',
+    'fieldsplit_0': {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps',
+    },
+    'fieldsplit_1': {
+        'ksp_type': 'gmres',
+        'ksp_rtol': 1e-2,
+        'pc_type': 'python',
+        'pc_python_type': f'{__name__}.ApproxHybridPC',
+    },
+}
+
 sparams = {
     'ksp_rtol': args.rtol,
     'ksp_type': 'gmres',
@@ -226,10 +322,12 @@ elif args.method == 'lswe':
     sparams.update(aux_sparams)
 elif args.method == 'hybr':
     sparams.update(hybridization_sparams)
+elif args.method == 'schur':
+    sparams.update(schurhybr_sparams)
 else:
     raise ValueError(f"Unknown method {args.method}")
 
-if args.v:
+if args.v or args.vv:
     sparams["ksp_converged_rate"] = None
 if args.vv:
     sparams["ksp_monitor"] = None
@@ -278,7 +376,7 @@ for i in range(neigs):
     for j in range(args.nrhs):
         wout.assign(0)
 
-        for dat in L.dat:
+        for dat in l.dat:
             dat.data[:] = np.random.random_sample(dat.data.shape)
         solver.solve()
         nits[i, j] = solver.snes.getLinearSolveIterations()
