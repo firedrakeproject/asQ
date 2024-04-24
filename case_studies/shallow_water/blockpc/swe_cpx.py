@@ -301,7 +301,7 @@ schurhybr_sparams = {
 
 sparams = {
     'ksp_rtol': args.rtol,
-    'ksp_type': 'gmres',
+    'ksp_type': 'fgmres',
 }
 
 if args.method == 'lu':
@@ -337,7 +337,8 @@ appctx = {
 
 wout = fd.Function(W)
 
-problem = fd.LinearVariationalProblem(A, L, wout)
+problem = fd.LinearVariationalProblem(A, L, wout,
+                                      constant_jacobian=True)
 solver = fd.LinearVariationalSolver(problem, appctx=appctx,
                                     options_prefix="block",
                                     solver_parameters=sparams)
@@ -358,6 +359,8 @@ for i in range(neigs):
 
     d2r.assign(d2.real)
     d2i.assign(d2.imag)
+
+    solver.invalidate_jacobian()
 
     if args.v or args.vv:
         PETSc.Sys.Print(f"Eigenvalues {str(i).rjust(3)}:\n    d1 = {np.round(d1,4)}, d2 = {np.round(d2,4)}, dhat = {np.round(dhat,4)}")
