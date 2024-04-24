@@ -33,18 +33,6 @@ static void minify(double *a, double *b) {
     return fmin.data[0]
 
 
-def function_mean(f):
-    """
-    Find the volume averaged mean of a function.
-    """
-    mesh = f.function_space().mesh()
-    cells = fd.Function(fd.FunctionSpace(mesh, "DG", 0))
-    cells.assign(1)
-    area = fd.assemble(cells*fd.dx)
-    ftotal = fd.assemble(f*fd.dx)
-    return ftotal / area
-
-
 def curl0(u):
     """
     Curl function from y-cpt field to x-z field
