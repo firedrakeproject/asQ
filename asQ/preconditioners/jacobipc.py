@@ -138,7 +138,8 @@ class JacobiPC(AllAtOnceBlockPCBase):
             # The block rhs/solution are the timestep i of the
             # input/output AllAtOnceCofunction/Function
             block_problem = fd.LinearVariationalProblem(A, self._x[i], self._y[i],
-                                                        bcs=self.block_bcs)
+                                                        bcs=self.block_bcs,
+                                                        constant_jacobian=True)
             block_solver = fd.LinearVariationalSolver(block_problem,
                                                       appctx=appctx_h,
                                                       options_prefix=block_prefix)
@@ -169,7 +170,7 @@ class JacobiPC(AllAtOnceBlockPCBase):
             st.assign(ft)
 
         if jacobian_state == 'linear':
-            pass
+            return
 
         elif jacobian_state == 'current':
             state_func.assign(aaofunc)
@@ -198,6 +199,9 @@ class JacobiPC(AllAtOnceBlockPCBase):
 
         elif jacobian_state == 'user':
             pass
+
+        for block in self.block_solvers:
+            block.invalidate_jacobian()
 
         return
 
