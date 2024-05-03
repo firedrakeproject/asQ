@@ -228,8 +228,9 @@ class SliceJacobiPC(AllAtOncePCBase):
         of the number of timesteps on each ensemble member i.e. all
         timesteps on an ensemble member must belong to the same slice.
 
-    'slice_jacobi_slice': <AllAtOnceSolver options>
-        The solver options for the linear AllAtOnceSolver in each slice.
+    'slice_jacobi_slice_%d': <AllAtOnceSolver options>
+        The solver options for the %d'th LinearSolver for each slice, enumerated globally.
+        Use 'slice_jacobi_slice' to set options for all blocks.
     """
     prefix = "slice_jacobi_"
 
@@ -254,6 +255,7 @@ class SliceJacobiPC(AllAtOncePCBase):
         # we need to work out how many members of the global ensemble
         # needed to get `split_size` timesteps on each slice ensemble
         slice_members = slice_size // self.time_partition[0]
+        nslices = self.ntimesteps // slice_size
 
         # create the ensemble for the local slice by splitting the global ensemble
         self.slice_ensemble = split_ensemble(self.ensemble,
@@ -299,18 +301,14 @@ class SliceJacobiPC(AllAtOncePCBase):
         self.slice_form = self.aaoform.copy(aaofunc=slice_func)
 
         # # # slice parameters # # #
-        # TODO: Do we need to set anything here now that we
-        #       use LinearSolver instead of AllAtOnceSolver?
-        slice_parameters = {}
-
-        # # # slice prefix # # #
-        slice_prefix = f"{self.full_prefix}slice"
+        default_slice_prefix = f"{self.full_prefix}slice_"
+        default_slice_options = get_default_options(
+            default_slice_prefix, range(nslices))
 
         self.slice_solver = LinearSolver(
-            self.slice_form,
-            solver_parameters=slice_parameters,
-            appctx=self.appctx,
-            options_prefix=slice_prefix)
+            self.slice_form, appctx=self.appctx,
+            options_prefix=default_slice_prefix+str(self.slice_rank),
+            solver_parameters=default_slice_options)
 
         self.initialized = final_initialize
 
@@ -347,7 +345,7 @@ class SliceJacobiPC(AllAtOncePCBase):
 
         # slice times
         for i in range(self.nlocal_timesteps):
-            slice_form.time[i] = aaoform.time[i]
+            slice_form.time[i].assign(aaoform.time[i])
 
         # # # update the slice
         self.slice_solver.jacobian.update()
