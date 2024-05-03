@@ -126,16 +126,15 @@ class AuxiliaryComplexBlockPC(AuxiliaryBlockPCBase):
         d1 = self.appctx['d1']
         d2 = self.appctx['d2']
 
-        if all(type(d) is cpx.ComplexConstant for d in (d1, d2)):
-            msg = f"d1 and d2 must be of type cpx.ComplexConstant not {type(d1)} and {type(d2)}"
-            raise ValueError(msg)
-
         # PETScScalar is real so we can't get a complex number directly from options
-        d1.real.assign(self.options.getReal('d1r', default=d1.real))
-        d1.imag.assign(self.options.getReal('d1i', default=d1.imag))
+        d1r = self.options.getReal('d1r', default=d1.real)
+        d1i = self.options.getReal('d1i', default=d1.imag)
 
-        d2.real.assign(self.options.getReal('d2r', default=d2.real))
-        d2.imag.assign(self.options.getReal('d2i', default=d2.imag))
+        d2r = self.options.getReal('d2r', default=d2.real)
+        d2i = self.options.getReal('d2i', default=d2.imag)
+
+        d1 = complex(d1r, d1i)
+        d2 = complex(d2r, d2i)
 
         # complex and real valued function spaces
         W = v.function_space()
