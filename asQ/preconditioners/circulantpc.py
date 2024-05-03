@@ -10,7 +10,7 @@ from asQ.profiling import profiler
 from asQ.common import get_option_from_list, get_deprecated_option
 
 from asQ.allatonce.function import time_average as time_average_function
-from asQ.preconditioners.base import AllAtOnceBlockPCBase, get_default_options
+from asQ.preconditioners.base import AllAtOnceBlockPCBase
 
 from functools import partial
 
@@ -209,24 +209,6 @@ class CirculantPC(AllAtOnceBlockPCBase):
         # user appctx for the blocks
         block_appctx = appctx.get('block_appctx', {})
 
-        # Block i has prefix 'circulant_block_{i}', but we want to be able
-        # to set default options for all blocks using 'circulant_block'.
-        # LinearVariationalSolver will prioritise options it thinks are from
-        # the command line (including those in the `inserted_options` database
-        # of the AllAtOnceSolver) over the ones passed to __init__, so we pull
-        # the default options off the global dict and pass these explicitly to LVS.
-
-        default_block_prefix = f"{prefix}block_"
-        deprecated_block_prefix = f"{self.deprecated_prefix}block_"
-        for k, v in PETSc.Options().getAll().items():
-            if k.startswith(f"{deprecated_block_prefix}"):
-                msg = "Prefix 'diagfft' is deprecated and will be removed in the future. Use 'circulant' instead."
-                warn(msg)
-                default_block_prefix = deprecated_block_prefix
-
-        default_block_options = get_default_options(
-            default_block_prefix, range(self.ntimesteps))
-
         # building the block problem solvers
         for i in range(self.nlocal_timesteps):
             ii = aaofunc.transform_index(i, from_range='slice', to_range='window')
@@ -239,6 +221,7 @@ class CirculantPC(AllAtOnceBlockPCBase):
             A = M + K
 
             # The rhs
+            v = fd.TestFunction(self.CblockV)
             L = self.block_rhs
 
             # pass parameters into PC:
@@ -252,14 +235,31 @@ class CirculantPC(AllAtOnceBlockPCBase):
                 "form_mass": self.form_mass,
                 "form_function": self.form_function,
             }
+
             appctx_h.update(block_appctx)
+
+            # Options with prefix 'diagfft_block_' apply to all blocks by default
+            # If any options with prefix 'diagfft_block_{i}' exist, where i is the
+            # block number, then this prefix is used instead (like pc fieldsplit)
+
+            block_prefix = f"{prefix}block_"
+            deprecated_block_prefix = f"{self.deprecated_prefix}block_"
+            for k, v in PETSc.Options().getAll().items():
+                if k.startswith(f"{deprecated_block_prefix}"):
+                    msg = "Prefix 'diagfft' is deprecated and will be removed in the future. Use 'circulant' instead."
+                    warn(msg)
+                    block_prefix = deprecated_block_prefix
+
+            for k, v in PETSc.Options().getAll().items():
+                if k.startswith(f"{block_prefix}{str(ii)}_"):
+                    block_prefix = f"{block_prefix}{str(ii)}_"
+                    break
 
             block_problem = fd.LinearVariationalProblem(A, L, self.block_sol,
                                                         bcs=self.block_bcs)
-            block_solver = fd.LinearVariationalSolver(
-                block_problem, appctx=appctx_h,
-                options_prefix=default_block_prefix+str(ii),
-                solver_parameters=default_block_options)
+            block_solver = fd.LinearVariationalSolver(block_problem,
+                                                      appctx=appctx_h,
+                                                      options_prefix=block_prefix)
 
             self.block_solvers.append(block_solver)
 

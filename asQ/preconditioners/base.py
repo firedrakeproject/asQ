@@ -9,17 +9,6 @@ from asQ.allatonce.mixin import TimePartitionMixin
 from asQ.allatonce import AllAtOnceFunction, AllAtOnceCofunction
 
 
-def get_default_options(default_prefix, custom_suffixes, options=PETSc.Options()):
-    custom_prefixes = (default_prefix + str(suffix) for suffix in custom_suffixes)
-    default_options = {
-        k.removeprefix(default_prefix): v
-        for k, v in options.getAll().items()
-        if k.startswith(default_prefix)
-        and not any(k.startswith(prefix) for prefix in custom_prefixes)
-    }
-    return default_options
-
-
 class AllAtOncePCBase(TimePartitionMixin):
     """
     Base class for preconditioners for the all-at-once system.
