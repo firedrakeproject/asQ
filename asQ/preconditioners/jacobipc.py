@@ -223,7 +223,7 @@ class SliceJacobiPC(AllAtOncePCBase):
     member).
     The preconditioner is constructed as a block-diagonal system where
     each block is the all-at-once system of a slice. Each block (slice)
-    is (approximately) solved with its own AllAtOnceSolver.
+    is (approximately) solved with its own KSP.
 
     PETSc options:
 
