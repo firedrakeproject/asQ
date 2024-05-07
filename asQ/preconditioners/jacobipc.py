@@ -5,7 +5,8 @@ from asQ.ensemble import split_ensemble
 from asQ.parallel_arrays import SharedArray
 from asQ.allatonce import (time_average, LinearSolver,
                            AllAtOnceFunction, AllAtOnceCofunction)
-from asQ.preconditioners.base import AllAtOnceBlockPCBase, AllAtOncePCBase
+from asQ.preconditioners.base import (AllAtOnceBlockPCBase, AllAtOncePCBase,
+                                      get_default_options)
 
 __all__ = ['JacobiPC', 'SliceJacobiPC']
 
@@ -94,6 +95,16 @@ class JacobiPC(AllAtOnceBlockPCBase):
         dt1 = fd.Constant(1/self.dt)
         tht = fd.Constant(self.theta)
 
+        # Block i has prefix 'aaojacobi_block_{i}', but we want to be able
+        # to set default options for all blocks using 'aaojacobi_block'.
+        # LinearVariationalSolver will prioritise options it thinks are from
+        # the command line (including those in the `inserted_options` database
+        # of the AllAtOnceSolver) over the ones passed to __init__, so we pull
+        # the default options off the global dict and pass these explicitly to LVS.
+        default_block_prefix = f"{self.full_prefix}block_"
+        default_block_options = get_default_options(
+            default_block_prefix, range(self.ntimesteps))
+
         # building the block problem solvers
         for i in range(self.nlocal_timesteps):
 
@@ -123,30 +134,19 @@ class JacobiPC(AllAtOnceBlockPCBase):
 
             appctx_h.update(block_appctx)
 
-            # Options with prefix 'aaojacobi_block_' apply to all blocks by default
-            # If any options with prefix 'aaojacobi_block_{i}' exist, where i is the
-            # block number, then this prefix is used instead (like pc fieldsplit)
-
+            # the global index of this block
             ii = aaofunc.transform_index(i, from_range='slice', to_range='window')
-
-            block_prefix = f"{self.full_prefix}block_"
-            for k, v in PETSc.Options().getAll().items():
-                if k.startswith(f"{block_prefix}{str(ii)}_"):
-                    block_prefix = f"{block_prefix}{str(ii)}_"
-                    break
 
             # The block rhs/solution are the timestep i of the
             # input/output AllAtOnceCofunction/Function
             block_problem = fd.LinearVariationalProblem(A, self._x[i], self._y[i],
                                                         bcs=self.block_bcs,
                                                         constant_jacobian=True)
-            block_solver = fd.LinearVariationalSolver(block_problem,
-                                                      appctx=appctx_h,
-                                                      options_prefix=block_prefix)
-            # multigrid transfer manager
-            if f'{self.full_prefix}transfer_managers' in self.appctx:
-                tm = self.appctx[f'{self.prefix}transfer_managers'][i]
-                block_solver.set_transfer_manager(tm)
+
+            block_solver = fd.LinearVariationalSolver(
+                block_problem, appctx=appctx_h,
+                options_prefix=default_block_prefix+str(ii),
+                solver_parameters=default_block_options)
 
             self.block_solvers.append(block_solver)
 
@@ -223,7 +223,7 @@ class SliceJacobiPC(AllAtOncePCBase):
     member).
     The preconditioner is constructed as a block-diagonal system where
     each block is the all-at-once system of a slice. Each block (slice)
-    is (approximately) solved with its own AllAtOnceSolver.
+    is (approximately) solved with its own KSP.
 
     PETSc options:
 
@@ -232,8 +232,9 @@ class SliceJacobiPC(AllAtOncePCBase):
         of the number of timesteps on each ensemble member i.e. all
         timesteps on an ensemble member must belong to the same slice.
 
-    'slice_jacobi_slice': <AllAtOnceSolver options>
-        The solver options for the linear AllAtOnceSolver in each slice.
+    'slice_jacobi_slice_%d': <AllAtOnceSolver options>
+        The solver options for the %d'th LinearSolver for each slice, enumerated globally.
+        Use 'slice_jacobi_slice' to set options for all blocks.
     """
     prefix = "slice_jacobi_"
 
@@ -258,6 +259,7 @@ class SliceJacobiPC(AllAtOncePCBase):
         # we need to work out how many members of the global ensemble
         # needed to get `split_size` timesteps on each slice ensemble
         slice_members = slice_size // self.time_partition[0]
+        nslices = self.ntimesteps // slice_size
 
         # create the ensemble for the local slice by splitting the global ensemble
         self.slice_ensemble = split_ensemble(self.ensemble,
@@ -303,18 +305,14 @@ class SliceJacobiPC(AllAtOncePCBase):
         self.slice_form = self.aaoform.copy(aaofunc=slice_func)
 
         # # # slice parameters # # #
-        # TODO: Do we need to set anything here now that we
-        #       use LinearSolver instead of AllAtOnceSolver?
-        slice_parameters = {}
-
-        # # # slice prefix # # #
-        slice_prefix = f"{self.full_prefix}slice"
+        default_slice_prefix = f"{self.full_prefix}slice_"
+        default_slice_options = get_default_options(
+            default_slice_prefix, range(nslices))
 
         self.slice_solver = LinearSolver(
-            self.slice_form,
-            solver_parameters=slice_parameters,
-            appctx=self.appctx,
-            options_prefix=slice_prefix)
+            self.slice_form, appctx=self.appctx,
+            options_prefix=default_slice_prefix+str(self.slice_rank),
+            solver_parameters=default_slice_options)
 
         self.initialized = final_initialize
 
@@ -351,7 +349,7 @@ class SliceJacobiPC(AllAtOncePCBase):
 
         # slice times
         for i in range(self.nlocal_timesteps):
-            slice_form.time[i] = aaoform.time[i]
+            slice_form.time[i].assign(aaoform.time[i])
 
         # # # update the slice
         self.slice_solver.jacobian.update()
