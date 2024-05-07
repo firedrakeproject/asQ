@@ -256,7 +256,8 @@ class CirculantPC(AllAtOnceBlockPCBase):
                     break
 
             block_problem = fd.LinearVariationalProblem(A, L, self.block_sol,
-                                                        bcs=self.block_bcs)
+                                                        bcs=self.block_bcs,
+                                                        constant_jacobian=True)
             block_solver = fd.LinearVariationalSolver(block_problem,
                                                       appctx=appctx_h,
                                                       options_prefix=block_prefix)
@@ -314,6 +315,9 @@ class CirculantPC(AllAtOnceBlockPCBase):
 
         cpx.set_real(self.u0, ustate)
         cpx.set_imag(self.u0, ustate)
+
+        for block in self.block_solvers:
+            block.invalidate_jacobian()
         return
 
     @profiler()
