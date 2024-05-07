@@ -89,12 +89,11 @@ class ManualEnsemble(Ensemble):
         if MPI.Group.Intersection(spatial_group, ensemble_group).size != 1:
             raise PyOP2CommError("spatial and ensemble comms must be cartesian product in global_comm")
 
-        spatial_intersection = MPI.Group.Intersection(global_group, spatial_group)
-        ensemble_intersection = MPI.Group.Intersection(global_group, ensemble_group)
+        is_subgroup = lambda sub, group: MPI.Group.Compare(sub, MPI.Group.Intersection(sub, group)) in {MPI.IDENT, MPI.CONGRUENT}
 
-        if MPI.Group.Compare(spatial_intersection, spatial_group) not in {MPI.IDENT, MPI.CONGRUENT}:
+        if not is_subgroup(spatial_group, global_group):
             raise PyOP2CommError("spatial_comm must be subgroup of global_comm")
-        if MPI.Group.Compare(ensemble_intersection, ensemble_group) not in {MPI.IDENT, MPI.CONGRUENT}:
+        if not is_subgroup(ensemble_group, global_group):
             raise PyOP2CommError("ensemble_comm must be subgroup of global_comm")
 
         # create internal duplicates and name comms for debugging
