@@ -103,11 +103,12 @@ def test_circulantpc(alpha):
     assert niterations == 3, "CirculantPC should have a convergence rate alpha"
 
 
-nstep = [pytest.param(n, id=f"nstep{n}") for n in (1, 2, 4, 8)]
+nstep1to8 = [pytest.param(n, id=f"nstep{n}") for n in (1, 2, 4, 8)]
+nstep2to16 = [pytest.param(n, id=f"nstep{n}") for n in (2, 4, 8, 16)]
 
 
 @pytest.mark.parallel(nprocs=8)
-@pytest.mark.parametrize("nsteps", nstep)
+@pytest.mark.parametrize("nsteps", nstep1to8)
 def test_slicejacobipc_jacobi(nsteps):
     slice_length = 1
     time_partition = [slice_length for _ in range(8)]
@@ -253,3 +254,66 @@ def test_slicejacobipc_circulant():
         err = errvec.norm()
 
     assert err < 1e-15, "SliceJacobiPC with CirculantPC should be exactly CirculantPC if nstep=nt"
+
+
+@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parametrize("nsteps", nstep2to16)
+def test_slicejacobipc_slice(nsteps):
+    slice_length = 2
+    time_partition = [slice_length for _ in range(8)]
+    ensemble = asQ.create_ensemble(time_partition)
+
+    ntimesteps = sum(time_partition)
+    nslices = ntimesteps//nsteps
+
+    mesh = fd.UnitSquareMesh(nx=16, ny=16,
+                             comm=ensemble.comm)
+    x, y = fd.SpatialCoordinate(mesh)
+
+    V = fd.FunctionSpace(mesh, "CG", 1)
+    uinitial = fd.Function(V)
+    uinitial.project(fd.sin(x) + fd.cos(y))
+
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    def form_function(u, v, t):
+        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+
+    parameters = {
+        'ksp_monitor': None,
+        'ksp_converged_rate': None,
+        'snes_type': 'ksponly',
+        'mat_type': 'matfree',
+        'ksp_type': 'richardson',
+        'ksp_rtol': 1e-15,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.SliceJacobiPC',
+        'slice_jacobi_nsteps': nsteps,
+        'slice_jacobi_state': 'linear',
+        'slice_jacobi_slice': {
+            'ksp_type': 'fgmres',
+            'ksp_rtol': 1e-15,
+            'pc_type': 'python',
+            'pc_python_type': 'asQ.CirculantPC',
+            'circulant_alpha': 1e-8,
+            'circulant_block': {
+                'ksp_type': 'preonly',
+                'pc_type': 'lu',
+            },
+            'circulant_state': 'linear',
+        }
+    }
+
+    paradiag = asQ.Paradiag(
+        ensemble=ensemble,
+        form_mass=form_mass,
+        form_function=form_function,
+        ics=uinitial, dt=0.1, theta=0.5,
+        time_partition=time_partition,
+        solver_parameters=parameters)
+
+    paradiag.solve(nwindows=1)
+
+    niterations = paradiag.solver.snes.getLinearSolveIterations()
+    assert niterations == nslices, "SliceJacobiPC should solve exactly after nt iterations"
