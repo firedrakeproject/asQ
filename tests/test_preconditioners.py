@@ -2,16 +2,9 @@ import firedrake as fd
 import asQ
 import pytest
 
-nts = [pytest.param(n, id=f"nt{n}") for n in (4, 8, 16, 32)]
 
-
-@pytest.mark.parallel(nprocs=4)
-@pytest.mark.parametrize("nt", nts)
-def test_jacobipc(nt):
-    slice_length = nt//4
-    time_partition = [slice_length for _ in range(4)]
+def make_paradiag(time_partition, parameters):
     ensemble = asQ.create_ensemble(time_partition)
-
     mesh = fd.UnitSquareMesh(nx=16, ny=16,
                              comm=ensemble.comm)
     x, y = fd.SpatialCoordinate(mesh)
@@ -26,6 +19,24 @@ def test_jacobipc(nt):
     def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
+    return asQ.Paradiag(
+        ensemble=ensemble,
+        form_mass=form_mass,
+        form_function=form_function,
+        ics=uinitial, dt=0.1, theta=0.5,
+        time_partition=time_partition,
+        solver_parameters=parameters)
+
+
+nts = [pytest.param(n, id=f"nt{n}") for n in (4, 8, 16, 32)]
+
+
+@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parametrize("nt", nts)
+def test_jacobipc(nt):
+    slice_length = nt//4
+    time_partition = [slice_length for _ in range(4)]
+
     solver_parameters = {
         'snes_type': 'ksponly',
         'mat_type': 'matfree',
@@ -39,13 +50,7 @@ def test_jacobipc(nt):
         },
     }
 
-    paradiag = asQ.Paradiag(
-        ensemble=ensemble,
-        form_mass=form_mass,
-        form_function=form_function,
-        ics=uinitial, dt=0.1, theta=0.5,
-        time_partition=time_partition,
-        solver_parameters=solver_parameters)
+    paradiag = make_paradiag(time_partition, solver_parameters)
 
     paradiag.solve(nwindows=1)
 
@@ -58,21 +63,6 @@ def test_jacobipc(nt):
 def test_circulantpc(alpha):
     slice_length = 4
     time_partition = [slice_length for _ in range(4)]
-    ensemble = asQ.create_ensemble(time_partition)
-
-    mesh = fd.UnitSquareMesh(nx=16, ny=16,
-                             comm=ensemble.comm)
-    x, y = fd. SpatialCoordinate(mesh)
-
-    V = fd.FunctionSpace(mesh, "CG", 1)
-    uinitial = fd.Function(V)
-    uinitial.project(fd.sin(x) + fd.cos(y))
-
-    def form_mass(u, v):
-        return u*v*fd.dx
-
-    def form_function(u, v, t):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     solver_parameters = {
         'snes_type': 'ksponly',
@@ -89,13 +79,7 @@ def test_circulantpc(alpha):
         },
     }
 
-    paradiag = asQ.Paradiag(
-        ensemble=ensemble,
-        form_mass=form_mass,
-        form_function=form_function,
-        ics=uinitial, dt=0.1, theta=0.5,
-        time_partition=time_partition,
-        solver_parameters=solver_parameters)
+    paradiag = make_paradiag(time_partition, solver_parameters)
 
     paradiag.solve(nwindows=1)
 
@@ -261,26 +245,9 @@ def test_slicejacobipc_circulant():
 def test_slicejacobipc_slice(nsteps):
     slice_length = 2
     time_partition = [slice_length for _ in range(8)]
-    ensemble = asQ.create_ensemble(time_partition)
+    nslices = sum(time_partition)//nsteps
 
-    ntimesteps = sum(time_partition)
-    nslices = ntimesteps//nsteps
-
-    mesh = fd.UnitSquareMesh(nx=16, ny=16,
-                             comm=ensemble.comm)
-    x, y = fd.SpatialCoordinate(mesh)
-
-    V = fd.FunctionSpace(mesh, "CG", 1)
-    uinitial = fd.Function(V)
-    uinitial.project(fd.sin(x) + fd.cos(y))
-
-    def form_mass(u, v):
-        return u*v*fd.dx
-
-    def form_function(u, v, t):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
-
-    parameters = {
+    solver_parameters = {
         'ksp_monitor': None,
         'ksp_converged_rate': None,
         'snes_type': 'ksponly',
@@ -305,15 +272,9 @@ def test_slicejacobipc_slice(nsteps):
         }
     }
 
-    paradiag = asQ.Paradiag(
-        ensemble=ensemble,
-        form_mass=form_mass,
-        form_function=form_function,
-        ics=uinitial, dt=0.1, theta=0.5,
-        time_partition=time_partition,
-        solver_parameters=parameters)
+    paradiag = make_paradiag(time_partition, solver_parameters)
 
     paradiag.solve(nwindows=1)
 
     niterations = paradiag.solver.snes.getLinearSolveIterations()
-    assert niterations == nslices, "SliceJacobiPC should solve exactly after nt iterations"
+    assert niterations == nslices, "SliceJacobiPC with exactly solved slices should solve exactly after nt iterations"
