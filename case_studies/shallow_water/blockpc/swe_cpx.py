@@ -416,7 +416,7 @@ for i in range(neigs):
 
     solver = fd.LinearVariationalSolver(
         problem, appctx=appctx,
-        options_prefix="block",
+        options_prefix=f"block_{k}",
         solver_parameters=sparams)
     solver.invalidate_jacobian()
 
