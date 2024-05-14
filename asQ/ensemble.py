@@ -47,7 +47,7 @@ def split_ensemble(ensemble, split_size, **kwargs):
 
     # create split_ensemble.ensemble_comm
     split_ensemble_comm = ensemble.ensemble_comm.Split(color=split_rank,
-                                                       key=ensemble.global_comm.rank)
+                                                       key=ensemble.ensemble_comm.rank)
 
     return ManualEnsemble(split_global_comm, ensemble.comm, split_ensemble_comm, **kwargs)
 
