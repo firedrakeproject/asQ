@@ -123,8 +123,17 @@ def read_checkpoint(checkpoint_name, funcname, index, ref_level=0):
 
 # get command arguments
 import argparse
+description = "Test preconditioners for the complex block for the nonlinear shallow water equations.\
+    - Calculates the circulant eigenvalues from the given arguments, and tests either one\
+      or all eigenvalue pairs with random right hand sides.\
+    - Requires a CheckpointFile containing the state for the shallow water equation as\
+      well as Functions for 'topography' and for 'coriolis'.\
+    - If using the multigrid method, the ref_level of the mesh in the CheckpointFile must\
+      be provided, and the script must be run serially. This is because CheckpointFile\
+      can't save a MeshHierarchy."
+
 parser = argparse.ArgumentParser(
-    description='Test preconditioners for the complex block for the Galewsky testcase.',
+    description=description,
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 
@@ -135,7 +144,7 @@ parser.add_argument('--alpha', type=float, default=1e-3, help='Circulant paramet
 parser.add_argument('--eigenvalue', type=int, default=-1, help='Index of the circulant eigenvalues to use for the complex coefficients. -1 for all')
 parser.add_argument('--seed', type=int, default=12345, help='Seed for the random right hand side.')
 parser.add_argument('--nrhs', type=int, default=1, help='Number of random right hand sides to solve for.')
-parser.add_argument('--method', type=str, default='mg', choices=['lu', 'mg', 'lswe', 'hybr', 'schur', 'composite'], help='Preconditioning method to use.')
+parser.add_argument('--method', type=str, default='lswe', choices=['lu', 'mg', 'lswe', 'hybr', 'schur', 'composite'], help='Preconditioning method to use.')
 parser.add_argument('--rtol', type=float, default=1e-5, help='Relative tolerance for solution of each block.')
 parser.add_argument('--foutname', type=str, default='iterations', help='Name of output file to write iteration counts.')
 parser.add_argument('--checkpoint', type=str, default='swe_series', help='Name of checkpoint file.')
