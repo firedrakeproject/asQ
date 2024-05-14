@@ -1,3 +1,4 @@
+import weakref
 from firedrake import COMM_WORLD, Ensemble
 from pyop2.mpi import MPI, internal_comm, is_pyop2_comm, PyOP2CommError
 
@@ -49,7 +50,13 @@ def split_ensemble(ensemble, split_size, **kwargs):
     split_ensemble_comm = ensemble.ensemble_comm.Split(color=split_rank,
                                                        key=ensemble.ensemble_comm.rank)
 
-    return ManualEnsemble(split_global_comm, ensemble.comm, split_ensemble_comm, **kwargs)
+    new_ensemble = ManualEnsemble(split_global_comm, ensemble.comm, split_ensemble_comm, **kwargs)
+
+    # make sure the new comms are cleaned up when the split ensemble goes out of scope
+    weakref.finalize(new_ensemble, split_global_comm.Free)
+    weakref.finalize(new_ensemble, split_ensemble_comm.Free)
+
+    return new_ensemble
 
 
 class ManualEnsemble(Ensemble):
@@ -69,6 +76,8 @@ class ManualEnsemble(Ensemble):
             - The size of the intersection of any (spatial_comm, ensemble_comm) pair is 1.
 
         WARNING: Not meeting these requirements may produce in errors, hangs, and nonsensical results.
+
+        ManualEnsemble will not Free any of the comms. This is the responsibility of the user.
         """
         # are we handed user comms?
 
