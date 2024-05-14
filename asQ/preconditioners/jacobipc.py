@@ -309,6 +309,15 @@ class SliceJacobiPC(AllAtOncePCBase):
         default_slice_options = get_default_options(
             default_slice_prefix, range(nslices))
 
+        # default to treating the slice as a PC not a KSP
+        has_default_ksp_type = (
+            'ksp_type' in default_slice_options
+            or ('ksp' in default_slice_options
+                and 'type' in default_slice_options['ksp']))
+
+        if not has_default_ksp_type:
+            default_slice_options['ksp_type'] = 'preonly'
+
         self.slice_solver = LinearSolver(
             self.slice_form, appctx=self.appctx,
             options_prefix=default_slice_prefix+str(self.slice_rank),
