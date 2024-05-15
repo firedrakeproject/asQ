@@ -74,7 +74,7 @@ def test_distributed_data_layout(partition):
 
         # -ve index changed to +ve
         neg_shift = layout.transform_index(-i, itype=itype, rtype=itype)
-        assert (neg_shift == imax - i), "positive index should be changed to equivalent negative index if index type unchanged"
+        assert (neg_shift == imax - i), "negative index should be changed to equivalent positive index if index type unchanged"
 
     # local address -> global address
 
