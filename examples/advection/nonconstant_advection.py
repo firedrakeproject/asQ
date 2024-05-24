@@ -40,7 +40,7 @@ window_length = sum(time_partition)
 nsteps = args.nwindows*window_length
 nt = window_length
 
-# Calculate the timestep from the CFL number
+# Calculate the CFL from the timestep number
 ubar = 1.
 dx = 1./args.nx
 dt = args.dt
@@ -48,8 +48,10 @@ cfl = ubar*dt/dx
 T = dt*nt
 pi2 = fd.Constant(2*pi)
 
+# frequency of velocity oscillations in time
 omegas = [1.43, 2.27, 4.83, 6.94]
 
+# how many points per wavelength for each spatial and temporal frequency
 PETSc.Sys.Print(f"{cfl = }, {T = }, {nt = }")
 PETSc.Sys.Print(f"Periods: {[round(T*o,3) for o in omegas]}")
 
@@ -84,9 +86,8 @@ def gaussian(x, y):
 q0 = fd.Function(V, name="scalar_initial")
 q0.interpolate(1 + gaussian(x, y))
 
-# The advecting velocity field is constant and directed at an angle to the x-axis
 
-
+# The advecting velocity field oscillates around a mean value in time and space
 def velocity(t):
     return (
         fd.as_vector((fd.Constant(ubar*cos(args.angle)), fd.Constant(ubar*sin(args.angle))))
@@ -111,9 +112,10 @@ def form_mass(q, phi):
 # asQ assumes that the function form is nonlinear so here
 # q is a Function and phi is a TestFunction
 def form_function(q, phi, t):
-    # upwind switch
     n = fd.FacetNormal(mesh)
     u = velocity(t)
+
+    # upwind switch
     un = fd.Constant(0.5)*(fd.dot(u, n) + abs(fd.dot(u, n)))
 
     # integration over element volume
@@ -130,6 +132,7 @@ def form_function(q, phi, t):
 
 # The PETSc solver parameters used to solve the
 # blocks in step (b) of inverting the ParaDiag matrix.
+# fixed number of iteration so we can use gmres outside.
 block_parameters = {
     # 'ksp_type': 'preonly',
     # 'pc_type': 'lu',
@@ -141,30 +144,15 @@ block_parameters = {
     'ksp_max_it': 20,
 }
 
-# The PETSc solver parameters for solving the all-at-once system.
-# The python preconditioner 'asQ.CirculantPC' applies the ParaDiag matrix.
-#
-# The equation is linear so we can either:
-# a) Solve it in one shot using a preconditioned Krylov method:
-#    P^{-1}Au = P^{-1}b
-#    The solver options for this are:
-#    'ksp_type': 'gmres'
-# b) Solve it with stationary iterations:
-#    Pu_{k+1} = (P - A)u_{k} + b
-#    The solver options for this are:
-#    'ksp_type': 'richardson'
-
 jacobi_parameters = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.JacobiPC',
-    'aaojacobi_state': 'linear',
     'aaojacobi_block': block_parameters,
 }
 
 circulant_parameters = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
-    'circulant_state': 'linear',
     'circulant_alpha': args.alpha,
     'circulant_block': block_parameters,
 }
@@ -175,7 +163,8 @@ def slice_parameters(nsteps):
         'pc_type': 'python',
         'pc_python_type': 'asQ.SliceJacobiPC',
         'slice_jacobi_nsteps': nsteps,
-        'slice_jacobi_slice': circulant_parameters
+        'slice_jacobi_slice': circulant_parameters,
+        # 'slice_jacobi_slice_0_ksp_monitor': None,
     } if nsteps > 1 else jacobi_parameters
 
 
@@ -184,7 +173,8 @@ def composite_parameters(*nsteps):
         'pc_type': 'composite',
         'pc_composite_type': 'multiplicative',
         'pc_composite_pcs': ','.join('python' for _ in range(len(nsteps))),
-    } | {f'sub_{i}': slice_parameters(s) for i, s in enumerate(nsteps)}
+    } | {f'sub_{i}': slice_parameters(s)
+         for i, s in enumerate(nsteps)}
 
 
 def composite_composite_parameters(nsteps_list):
@@ -192,17 +182,12 @@ def composite_composite_parameters(nsteps_list):
         'pc_type': 'composite',
         'pc_composite_type': 'multiplicative',
         'pc_composite_pcs': ','.join('composite' for _ in range(len(nsteps_list))),
-    } | {f'sub_{i}': composite_parameters(*nsteps) for i, nsteps in enumerate(nsteps_list)}
+    } | {f'sub_{i}': composite_parameters(*nsteps)
+         for i, nsteps in enumerate(nsteps_list)}
 
 
-atol = 1e-10
-rtol = 1e-2
 paradiag_parameters = {
     'snes_type': 'ksponly',  # for a linear system
-    'snes': {
-        # 'monitor': None,
-        # 'converged_reason': None,
-    },
     'mat_type': 'matfree',
     'ksp_type': 'gmres',
     'ksp': {
@@ -211,51 +196,41 @@ paradiag_parameters = {
         'rtol': 1e-4,
         'atol': 1e-12,
         'stol': 1e-12,
-        # 'view': None,
     },
-    'aaos_jacobian_state': 'linear',
 }
-composite_steps = [
-    [nt//1,
-     nt//2],
 
-    [nt//1,
-     nt//2,
-     nt//4],
 
-    [nt//2,
-     nt//1],
-    [nt//2,
-     nt//4,
-     nt//8],
+# calculate the number of timesteps for a sequence of levels given a 'coarsening' ratio
+# level 0 has all timesteps, level 1 has nt/ratio per slice, level 2 has nt/ratio^2 etc
+def level_steps(ratio, levels):
+    from math import log
+    max_level = int(log(nt)/log(ratio))
+    return tuple(nt//pow(ratio, l if l >= 0 else max_level+1+l)
+                 for l in levels)
 
-    [nt//4,
-     nt//2,
-     nt//1],
-    [nt//2,
-     nt//4,
-     nt//8,
-     nt//16],
 
-    # [nt//8,
-    #  nt//4,
-    #  nt//2,
-    #  nt//1],
-    # [nt//2,
-    #  nt//4,
-    #  nt//8,
-    #  nt//16,
-    #  nt//32],
-]
+# PCComposite can only have max 8 pcs so we nest them with n=8
+def unflatten(x, n):
+    from math import ceil
+    npacks = int(ceil(len(x)/n))
+    return tuple(tuple(x[i*n:min((i+1)*n, len(x))])
+                 for i in range(npacks))
 
-# paradiag_parameters.update(circulant_parameters)
-# paradiag_parameters.update(jacobi_parameters)
-# paradiag_parameters.update(slice_parameters(nt//2))
-# paradiag_parameters.update(composite_parameters(*composite_steps))
+
+composite_steps = level_steps(2, [0, 1,
+                                  0, 1, 2,
+                                  0, 1, 2, 3,
+                                  0, 1, 2, 3, 4,
+                                  0, 1, 2, 3, 4, 5,
+                                  0, 1, 2, 3, 4, 5, 6])
+PETSc.Sys.Print(f"{len(composite_steps)} sweeps: {composite_steps}")
+composite_steps = unflatten(composite_steps, 8)
+
 paradiag_parameters.update(composite_composite_parameters(composite_steps))
 
 # from json import dumps
 # PETSc.Sys.Print(dumps(paradiag_parameters, indent=3))
+# PETSc.Sys.Print(composite_steps)
 # from sys import exit; exit()
 
 
@@ -286,7 +261,7 @@ def window_preproc(pdg, wndw, rhs):
 is_last_slice = pdg.layout.is_local(-1)
 
 # Make an output Function on the last time-slice and start a snapshot list
-if is_last_slice:
+if is_last_slice and args.mpeg:
     qout = fd.Function(V)
     timeseries = [q0.copy(deepcopy=True)]
 
@@ -294,7 +269,7 @@ if is_last_slice:
 # This is a callback which will be called after pdg solves each time-window
 # We can use this to save the last timestep of each window for plotting.
 def window_postproc(pdg, wndw, rhs):
-    if is_last_slice:
+    if is_last_slice and args.mpeg:
         # The aaofunc is the AllAtOnceFunction which represents the time-series.
         # indexing the AllAtOnceFunction accesses one timestep on the local slice.
         # -1 is again used to get the last timestep and place it in qout.
