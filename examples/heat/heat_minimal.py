@@ -1,7 +1,7 @@
 from firedrake import *
 import asQ
 
-time_partition = [4, 4]
+time_partition = [2, 2, 2, 2]
 ensemble = asQ.create_ensemble(time_partition)
 
 mesh = SquareMesh(nx=8, ny=8, L=1,
@@ -21,21 +21,22 @@ def form_function(u, v, t):
     return inner(grad(u), grad(v))*dx
 
 
-block_parameters = {
-    'ksp_type': 'preonly',
-    'pc_type': 'lu'}
-
 solver_parameters = {
     'ksp_monitor': None,
     'ksp_converged_rate': None,
     'snes_type': 'ksponly',
     'mat_type': 'matfree',
-    'ksp_type': 'gmres',
+    'ksp_type': 'richardson',
+    'ksp_rtol': 1e-10,
     'pc_type': 'python',
-    'pc_python_type': 'asQ.JacobiPC',
-    'aaojacobi_block': block_parameters,
-    'aaojacobi_state': 'linear',
-    'aaos_jacobian_state': 'linear'}
+    'pc_python_type': 'asQ.CirculantPC',
+    'circulant_alpha': 1e-4,
+    'circulant_block': {
+        'ksp_rtol': 1e-6,
+        'ksp_type': 'gmres',
+        'pc_type': 'ilu',
+    },
+}
 
 paradiag = asQ.Paradiag(
     ensemble=ensemble,

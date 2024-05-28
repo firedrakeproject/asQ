@@ -27,6 +27,7 @@ parser.add_argument('--nt', type=int, default=10, help='Number of time steps.')
 parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--degree', type=float, default=swe.default_degree(), help='Degree of the depth function space.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for implicit theta method. 0.5 for trapezium rule, 1 for backwards Euler.')
+parser.add_argument('--method', type=str, default='mg', choices=['lu', 'mg', 'lswe', 'hybr'], help='Preconditioning method to use.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
 parser.add_argument('--write_file', action='store_true', help='Write each timestep to vtk.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
@@ -114,46 +115,42 @@ lu_params = {
     'pc_factor_reuse_fill': None,
 }
 
-patch_params = {
-    'pc_patch': {
-        'save_operators': True,
-        'partition_of_unity': True,
-        'sub_mat_type': 'seqdense',
-        'construct_dim': 0,
-        'construct_type': 'vanka',
-        'local_type': 'additive',
-        'precompute_element_tensors': True,
-        'symmetrise_sweep': False
-    },
-    'sub': {
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_shift_type': 'nonzero',
-    }
-}
-
-mg_params = {
-    'transfer_manager': f'{__name__}.ManifoldTransferManager',
-    'levels': {
-        'ksp_type': 'gmres',
-        'ksp_max_it': 4,
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.PatchPC',
-        'patch': patch_params
-    },
-    'coarse': {
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.AssembledPC',
-        'assembled': lu_params
-    },
-}
-
 mg_sparameters = {
     'mat_type': 'matfree',
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
-    'mg': mg_params
+    'mg': {
+        'transfer_manager': f'{__name__}.ManifoldTransferManager',
+        'levels': {
+            'ksp_type': 'gmres',
+            'ksp_max_it': 3,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.PatchPC',
+            'patch': {
+                'pc_patch': {
+                    'save_operators': True,
+                    'partition_of_unity': True,
+                    'sub_mat_type': 'seqdense',
+                    'construct_dim': 0,
+                    'construct_type': 'vanka',
+                    'local_type': 'additive',
+                    'precompute_element_tensors': True,
+                    'symmetrise_sweep': False
+                },
+                'sub': {
+                    'ksp_type': 'preonly',
+                    'pc_type': 'lu',
+                    'pc_factor_shift_type': 'nonzero',
+                }
+            }
+        },
+        'coarse': {
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled': lu_params
+        },
+    }
 }
 
 hybridscpc_sparameters = {
@@ -168,7 +165,7 @@ aux_sparameters = {
     'mat_type': 'matfree',
     'pc_type': 'python',
     'pc_python_type': 'asQ.AuxiliaryRealBlockPC',
-    'aux': hybridscpc_sparameters,
+    'aux': lu_params,
     'aux_snes': linear_snes_params
 }
 
@@ -191,6 +188,15 @@ sparameters = {
     },
 }
 sparameters.update(mg_sparameters)
+
+if args.method == 'lu':
+    sparameters.update(lu_params)
+elif args.method == 'mg':
+    sparameters.update(mg_sparameters)
+elif args.method == 'lswe':
+    sparameters.update(aux_sparameters)
+elif args.method == 'hybr':
+    sparameters.update(hybridscpc_sparameters)
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta, w_initial,

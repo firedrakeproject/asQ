@@ -25,7 +25,7 @@ parser.add_argument('--dt', type=float, default=1.0, help='Timestep in hours (us
 parser.add_argument('--nt', type=int, default=16, help='Number of timesteps (used to calculate the circulant eigenvalues).')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for implicit theta method. 0.5 for trapezium rule, 1 for backwards Euler (used to calculate the circulant eigenvalues).')
 parser.add_argument('--alpha', type=float, default=1e-3, help='Circulant parameter (used to calculate the circulant eigenvalues).')
-parser.add_argument('--eigenvalue', type=int, default=0, help='Index of the circulant eigenvalues to use for the complex coefficients.')
+parser.add_argument('--eigenvalue', type=int, nargs='+', default=-1, help='Index of the circulant eigenvalues to use for the complex coefficients. -1 for all.')
 parser.add_argument('--seed', type=int, default=12345, help='Seed for the random right hand side.')
 parser.add_argument('--ref_level', type=int, default=3, help='Icosahedral sphere mesh refinement level with mesh hierarchy. 0 for no mesh hierarchy.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
@@ -40,6 +40,13 @@ if args.show_args:
 nt, theta, alpha = args.nt, args.theta, args.alpha
 dt = args.dt*units.hour
 
+eigenvalues = args.eigenvalue if type(args.eigenvalue) is list else [args.eigenvalue]
+
+if len(args.eigenvalue) > 1:
+    eigenvalues = tuple(eigenvalues)
+elif args.eigenvalue[0] < 0:
+    eigenvalues = tuple(i for i in range(nt//2+1))
+
 gamma = args.alpha**(np.arange(nt)/nt)
 C1 = np.zeros(nt)
 C2 = np.zeros(nt)
@@ -51,8 +58,8 @@ D1 = np.sqrt(nt)*fft(gamma*C1)
 D2 = np.sqrt(nt)*fft(gamma*C2)
 freqs = fftfreq(nt, dt)
 
-d1 = D1[args.eigenvalue]
-d2 = D2[args.eigenvalue]
+d1 = D1[eigenvalues[0]]
+d2 = D2[eigenvalues[0]]
 
 d1c = cpx.ComplexConstant(d1)
 d2c = cpx.ComplexConstant(d2)
@@ -139,5 +146,21 @@ problem = fd.LinearVariationalProblem(A, L, wout)
 solver = fd.LinearVariationalSolver(problem, appctx=appctx,
                                     solver_parameters=params)
 
-Print(f"dhat = {np.round(dhat, 4)}")
-solver.solve()
+for j in eigenvalues:
+    d1, d2 = D1[j], D2[j]
+
+    dhat = (d1/d2) / (1/(theta*dt))
+    Print(f"dhat = {np.round(dhat, 4)}")
+
+    d1c.real.assign(d1.real)
+    d1c.imag.assign(d1.imag)
+
+    d2c.real.assign(d2.real)
+    d2c.imag.assign(d2.imag)
+
+    L.assign(0)
+    for dat in L.dat:
+        dat.data[:] = np.random.rand(*(dat.data.shape))
+    wout.assign(0)
+
+    solver.solve()

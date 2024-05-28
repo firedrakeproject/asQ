@@ -27,6 +27,7 @@ parser.add_argument('--nt', type=int, default=20, help='Number of time steps.')
 parser.add_argument('--dt', type=float, default=0.05, help='Timestep in hours.')
 parser.add_argument('--degree', type=float, default=swe.default_degree(), help='Degree of the depth function space.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for implicit theta method. 0.5 for trapezium rule, 1 for backwards Euler.')
+parser.add_argument('--method', type=str, default='mg', choices=['lu', 'mg', 'hybr', 'scpc'], help='Preconditioning method to use.')
 parser.add_argument('--filename', type=str, default='swe', help='Name of output vtk files')
 parser.add_argument('--write_file', action='store_true', help='Write each timestep to file.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
@@ -77,85 +78,57 @@ def form_function(u, h, v, q, t):
 # solver parameters for the implicit solve
 
 linear_snes_params = {
-    'type': 'ksponly',
     'lag_jacobian': -2,
     'lag_jacobian_persists': None,
     'lag_preconditioner': -2,
     'lag_preconditioner_persists': None,
 }
 
-factorisation_params = {
+lu_params = {
     'ksp_type': 'preonly',
+    'pc_type': 'lu',
+    'pc_factor_mat_solver_type': 'mumps',
     'pc_factor_reuse_ordering': None,
     'pc_factor_reuse_fill': None,
 }
 
-lu_params = {'pc_type': 'lu', 'pc_factor_mat_solver_type': 'mumps'}
-lu_params.update(factorisation_params)
-
-ilu_params = {'pc_type': 'ilu'}
-ilu_params.update(factorisation_params)
-
-icc_params = {'pc_type': 'icc'}
-icc_params.update(factorisation_params)
-
-patch_parameters = {
-    'pc_patch': {
-        'save_operators': True,
-        'partition_of_unity': True,
-        'sub_mat_type': 'seqdense',
-        'construct_dim': 0,
-        'construct_type': 'vanka',
-        'local_type': 'additive',
-        'precompute_element_tensors': True,
-        'symmetrise_sweep': False
-    },
-    'sub': {
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_shift_type': 'nonzero',
-    }
-}
-
 from utils.mg import ManifoldTransferManager  # noqa: F401
-mg_parameters = {
-    'transfer_manager': f'{__name__}.ManifoldTransferManager',
-    'levels': {
-        'ksp_type': 'gmres',
-        'ksp_max_it': 5,
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.PatchPC',
-        'patch': patch_parameters
-    },
-    'coarse': {
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.AssembledPC',
-        'assembled': lu_params
-    },
-}
-
-mg_sparams = {
+mg_sparameters = {
     'mat_type': 'matfree',
     'pc_type': 'mg',
     'pc_mg_cycle_type': 'v',
     'pc_mg_type': 'multiplicative',
-    'mg': mg_parameters
-}
-
-gamg_sparams = {
-    'ksp_type': 'fgmres',
-    'ksp_rtol': 1e-10,
-    'ksp_converged_rate': None,
-    'pc_type': 'gamg',
-    'pc_mg_cycle_type': 'v',
-    'pc_mg_type': 'multiplicative',
-    'mg_levels': {
-        'ksp_type': 'gmres',
-        'ksp_max_it': 5,
-        'pc_type': 'bjacobi',
-        'sub': ilu_params,
-    },
-    'mg_coarse': lu_params,
+    'mg': {
+        'transfer_manager': f'{__name__}.ManifoldTransferManager',
+        'levels': {
+            'ksp_type': 'gmres',
+            'ksp_max_it': 3,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.PatchPC',
+            'patch': {
+                'pc_patch': {
+                    'save_operators': True,
+                    'partition_of_unity': True,
+                    'sub_mat_type': 'seqdense',
+                    'construct_dim': 0,
+                    'construct_type': 'vanka',
+                    'local_type': 'additive',
+                    'precompute_element_tensors': True,
+                    'symmetrise_sweep': False
+                },
+                'sub': {
+                    'ksp_type': 'preonly',
+                    'pc_type': 'lu',
+                    'pc_factor_shift_type': 'nonzero',
+                }
+            }
+        },
+        'coarse': {
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled': lu_params
+        },
+    }
 }
 
 trace_params = lu_params
@@ -171,19 +144,14 @@ scpc_sparams = {
     "mat_type": "matfree",
     "pc_type": "python",
     "pc_python_type": f"{__name__}.HybridisedSCPC",
-    "hybridscpc_snes": linear_snes_params,
-    "hybridscpc_condensed_field": trace_params,
-    "hybridscpc_condensed_field_snes": linear_snes_params,
+    "hybridscpc_condensed_field": lu_params,
 }
 
 atol = 1e0
 sparameters = {
-    'snes': {
-        'atol': atol,
-        'rtol': 1e-10,
-        'stol': 1e-12,
-    },
-    'ksp_type': 'preonly',
+    'snes': linear_snes_params,
+    'snes_type': 'ksponly',
+    'ksp_type': 'fgmres',
     'ksp': {
         'atol': atol,
         'rtol': 1e-10,
@@ -192,8 +160,14 @@ sparameters = {
         'converged_rate': None
     },
 }
-sparameters['snes'].update(linear_snes_params)
-sparameters.update(scpc_sparams)
+if args.method == 'lu':
+    sparameters.update(lu_params)
+elif args.method == 'mg':
+    sparameters.update(mg_sparameters)
+elif args.method == 'hybr':
+    sparameters.update(hybridization_sparams)
+elif args.method == 'scpc':
+    sparameters.update(hybridization_sparams)
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta, w_initial,
