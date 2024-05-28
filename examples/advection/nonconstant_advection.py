@@ -141,7 +141,7 @@ block_parameters = {
     'ksp_type': 'richardson',
     'ksp_convergence_test': 'skip',
     'ksp_converged_maxits': None,
-    'ksp_max_it': 20,
+    'ksp_max_it': 50,
 }
 
 jacobi_parameters = {
@@ -164,17 +164,29 @@ def slice_parameters(nsteps):
         'pc_python_type': 'asQ.SliceJacobiPC',
         'slice_jacobi_nsteps': nsteps,
         'slice_jacobi_slice': circulant_parameters,
+        # 'slice_jacobi_slice_ksp': {
+        #     'type': 'gmres',
+        #     'rtol': 1e-10,
+        # }
         # 'slice_jacobi_slice_0_ksp_monitor': None,
     } if nsteps > 1 else jacobi_parameters
 
 
 def composite_parameters(*nsteps):
-    return {
+    params = {
         'pc_type': 'composite',
         'pc_composite_type': 'multiplicative',
-        'pc_composite_pcs': ','.join('python' for _ in range(len(nsteps))),
-    } | {f'sub_{i}': slice_parameters(s)
-         for i, s in enumerate(nsteps)}
+        'pc_composite_pcs': ','.join('ksp' for _ in range(len(nsteps))),
+    }
+    for i, s in enumerate(nsteps):
+        params[f'sub_{i}_ksp'] = slice_parameters(s)
+        params[f'sub_{i}_ksp'].update({
+            'ksp_type': 'gmres',
+            'ksp_max_it': 1,
+            'ksp_convergence_test': 'skip',
+            'ksp_converged_maxits': None,
+        })
+    return params
 
 
 def composite_composite_parameters(nsteps_list):
@@ -189,7 +201,7 @@ def composite_composite_parameters(nsteps_list):
 paradiag_parameters = {
     'snes_type': 'ksponly',  # for a linear system
     'mat_type': 'matfree',
-    'ksp_type': 'gmres',
+    'ksp_type': 'fgmres',
     'ksp': {
         'monitor_true_residual': None,
         'converged_rate': None,
@@ -202,10 +214,10 @@ paradiag_parameters = {
 
 # calculate the number of timesteps for a sequence of levels given a 'coarsening' ratio
 # level 0 has all timesteps, level 1 has nt/ratio per slice, level 2 has nt/ratio^2 etc
-def level_steps(ratio, levels):
+def level_steps(n, ratio, levels):
     from math import log
-    max_level = int(log(nt)/log(ratio))
-    return tuple(nt//pow(ratio, l if l >= 0 else max_level+1+l)
+    max_level = int(log(n)/log(ratio))
+    return tuple(n//pow(ratio, l if l >= 0 else max_level+1+l)
                  for l in levels)
 
 
@@ -216,13 +228,47 @@ def unflatten(x, n):
     return tuple(tuple(x[i*n:min((i+1)*n, len(x))])
                  for i in range(npacks))
 
+# composite_steps = level_steps(2, [0,                       #   1
+#                                   0, 1,                    #   2
+#                                   0, 1, 2,                 #   4
+#                                   0, 1, 2, 3,              #   8
+#                                   0, 1, 2, 3, 4,           #  16
+#                                   0, 1, 2, 3, 4, 5,        #  32
+#                                   0, 1, 2, 3, 4, 5, 6,     #  64
+#                                   0, 1, 2, 3, 4, 5, 6, 7]) # 128
 
-composite_steps = level_steps(2, [0, 1,
-                                  0, 1, 2,
-                                  0, 1, 2, 3,
-                                  0, 1, 2, 3, 4,
-                                  0, 1, 2, 3, 4, 5,
-                                  0, 1, 2, 3, 4, 5, 6])
+def dcycle(n):
+    return tuple(range(n+1))
+
+def vcycle(n):
+    return tuple((*dcycle(n), *range(n-1,-1,-1)))
+
+def fcycle(n, ctype='v', last_cycle='v'):
+    if ctype=='v':
+        return tuple((*fcycle(n-1, ctype), *cycle(n, last_cycle)[1:]) if n>0 else (0,))
+    elif ctype=='d':
+        return tuple((*fcycle(n-1, ctype), *dcycle(n)) if n>0 else ())
+
+def cycle(n, ctype, **kwargs):
+    if ctype == 'd':
+        return dcycle(n, **kwargs)
+    elif ctype == 'v':
+        return vcycle(n, **kwargs)
+    elif ctype[0] == 'f':
+        return fcycle(n, ctype=ctype[1], **kwargs)
+    else:
+        raise ValueError(f"unknown cycle type {ctype = }")
+
+
+composite_steps = level_steps(nt, 2,
+                              [0,                                            #   1
+                               1, 0, 1,                                      #   2
+                               2, 1, 0, 1, 2,                                #   4
+                               3, 2, 1, 0, 1, 2, 3,                          #   8
+                               4, 3, 2, 1, 0, 1, 2, 3, 4,                    #  16
+                               5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5,              #  32
+                               6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6,        #  64
+                               7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6, 7]) # 128
 PETSc.Sys.Print(f"{len(composite_steps)} sweeps: {composite_steps}")
 composite_steps = unflatten(composite_steps, 8)
 
