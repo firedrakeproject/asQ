@@ -5,6 +5,7 @@ from firedrake.output import VTKFile
 
 from utils import units
 from utils.planets import earth
+from utils.timing import SolverTimer
 import utils.shallow_water as swe
 from utils.shallow_water import galewsky
 from utils import diagnostics
@@ -27,6 +28,7 @@ parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--degree', type=float, default=swe.default_degree(), help='Degree of the depth function space.')
 parser.add_argument('--theta', type=float, default=0.5, help='Parameter for implicit theta method. 0.5 for trapezium rule, 1 for backwards Euler.')
 parser.add_argument('--filename', type=str, default='galewsky', help='Name of output vtk files')
+parser.add_argument('--write_file', action='store_true', help='Write each timestep to vtk.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -63,8 +65,8 @@ w_initial = fd.Function(W)
 u_initial = w_initial.subfunctions[0]
 h_initial = w_initial.subfunctions[1]
 
-u_initial.project(galewsky.velocity_expression(*x))
-h_initial.project(galewsky.depth_expression(*x))
+u_initial.interpolate(galewsky.velocity_expression(*x))
+h_initial.interpolate(galewsky.depth_expression(*x))
 
 # current and next timestep
 w0 = fd.Function(W).assign(w_initial)
@@ -98,7 +100,6 @@ appctx = {
 from utils.mg import ManifoldTransferManager  # noqa: F401
 
 linear_snes_params = {
-    'type': 'ksponly',
     'lag_jacobian': -2,
     'lag_jacobian_persists': None,
     'lag_preconditioner': -2,
@@ -135,7 +136,7 @@ mg_params = {
     'transfer_manager': f'{__name__}.ManifoldTransferManager',
     'levels': {
         'ksp_type': 'gmres',
-        'ksp_max_it': 3,
+        'ksp_max_it': 4,
         'pc_type': 'python',
         'pc_python_type': 'firedrake.PatchPC',
         'patch': patch_params
@@ -171,7 +172,7 @@ aux_sparameters = {
     'aux_snes': linear_snes_params
 }
 
-atol = 1e6
+atol = 1e4
 sparameters = {
     'snes': {
         'monitor': None,
@@ -189,53 +190,85 @@ sparameters = {
         'rtol': 1e-5,
     },
 }
-sparameters.update(aux_sparameters)
+sparameters.update(mg_sparameters)
 
 # set up nonlinear solver
 miniapp = SerialMiniApp(dt, args.theta, w_initial,
                         form_mass, form_function,
                         sparameters, appctx=appctx)
 
-potential_vorticity = diagnostics.potential_vorticity_calculator(
-    u_initial.function_space(), name='vorticity')
+if args.write_file:
+    potential_vorticity = diagnostics.potential_vorticity_calculator(
+        u_initial.function_space(), name='vorticity')
 
-uout = fd.Function(u_initial.function_space(), name='velocity')
-hout = fd.Function(h_initial.function_space(), name='elevation')
-ofile = VTKFile(f"output/{args.filename}.pvd")
-# save initial conditions
-uout.assign(u_initial)
-hout.assign(h_initial)
-ofile.write(uout, hout, potential_vorticity(uout), time=0)
+    uout = fd.Function(u_initial.function_space(), name='velocity')
+    hout = fd.Function(h_initial.function_space(), name='elevation')
+    ofile = VTKFile(f"output/{args.filename}.pvd")
+    # save initial conditions
+    uout.assign(u_initial)
+    hout.assign(h_initial)
+    ofile.write(uout, hout, potential_vorticity(uout), time=0)
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0
 nonlinear_its = 0
+
+timer = SolverTimer()
 
 
 def preproc(app, step, t):
     PETSc.Sys.Print('')
     PETSc.Sys.Print(f'=== --- Timestep {step} --- ===')
     PETSc.Sys.Print('')
+    timer.start_timing()
 
 
 def postproc(app, step, t):
     global linear_its, nonlinear_its
+    timer.stop_timing()
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'Timestep solution time: {timer.times[-1]}')
+    PETSc.Sys.Print('')
 
     linear_its += app.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += app.nlsolver.snes.getIterationNumber()
 
-    uout.assign(miniapp.w0.subfunctions[0])
-    hout.assign(miniapp.w0.subfunctions[1])
-    ofile.write(uout, hout, potential_vorticity(uout), time=t)
+    if args.write_file:
+        uout.assign(miniapp.w0.subfunctions[0])
+        hout.assign(miniapp.w0.subfunctions[1])
+        ofile.write(uout, hout, potential_vorticity(uout), time=t)
 
 
-miniapp.solve(args.nt,
-              preproc=preproc,
-              postproc=postproc)
+with PETSc.Log.Event("warmup_solve"):
+    miniapp.solve(nt=1,
+                  preproc=preproc,
+                  postproc=postproc)
+
+miniapp.w0.assign(w_initial)
+miniapp.w1.assign(w_initial)
+linear_its -= linear_its
+nonlinear_its -= nonlinear_its
+
+with PETSc.Log.Event("timed_solves"):
+    miniapp.solve(nt=args.nt,
+                  preproc=preproc,
+                  postproc=postproc)
 
 PETSc.Sys.Print('### === --- Iteration counts --- === ###')
 PETSc.Sys.Print('')
 
 PETSc.Sys.Print(f'linear iterations: {linear_its} | iterations per timestep: {linear_its/args.nt}')
 PETSc.Sys.Print(f'nonlinear iterations: {nonlinear_its} | iterations per timestep: {nonlinear_its/args.nt}')
+PETSc.Sys.Print('')
+
+PETSc.Sys.Print(f'DoFs per timestep: {W.dim()}')
+PETSc.Sys.Print(f'Number of MPI ranks per timestep: {mesh.comm.size}')
+PETSc.Sys.Print(f'DoFs/rank: {W.dim()/mesh.comm.size}')
+PETSc.Sys.Print('')
+
+if timer.ntimes() > 1:
+    timer.times = timer.times[1:]
+
+PETSc.Sys.Print(timer.string(timesteps_per_solve=1,
+                             total_iterations=linear_its, ndigits=5))
 PETSc.Sys.Print('')
