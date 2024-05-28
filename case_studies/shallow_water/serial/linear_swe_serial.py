@@ -226,6 +226,9 @@ def preproc(app, step, t):
 def postproc(app, step, t):
     global linear_its, nonlinear_its
     timer.stop_timing()
+    PETSc.Sys.Print('')
+    PETSc.Sys.Print(f'Timestep solution time: {timer.times[-1]}')
+    PETSc.Sys.Print('')
 
     linear_its += app.nlsolver.snes.getLinearSolveIterations()
     nonlinear_its += app.nlsolver.snes.getIterationNumber()
