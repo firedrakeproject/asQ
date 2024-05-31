@@ -91,10 +91,10 @@ q0.interpolate(1 + gaussian(x, y))
 def velocity(t):
     return (
         fd.as_vector((fd.Constant(ubar*cos(args.angle)), fd.Constant(ubar*sin(args.angle))))
-        + fd.sin(pi2*omegas[0]*t-0.0)*fd.as_vector([0.25*fd.sin(1*x*pi2+0.3), 0.20*fd.cos(1*y*pi2-0.9)])
-        - fd.cos(pi2*omegas[1]*t-0.7)*fd.as_vector([0.05*fd.cos(2*x*pi2-0.8), 0.10*fd.sin(2*x*pi2+0.1)])
-        + fd.sin(pi2*omegas[2]*t+0.6)*fd.as_vector([0.15*fd.cos(4*x*pi2+0.0), 0.05*fd.sin(4*x*pi2-0.4)])
-        - fd.cos(pi2*omegas[3]*t-0.3)*fd.as_vector([0.03*fd.cos(6*x*pi2-0.9), 0.08*fd.sin(6*x*pi2+0.2)])
+        # + fd.sin(pi2*omegas[0]*t-0.0)*fd.as_vector([0.25*fd.sin(1*x*pi2+0.3), 0.20*fd.cos(1*y*pi2-0.9)])
+        # - fd.cos(pi2*omegas[1]*t-0.7)*fd.as_vector([0.05*fd.cos(2*x*pi2-0.8), 0.10*fd.sin(2*x*pi2+0.1)])
+        # + fd.sin(pi2*omegas[2]*t+0.6)*fd.as_vector([0.15*fd.cos(4*x*pi2+0.0), 0.05*fd.sin(4*x*pi2-0.4)])
+        # - fd.cos(pi2*omegas[3]*t-0.3)*fd.as_vector([0.03*fd.cos(6*x*pi2-0.9), 0.08*fd.sin(6*x*pi2+0.2)])
     )
 
 
@@ -228,26 +228,21 @@ def unflatten(x, n):
     return tuple(tuple(x[i*n:min((i+1)*n, len(x))])
                  for i in range(npacks))
 
-# composite_steps = level_steps(2, [0,                       #   1
-#                                   0, 1,                    #   2
-#                                   0, 1, 2,                 #   4
-#                                   0, 1, 2, 3,              #   8
-#                                   0, 1, 2, 3, 4,           #  16
-#                                   0, 1, 2, 3, 4, 5,        #  32
-#                                   0, 1, 2, 3, 4, 5, 6,     #  64
-#                                   0, 1, 2, 3, 4, 5, 6, 7]) # 128
 
 def dcycle(n):
     return tuple(range(n+1))
 
+
 def vcycle(n):
-    return tuple((*dcycle(n), *range(n-1,-1,-1)))
+    return tuple((*dcycle(n), *range(n-1, -1, -1)))
+
 
 def fcycle(n, ctype='v', last_cycle='v'):
-    if ctype=='v':
-        return tuple((*fcycle(n-1, ctype), *cycle(n, last_cycle)[1:]) if n>0 else (0,))
-    elif ctype=='d':
-        return tuple((*fcycle(n-1, ctype), *dcycle(n)) if n>0 else ())
+    if ctype == 'v':
+        return tuple((*fcycle(n-1, ctype), *cycle(n, last_cycle)[1:]) if n > 0 else (0,))
+    elif ctype == 'd':
+        return tuple((*fcycle(n-1, ctype), *dcycle(n)) if n > 0 else ())
+
 
 def cycle(n, ctype, **kwargs):
     if ctype == 'd':
@@ -260,15 +255,7 @@ def cycle(n, ctype, **kwargs):
         raise ValueError(f"unknown cycle type {ctype = }")
 
 
-composite_steps = level_steps(nt, 2,
-                              [0,                                            #   1
-                               1, 0, 1,                                      #   2
-                               2, 1, 0, 1, 2,                                #   4
-                               3, 2, 1, 0, 1, 2, 3,                          #   8
-                               4, 3, 2, 1, 0, 1, 2, 3, 4,                    #  16
-                               5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5,              #  32
-                               6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6,        #  64
-                               7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6, 7]) # 128
+composite_steps = level_steps(nt, 2, cycle(5, 'fd', last_cycle='d'))
 PETSc.Sys.Print(f"{len(composite_steps)} sweeps: {composite_steps}")
 composite_steps = unflatten(composite_steps, 8)
 
