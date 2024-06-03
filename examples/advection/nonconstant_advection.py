@@ -21,6 +21,10 @@ parser.add_argument('--nwindows', type=int, default=1, help='Number of time-wind
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
+parser.add_argument('--cycle_type', type=str, default='fv', help='Cycle type. "v" for v-cycle, "d" for down cycle, "fv" for full cycle with v sweeps, "fd" for full cycle with down sweeps.')
+parser.add_argument('--last_cycle', type=str, default='v', help='Type of the final sweep for full cycles. "v" for v cycle, "d" for down cycle.')
+parser.add_argument('--coarsen', type=int, default=2, help='Coarsening ratio between SliceJacobiPC levels.')
+parser.add_argument('--levels', type=int, default=1, help='Number of coarser levels. 0 for only the CirculantPC.')
 parser.add_argument('--nsample', type=int, default=32, help='Number of sample points for plotting.')
 parser.add_argument('--mpeg', action='store_true', help='Output an mpeg of the timeseries.')
 parser.add_argument('--write_metrics', action='store_true', help='Write various solver metrics to file.')
@@ -91,10 +95,10 @@ q0.interpolate(1 + gaussian(x, y))
 def velocity(t):
     return (
         fd.as_vector((fd.Constant(ubar*cos(args.angle)), fd.Constant(ubar*sin(args.angle))))
-        # + fd.sin(pi2*omegas[0]*t-0.0)*fd.as_vector([0.25*fd.sin(1*x*pi2+0.3), 0.20*fd.cos(1*y*pi2-0.9)])
-        # - fd.cos(pi2*omegas[1]*t-0.7)*fd.as_vector([0.05*fd.cos(2*x*pi2-0.8), 0.10*fd.sin(2*x*pi2+0.1)])
-        # + fd.sin(pi2*omegas[2]*t+0.6)*fd.as_vector([0.15*fd.cos(4*x*pi2+0.0), 0.05*fd.sin(4*x*pi2-0.4)])
-        # - fd.cos(pi2*omegas[3]*t-0.3)*fd.as_vector([0.03*fd.cos(6*x*pi2-0.9), 0.08*fd.sin(6*x*pi2+0.2)])
+        + fd.sin(pi2*omegas[0]*t-0.0)*fd.as_vector([+0.25*fd.sin(1*x*pi2+0.3), +0.20*fd.cos(1*y*pi2-0.9)])
+        - fd.cos(pi2*omegas[1]*t-0.7)*fd.as_vector([-0.05*fd.cos(2*x*pi2-0.8), +0.10*fd.sin(2*x*pi2+0.1)])
+        + fd.sin(pi2*omegas[2]*t+0.6)*fd.as_vector([+0.15*fd.cos(4*x*pi2+0.0), -0.05*fd.sin(4*x*pi2-0.4)])
+        - fd.cos(pi2*omegas[3]*t-0.3)*fd.as_vector([-0.03*fd.cos(6*x*pi2-0.9), +0.08*fd.sin(6*x*pi2+0.2)])
     )
 
 
@@ -139,9 +143,10 @@ block_parameters = {
     # 'pc_factor_mat_solver_type': 'mumps'
     'pc_type': 'ilu',
     'ksp_type': 'richardson',
+    # 'ksp_rtol': 1e-5,
+    'ksp_max_it': 30,
     'ksp_convergence_test': 'skip',
-    'ksp_converged_maxits': None,
-    'ksp_max_it': 50,
+    'converged_maxits': None,
 }
 
 jacobi_parameters = {
@@ -164,11 +169,14 @@ def slice_parameters(nsteps):
         'pc_python_type': 'asQ.SliceJacobiPC',
         'slice_jacobi_nsteps': nsteps,
         'slice_jacobi_slice': circulant_parameters,
-        # 'slice_jacobi_slice_ksp': {
-        #     'type': 'gmres',
-        #     'rtol': 1e-10,
-        # }
-        # 'slice_jacobi_slice_0_ksp_monitor': None,
+        'slice_jacobi_slice_ksp': {
+            'type': 'gmres',
+            'richardson_scale': 1.0,
+            'max_it': 1 if nsteps > 1 else 1,
+            'convergence_test': 'skip',
+            'converged_maxits': None,
+        },
+        # 'slice_jacobi_slice_0_ksp_converged_rate': None,
     } if nsteps > 1 else jacobi_parameters
 
 
@@ -181,12 +189,20 @@ def composite_parameters(*nsteps):
     for i, s in enumerate(nsteps):
         params[f'sub_{i}_ksp'] = slice_parameters(s)
         params[f'sub_{i}_ksp'].update({
-            'ksp_type': 'gmres',
-            'ksp_max_it': 1,
+            'ksp_type': 'richardson',
+            'ksp_richardson_scale': 0.9,
+            'ksp_max_it': 1 if s != nt else 1,
             'ksp_convergence_test': 'skip',
             'ksp_converged_maxits': None,
+            'ksp_converged_rate': None,
         })
     return params
+    # return {
+    #     'pc_type': 'composite',
+    #     'pc_composite_type': 'multiplicative',
+    #     'pc_composite_pcs': ','.join('python' for _ in range(len(nsteps))),
+    # } | {f'sub_{i}': slice_parameters(s)
+    #      for i, s in enumerate(nsteps)}
 
 
 def composite_composite_parameters(nsteps_list):
@@ -202,12 +218,15 @@ paradiag_parameters = {
     'snes_type': 'ksponly',  # for a linear system
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
+    'ksp_richardson_scale': 1.0,
     'ksp': {
-        'monitor_true_residual': None,
+        # 'monitor_true_residual': None,
+        'monitor': None,
         'converged_rate': None,
         'rtol': 1e-4,
         'atol': 1e-12,
         'stol': 1e-12,
+        # 'view': None,
     },
 }
 
@@ -229,22 +248,25 @@ def unflatten(x, n):
                  for i in range(npacks))
 
 
-def dcycle(n):
+def dcycle(n, *args, **kwargs):
     return tuple(range(n+1))
 
 
-def vcycle(n):
+def vcycle(n, *args, **kwargs):
     return tuple((*dcycle(n), *range(n-1, -1, -1)))
 
 
-def fcycle(n, ctype='v', last_cycle='v'):
+def fcycle(n, ctype='v', last_cycle='v', initial=True):
     if ctype == 'v':
-        return tuple((*fcycle(n-1, ctype), *cycle(n, last_cycle)[1:]) if n > 0 else (0,))
+        return tuple((*fcycle(n-1, ctype, initial=False), *cycle(n, last_cycle)[1:]) if n > 0 else (0,))
     elif ctype == 'd':
-        return tuple((*fcycle(n-1, ctype), *dcycle(n)) if n > 0 else ())
+        post = cycle(n, last_cycle) if initial else dcycle(n)
+        return tuple((*fcycle(n-1, ctype, initial=False), *post) if n > 0 else ())
 
 
 def cycle(n, ctype, **kwargs):
+    if n == 0:
+        return tuple((0,))
     if ctype == 'd':
         return dcycle(n, **kwargs)
     elif ctype == 'v':
@@ -255,7 +277,8 @@ def cycle(n, ctype, **kwargs):
         raise ValueError(f"unknown cycle type {ctype = }")
 
 
-composite_steps = level_steps(nt, 2, cycle(5, 'fd', last_cycle='d'))
+composite_steps = level_steps(nt, args.coarsen,
+                              cycle(args.levels, args.cycle_type, last_cycle=args.last_cycle))
 PETSc.Sys.Print(f"{len(composite_steps)} sweeps: {composite_steps}")
 composite_steps = unflatten(composite_steps, 8)
 
