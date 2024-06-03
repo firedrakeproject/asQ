@@ -83,8 +83,8 @@ def test_real_hybridisation():
     niterations = solver.snes.getLinearSolveIterations()
     converged_reason = solver.snes.getKSP().getConvergedReason()
 
-    assert niterations == 1  # hybridisation is equivalent to direct solve
-    assert converged_reason == 2  # converged rtol
+    assert niterations == 1, "hybridisation should be equivalent to direct solve"
+    assert converged_reason == 2, "rtol should be almost machine precision for direct solve"
 
 
 def test_complex_hybridisation():
@@ -183,5 +183,5 @@ def test_complex_hybridisation():
     niterations = solver.snes.getLinearSolveIterations()
     converged_reason = solver.snes.getKSP().getConvergedReason()
 
-    assert niterations == 1  # hybridisation is equivalent to direct solve
-    assert converged_reason == 2  # converged rtol
+    assert niterations == 1, "hybridisation should be equivalent to direct solve"
+    assert converged_reason == 2, "rtol should be almost machine precision for direct solve"
