@@ -30,7 +30,7 @@ def test_convective_cfl():
     u.assign(vel)
     cfl = diagnostics.convective_cfl(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be zero for zero velocity"
 
     # test unit velocity x case
     vel = fd.Constant(fd.as_vector([one, zero]))
@@ -39,7 +39,7 @@ def test_convective_cfl():
     u.assign(vel)
     cfl = diagnostics.convective_cfl(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be 1D for purely horizontal flow"
 
     # test unit velocity y case
     vel = fd.Constant(fd.as_vector([zero, one]))
@@ -48,7 +48,7 @@ def test_convective_cfl():
     u.assign(vel)
     cfl = diagnostics.convective_cfl(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be 1D for purely vertical flow"
 
     # test unit velocity xy case
     vel = fd.Constant(fd.as_vector([one, one]))
@@ -57,7 +57,7 @@ def test_convective_cfl():
     u.assign(vel)
     cfl = diagnostics.convective_cfl(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be cumulative for 2D flow"
 
     # rng
     np.random.seed(23767)
@@ -73,7 +73,7 @@ def test_convective_cfl():
         u.assign(vel)
         cfl = diagnostics.convective_cfl(u, dt)
 
-        assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+        assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be cumulative for 2D flow"
 
 
 def test_get_cfl_calculator():
@@ -105,7 +105,7 @@ def test_get_cfl_calculator():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be zero for zero velocity"
 
     # test unit velocity x case
     vel = fd.Constant(fd.as_vector([one, zero]))
@@ -114,7 +114,7 @@ def test_get_cfl_calculator():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be 1D for purely horizontal flow"
 
     # test unit velocity y case
     vel = fd.Constant(fd.as_vector([zero, one]))
@@ -123,7 +123,7 @@ def test_get_cfl_calculator():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be 1D for purely vertical flow"
 
     # test unit velocity xy case
     vel = fd.Constant(fd.as_vector([one, one]))
@@ -132,7 +132,7 @@ def test_get_cfl_calculator():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be cumulative for 2D flow"
 
     # rng
     np.random.seed(23767)
@@ -148,7 +148,7 @@ def test_get_cfl_calculator():
         u.assign(vel)
         cfl = cfl_calculator(u, dt)
 
-        assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+        assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be cumulative for 2D flow"
 
 
 def test_get_cfl_calculator_extruded():
@@ -181,7 +181,7 @@ def test_get_cfl_calculator_extruded():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be zero for zero velocity"
 
     # test unit velocity x case
     vel = fd.Constant(fd.as_vector([one, zero]))
@@ -190,7 +190,7 @@ def test_get_cfl_calculator_extruded():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be 1D for purely horizontal flow"
 
     # test unit velocity y case
     vel = fd.Constant(fd.as_vector([zero, one]))
@@ -199,7 +199,7 @@ def test_get_cfl_calculator_extruded():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be 1D for purely vertical flow"
 
     # test unit velocity xy case
     vel = fd.Constant(fd.as_vector([one, one]))
@@ -208,7 +208,7 @@ def test_get_cfl_calculator_extruded():
     u.assign(vel)
     cfl = cfl_calculator(u, dt)
 
-    assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+    assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be cumulative for 2D flow"
 
     # rng
     np.random.seed(23767)
@@ -224,4 +224,4 @@ def test_get_cfl_calculator_extruded():
         u.assign(vel)
         cfl = cfl_calculator(u, dt)
 
-        assert (fd.errornorm(cfl_check, cfl) < 1e-12)
+        assert (fd.errornorm(cfl_check, cfl) < 1e-12), "CFL should be cumulative for 2D flow"
