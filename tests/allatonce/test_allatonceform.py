@@ -24,6 +24,7 @@ def test_heat_form(bc_opt, alpha):
     """
     Test that assembling the AllAtOnceForm is the same as assembling the
     slice-local part of an all-at-once form for the whole timeseries.
+    Diffusion coefficient is time-dependent.
     """
 
     # build the all-at-once function
@@ -54,7 +55,7 @@ def test_heat_form(bc_opt, alpha):
 
     def form_function(u, v, t):
         c = fd.Constant(0.1)
-        nu = fd.Constant(1) + c*fd.inner(u, u)
+        nu = fd.Constant(1) + t*c*fd.inner(u, u)
         return fd.inner(nu*fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
@@ -127,7 +128,7 @@ def test_heat_form(bc_opt, alpha):
         userial = Ffull.subfunctions[windx]
         uparallel = aaoform.F[step].subfunctions[0]
         err = fd.errornorm(userial, uparallel)
-        assert (err < 1e-12)
+        assert (err < 1e-12), "Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally"
 
 
 @pytest.mark.parametrize("bc_opt", bc_opts)
@@ -243,12 +244,15 @@ def test_mixed_heat_form(bc_opt):
             userial = Ffull.subfunctions[windx]
             uparallel = aaoform.F[step].subfunctions[cpt]
             err = fd.errornorm(userial, uparallel)
-            assert (err < 1e-12)
+            assert (err < 1e-12), "Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally"
 
 
 @pytest.mark.parallel(nprocs=4)
 def test_time_update():
-    # Given that the initial time step is at t=1. Test if we have correct time update from the first window to the next one.
+    """
+    Given that the initial time step is at t=1, test if we have
+    correct time update from the first window to the next one.
+    """
 
     nslices = fd.COMM_WORLD.size//2
     slice_length = 2
@@ -280,7 +284,7 @@ def test_time_update():
                                 form_mass, form_function,
                                 alpha=alpha)
 
-    # The time series we get from the allatonce form
+    # Collect times for whole timeseries on every rank.
     times = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
 
     for i in range(aaofunc.nlocal_timesteps):
@@ -289,27 +293,29 @@ def test_time_update():
 
     assert (float(aaoform.t0) == 0)
     for i in range(aaofunc.ntimesteps):
-        assert (times.dglobal[i] == ((i + 1)*dt))
-    # Test time seried of the second window with the optional argument t=0.
+        assert (times.dglobal[i] == ((i + 1)*dt)), "AllAtOnceForm.time should be multiples of dt at creation"
+
+    # Test time series of the second window with the optional argument t=t1.
     np.random.seed(10)
-    t_1 = np.random.random()
-    aaoform.time_update(t=t_1)
+    t1 = np.random.random()
+    aaoform.time_update(t=t1)
 
     for i in range(aaofunc.nlocal_timesteps):
         times.dlocal[i] = aaoform.time[i]
     times.synchronise()
 
-    assert (float(aaoform.t0) == t_1)
+    assert (float(aaoform.t0) == t1)
     for i in range(aaofunc.ntimesteps):
-        assert (times.dglobal[i] == (t_1 + (i + 1)*dt))
+        assert (times.dglobal[i] == (t1 + (i + 1)*dt)), "aaoform.time_update(t1) should offset new times _to_ t1"
 
-    # Test the time series of the third window with the optional argument t=None.
+    # Test the time series of the third window without the optional argument t.
     aaoform.time_update()
 
     for i in range(aaofunc.nlocal_timesteps):
         times.dlocal[i] = aaoform.time[i]
     times.synchronise()
 
-    assert (float(aaoform.t0) == t_1 + 4*dt)
+    nt = aaoform.ntimesteps
+    assert (float(aaoform.t0) == t1 + nt*dt)
     for i in range(aaofunc.ntimesteps):
-        assert (times.dglobal[i] == (t_1 + 4*dt + (i + 1)*dt))
+        assert (times.dglobal[i] == (t1 + nt*dt + (i + 1)*dt)), "aaoform.time_update() should offset new times _by_ window duration"
