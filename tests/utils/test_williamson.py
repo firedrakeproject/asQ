@@ -41,7 +41,7 @@ def test_williamson2_elevation():
         return c.evaluate(None, None, None, None)
 
     for i in range(nsamples):
-        assert (abs(evalc(h[i]) - hcheck[i]) < 1e-12)
+        assert (abs(evalc(h[i]) - hcheck[i]) < 1e-12), "Williamson2 depth should match expression from paper"
 
 
 def test_williamson2_velocity():
@@ -84,9 +84,9 @@ def test_williamson2_velocity():
 
         u = case2.velocity_expression(x[i], y[i], z[i], uref=uref)
 
-        assert (abs(evalc(u[0]) - ucheck[i][0]) < 1e-12)
-        assert (abs(evalc(u[1]) - ucheck[i][1]) < 1e-12)
-        assert (abs(evalc(u[2]) - ucheck[i][2]) < 1e-12)
+        assert (abs(evalc(u[0]) - ucheck[i][0]) < 1e-12), "Williamson2 velocity should match expression from paper"
+        assert (abs(evalc(u[1]) - ucheck[i][1]) < 1e-12), "Williamson2 velocity should match expression from paper"
+        assert (abs(evalc(u[2]) - ucheck[i][2]) < 1e-12), "Williamson2 velocity should match expression from paper"
 
 
 def test_williamson5_elevation():
@@ -124,7 +124,7 @@ def test_williamson5_elevation():
         return c.evaluate(None, None, None, None)
 
     for i in range(nsamples):
-        assert (abs(evalc(h[i]) - evalc(hcheck[i])) < 1e-12)
+        assert (abs(evalc(h[i]) - evalc(hcheck[i])) < 1e-12), "Williamson5 depth should be identical to Williamson2"
 
 
 def test_williamson5_velocity():
@@ -161,6 +161,6 @@ def test_williamson5_velocity():
         u = case2.velocity_expression(x[i], y[i], z[i], uref=uref)
         ucheck = case5.velocity_expression(x[i], y[i], z[i], uref=uref)
 
-        assert (abs(evalc(u[0]) - evalc(ucheck[0])) < 1e-12)
-        assert (abs(evalc(u[1]) - evalc(ucheck[1])) < 1e-12)
-        assert (abs(evalc(u[2]) - evalc(ucheck[2])) < 1e-12)
+        assert (abs(evalc(u[0]) - evalc(ucheck[0])) < 1e-12), "Williamson5 velocity should be identical to Williamson2"
+        assert (abs(evalc(u[1]) - evalc(ucheck[1])) < 1e-12), "Williamson5 velocity should be identical to Williamson2"
+        assert (abs(evalc(u[2]) - evalc(ucheck[2])) < 1e-12), "Williamson5 velocity should be identical to Williamson2"
