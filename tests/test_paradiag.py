@@ -20,6 +20,11 @@ def test_Nitsche_BCs():
     nx = 10
     dx = 1/nx
     dt = dx
+    slice_length = 2
+    nslices = fd.COMM_WORLD.size//nspatial_domains
+
+    time_partition = [slice_length for _ in range(nslices)]
+
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
     mesh = fd.UnitSquareMesh(nx, nx, quadrilateral=False, comm=ensemble.comm)
 
@@ -34,57 +39,50 @@ def test_Nitsche_BCs():
         return phi*q*fd.dx
 
     def form_function(q, phi, t):
-        return fd.inner(fd.grad(q), fd.grad(phi))*fd.dx - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds - fd.inner(q-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(phi), n))*fd.ds + 20*nx*fd.inner(q-fd.exp(0.5*x + y + 1.25*t), phi)*fd.ds
+        return (fd.inner(fd.grad(q), fd.grad(phi))*fd.dx
+                - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds
+                - fd.inner(q-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(phi), n))*fd.ds
+                + 20*nx*fd.inner(q-fd.exp(0.5*x + y + 1.25*t), phi)*fd.ds)
 
     # Parameters for the diag
-    sparameters = {
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_mat_solver_type': 'mumps'}
-
     solver_parameters_diag = {
-        "snes_linesearch_type": "basic",
-        'snes_atol': 1e-8,
+        'snes_type': 'ksponly',
         'ksp_rtol': 1e-8,
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
+        'circulant_block': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor_mat_solver_type': 'mumps'
+        },
     }
 
-    M = [2, 2]
-    solver_parameters_diag["circulant_block_"] = sparameters
-
-    theta = 0.5
-
-    PD = asQ.Paradiag(ensemble=ensemble,
-                      form_function=form_function,
-                      form_mass=form_mass, ics=w0,
-                      dt=dt, theta=theta,
-                      time_partition=M, bcs=[],
-                      solver_parameters=solver_parameters_diag,
-                      )
-    PD.solve()
+    pdg = asQ.Paradiag(ensemble=ensemble,
+                       form_function=form_function,
+                       form_mass=form_mass, ics=w0,
+                       dt=dt, theta=0.5,
+                       time_partition=time_partition,
+                       solver_parameters=solver_parameters_diag)
+    pdg.solve()
     q_exact = fd.Function(V)
     qp = fd.Function(V)
-    errors = asQ.SharedArray(M, comm=ensemble.ensemble_comm)
-    times = asQ.SharedArray(M, comm=ensemble.ensemble_comm)
+    errors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
 
-    for step in range(2):
-        if PD.aaoform.layout.is_local(step):
-            local_step = PD.aaofunc.transform_index(step, from_range='window')
-            t = PD.aaoform.time[local_step]
+    for step in range(pdg.ntimesteps):
+        if pdg.aaoform.layout.is_local(step):
+            local_step = pdg.aaofunc.transform_index(step, from_range='window')
+            t = pdg.aaoform.time[local_step]
             q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
-            qp.assign(PD.aaofunc[local_step])
+            qp.assign(pdg.aaofunc[local_step])
 
             errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
-            times.dlocal[local_step] = t
 
     errors.synchronise()
-    times.synchronise()
 
-    for step in range(4):
-        assert (errors.dglobal[step] < (dx)**(3/2))
+    for step in range(pdg.ntimesteps):
+        assert (errors.dglobal[step] < (dx)**(3/2)), "Error from analytical solution should be close to discretisation error"
 
 
 @pytest.mark.parallel(nprocs=4)
