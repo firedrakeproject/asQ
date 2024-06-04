@@ -252,16 +252,25 @@ def dcycle(n, *args, **kwargs):
     return tuple(range(n+1))
 
 
+def ucycle(n, *args, **kwargs):
+    return tuple(range(n, -1, -1))
+
+
 def vcycle(n, *args, **kwargs):
-    return tuple((*dcycle(n), *range(n-1, -1, -1)))
+    return tuple((*dcycle(n), *ucycle(n-1)))
 
 
 def fcycle(n, ctype='v', last_cycle='v', initial=True):
     if ctype == 'v':
         return tuple((*fcycle(n-1, ctype, initial=False), *cycle(n, last_cycle)[1:]) if n > 0 else (0,))
     elif ctype == 'd':
-        post = cycle(n, last_cycle) if initial else dcycle(n)
+        # post = cycle(n, last_cycle) if initial else dcycle(n)
+        post = cycle(n, last_cycle if initial else ctype)
         return tuple((*fcycle(n-1, ctype, initial=False), *post) if n > 0 else ())
+    elif ctype == 'u':
+        # post = cycle(n, last_cycle) if initial else ucycle(n)
+        post = cycle(n, last_cycle if initial else ctype)
+        return tuple((*fcycle(n-1, ctype, initial=False), *post) if n > 0 else (0,))
 
 
 def cycle(n, ctype, **kwargs):
@@ -269,6 +278,8 @@ def cycle(n, ctype, **kwargs):
         return tuple((0,))
     if ctype == 'd':
         return dcycle(n, **kwargs)
+    if ctype == 'u':
+        return ucycle(n, **kwargs)
     elif ctype == 'v':
         return vcycle(n, **kwargs)
     elif ctype[0] == 'f':
