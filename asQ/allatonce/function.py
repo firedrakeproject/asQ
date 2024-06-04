@@ -283,15 +283,16 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
             return self.update_time_halos(blocking=blocking)
 
     @profiler()
-    def zero(self, subset=None):
+    def zero(self, subset=None, zero_ics=True):
         """
         Set all values to zero.
 
         :arg subset: pyop2.types.set.Subset indicating the nodes to zero.
             If None then the whole function is zeroed.
         """
-        funcs = [self._fbuf, self.uprev, self.unext]
-        if hasattr(self, 'initial_condition'):
+        funcs = [self[i] for i in range(self.nlocal_timesteps)]
+        funcs.extend([self.uprev, self.unext])
+        if hasattr(self, 'initial_condition') and zero_ics:
             funcs.append(self.initial_condition)
         for f in funcs:
             f.zero(subset=subset)

@@ -91,7 +91,7 @@ def test_complex_blockpc(bcopt, cpxopt):
     direct_solver.solve()
     aux_solver.solve()
 
-    assert fd.errornorm(udirect, uaux) < 1e-12
+    assert fd.errornorm(udirect, uaux) < 1e-12, "AuxiliaryBlockPOperatorPC should match original form if no custom points supplied"
 
 
 def create_real_solver(mesh, V, bcs, sparams):
@@ -169,4 +169,4 @@ def test_real_blockpc(bcopt):
     direct_solver.solve()
     aux_solver.solve()
 
-    assert fd.errornorm(udirect, uaux) < 1e-12
+    assert fd.errornorm(udirect, uaux) < 1e-12, "AuxiliaryBlockPOperatorPC should match original form if no custom points supplied"

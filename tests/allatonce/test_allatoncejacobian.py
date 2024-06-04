@@ -45,7 +45,7 @@ def test_heat_jacobian():
     theta = fd.Constant(0.75)
 
     def form_function(u, v, t):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+        return (fd.Constant(1) + t)*fd.inner(fd.grad(u), fd.grad(v))*fd.dx
 
     def form_mass(u, v):
         return u*v*fd.dx
@@ -80,7 +80,7 @@ def test_heat_jacobian():
     # create the full jacobian
     full_jacobian = fd.derivative(fullform, ufull)
 
-    # evaluate the form on some random data
+    # evaluate the form at some random state
     np.random.seed(132574)
     for dat in ufull.dat:
         dat.data[:] = np.random.randn(*(dat.data.shape))
@@ -116,7 +116,7 @@ def test_heat_jacobian():
         yserial = yfull.subfunctions[windx]
         yparallel = y[step].subfunctions[0]
         err = fd.errornorm(yserial, yparallel)
-        assert (err < 1e-12)
+        assert (err < 1e-12), "Each component of AllAtOnceJacobian action should match component of monolithic action calculated locally"
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -232,4 +232,4 @@ def test_mixed_heat_jacobian():
             yserial = yfull.subfunctions[windx]
             yparallel = y[step].subfunctions[cpt]
             err = fd.errornorm(yserial, yparallel)
-            assert (err < 1e-12)
+            assert (err < 1e-12), "Each component of AllAtOnceJacobian action should match component of monolithic action calculated locally"

@@ -4,7 +4,7 @@ import pytest
 
 
 @pytest.mark.parallel(nprocs=6)
-def test_solve_heat_equation():
+def test_solve_heat_equation_nopc():
     """
     Tests the basic solver setup using the heat equation.
     Solves using unpreconditioned GMRES and checks that the
@@ -58,7 +58,7 @@ def test_solve_heat_equation():
         'mat_type': 'matfree',
         'ksp': {
             'monitor': None,
-            'converged_reason': None,
+            'converged_rate': None,
             'atol': atol,
             'rtol': 1.0e-100,
             'stol': 1.0e-100,
@@ -75,14 +75,15 @@ def test_solve_heat_equation():
     aaoform.assemble(func=aaofunc)
     residual = fd.norm(aaoform.F.function)
 
-    assert residual < atol
+    assert residual < atol, "GMRES should converge to prescribed tolerance even without preconditioning"
 
 
-def test_solve_heat_equation_serial():
+def test_solve_heat_equation_circulantpc():
     """
     Tests the basic solver setup using the heat equation.
-    Solves using unpreconditioned GMRES and checks that the
-    residual of the all-at-once-form is below tolerance.
+    Solves using GMRES preconditioned with the CirculantPC
+    and checks that the residual of the all-at-once-form
+    is below tolerance.
     """
 
     # set up space-time parallelism
@@ -119,7 +120,7 @@ def test_solve_heat_equation_serial():
 
     # solver and options
 
-    atol = 1.0e-6
+    atol = 1.0e-8
     solver_parameters = {
         'snes_type': 'ksponly',
         'snes': {
@@ -133,7 +134,7 @@ def test_solve_heat_equation_serial():
         'mat_type': 'matfree',
         'ksp': {
             'monitor': None,
-            'converged_reason': None,
+            'converged_rate': None,
             'atol': atol,
             'rtol': 1.0e-100,
             'stol': 1.0e-100,
@@ -152,7 +153,7 @@ def test_solve_heat_equation_serial():
     aaoform.assemble(func=aaofunc)
     residual = fd.norm(aaoform.F.function)
 
-    assert residual < atol
+    assert residual < atol, "GMRES should converge to prescribed tolerance with CirculantPC"
 
 
 extruded = [pytest.param(False, id="standard_mesh"),
@@ -168,8 +169,8 @@ cpx_types = [pytest.param('vector', id="vector_cpx"),
 def test_solve_mixed_wave_equation(extrude, cpx_type):
     """
     Tests the solver setup using a nonlinear wave equation.
-    Solves using GMRES preconditioned with the circulant matrix and
-    checks that the residual of the all-at-once-form is below tolerance.
+    Solves using GMRES preconditioned with CirculantPC and checks
+    that the residual of the all-at-once-form is below tolerance.
     """
 
     # space-time parallelism
@@ -237,13 +238,7 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
 
     # solver and options
 
-    block_parameters = {
-        "ksp_type": "preonly",
-        'pc_type': 'lu',
-        'pc_factor_mat_solver_type': 'mumps'
-    }
-
-    atol = 1e-6
+    atol = 1e-8
     solver_parameters = {
         'snes': {
             'linesearch_type': 'basic',
@@ -254,19 +249,21 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
             'stol': 1e-100,
         },
         'mat_type': 'matfree',
-        'ksp_type': 'gmres',
+        'ksp_type': 'preonly',
         'ksp': {
             'monitor': None,
             'converged_reason': None,
         },
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
-        'diagfft_alpha': 1e-3,
-        'diagfft_complex_proxy': cpx_type
+        'circulant_alpha': 1e-3,
+        'circulant_block': {
+            'ksp_type': "preonly",
+            'pc_type': 'lu',
+            'pc_factor_mat_solver_type': 'mumps'
+        },
+        'circulant_complex_proxy': cpx_type
     }
-
-    for i in range(aaofunc.ntimesteps):
-        solver_parameters[f"diagfft_block_{i}"] = block_parameters
 
     aaosolver = asQ.AllAtOnceSolver(aaoform, aaofunc,
                                     solver_parameters=solver_parameters)
@@ -277,4 +274,4 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
     aaoform.assemble(func=aaofunc)
     residual = fd.norm(aaoform.F.function)
 
-    assert residual < atol
+    assert (residual < atol), "GMRES should converge to prescribed tolerance with CirculantPC"
