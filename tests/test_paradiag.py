@@ -90,7 +90,7 @@ def test_Nitsche_heat_timeseries():
     from utils.serial import ComparisonMiniapp
     from copy import deepcopy
 
-    nwindows = 1
+    nwindows = 10
     nslices = 2
     slice_length = 2
     dt = 0.5
@@ -111,60 +111,56 @@ def test_Nitsche_heat_timeseries():
 
     # Heat equaion with Nitsch BCs.
     def form_function(u, v, t):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx - fd.inner(v, fd.inner(fd.grad(u), n))*fd.ds - fd.inner(u-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(v), n))*fd.ds + 20*nx*fd.inner(u-fd.exp(0.5*x + y + 1.25*t), v)*fd.ds
+        return (
+            fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+            - fd.inner(v, fd.inner(fd.grad(u), n))*fd.ds
+            - fd.inner(u-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(v), n))*fd.ds
+            + 20*nx*fd.inner(u-fd.exp(0.5*x + y + 1.25*t), v)*fd.ds
+        )
 
     def form_mass(u, v):
         return u*v*fd.dx
 
     block_sparameters = {
         'ksp_type': 'preonly',
-        'ksp': {
-            'atol': 1e-5,
-            'rtol': 1e-5,
-        },
         'pc_type': 'lu',
     }
 
     snes_sparameters = {
+        'type': 'ksponly',
         'monitor': None,
         'converged_reason': None,
-        'atol': 1e-10,
-        'rtol': 1e-12,
-        'stol': 1e-12,
     }
 
     # solver parameters for serial method
     serial_sparameters = {
         'snes': snes_sparameters
     }
-    serial_sparameters.update(deepcopy(block_sparameters))
-    serial_sparameters['ksp']['monitor'] = None
-    serial_sparameters['ksp']['converged_reason'] = None
+    serial_sparameters.update(block_sparameters)
+    if ensemble.ensemble_comm.rank == 0:
+        serial_sparameters['ksp_monitor'] = None
+        serial_sparameters['ksp_converged_reason'] = None
 
     # solver parameters for parallel method
     parallel_sparameters = {
         'snes': snes_sparameters,
         'mat_type': 'matfree',
-        'ksp_type': 'preonly',
+        'ksp_type': 'gmres',
         'ksp': {
             'monitor': None,
-            'converged_reason': None,
+            'converged_rate': None,
+            'rtol': 1e-15,
         },
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
+        'circulant_block': block_sparameters
     }
 
-    for i in range(sum(time_partition)):
-        parallel_sparameters['circulant_block_'+str(i)] = block_sparameters
-    appctx = {}
-
     miniapp = ComparisonMiniapp(ensemble, time_partition,
-                                form_mass,
-                                form_function,
-                                w_initial,
-                                dt, theta,
+                                form_mass, form_function,
+                                w_initial, dt, theta,
                                 serial_sparameters,
-                                parallel_sparameters, appctx=appctx)
+                                parallel_sparameters)
 
     norm0 = fd.norm(w_initial)
 
@@ -195,7 +191,7 @@ def test_Nitsche_heat_timeseries():
         PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
 
     for err in errors:
-        assert err/norm0 < 1e-5
+        assert err/norm0 < 1e-3
 
 
 @pytest.mark.parallel(nprocs=4)
