@@ -1,5 +1,6 @@
 import asQ
 import firedrake as fd
+from firedrake.petsc import PETSc
 import numpy as np
 import pytest
 from functools import reduce
@@ -319,3 +320,103 @@ def test_time_update():
     assert (float(aaoform.t0) == t1 + nt*dt)
     for i in range(aaofunc.ntimesteps):
         assert (times.dglobal[i] == (t1 + nt*dt + (i + 1)*dt)), "aaoform.time_update() should offset new times _by_ window duration"
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_timedependent_heat_form():
+    """
+    Test that assembling the AllAtOnceForm is the same as assembling the
+    slice-local part of an all-at-once form for the whole timeseries.
+    Diffusion coefficient is time-dependent.
+    """
+
+    # build the all-at-once function
+    nslices = fd.COMM_WORLD.size
+    slice_length = 4
+
+    time_partition = tuple((slice_length for _ in range(nslices)))
+    ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+
+    mesh = fd.UnitSquareMesh(8, 8, comm=ensemble.comm)
+    x, y = fd.SpatialCoordinate(mesh)
+    V = fd.FunctionSpace(mesh, "CG", 1)
+
+    aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, V)
+
+    ics = fd.Function(V, name="ics")
+    ics.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    aaofunc.assign(ics)
+
+    # build the all-at-once form
+
+    dt = fd.Constant(0.1)
+    theta = fd.Constant(0.6)
+
+    def form_function(u, v, t):
+        c = fd.Constant(1.0)
+        nu = fd.Constant(0.1) + t*c
+        return nu*fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
+                                form_mass, form_function)
+
+    # assemble residual with time values updated for second window
+    aaoform.assemble()
+    aaoform.time_update()
+
+    # on each time-slice, build the form for the entire timeseries
+    t0 = fd.Constant(aaoform.t0)
+    time = tuple(fd.Constant(0) for _ in range(aaofunc.ntimesteps))
+    for i in range(aaofunc.ntimesteps):
+        time[i].assign(t0 + (i+1)*dt)
+
+    full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))
+    ufull = fd.Function(full_function_space)
+
+    vfull = fd.TestFunction(full_function_space)
+    ufulls = fd.split(ufull)
+    vfulls = fd.split(vfull)
+    for i in range(aaofunc.ntimesteps):
+        if i == 0:
+            un = ics
+            tn = t0
+        else:
+            un = ufulls[i-1]
+            tn = time[i-1]
+
+        unp1 = ufulls[i]
+        tnp1 = time[i]
+
+        v = vfulls[i]
+        tform = form_mass(unp1 - un, v/dt)
+        tform += theta*form_function(unp1, v, tnp1) + (1-theta)*form_function(un, v, tn)
+        if i == 0:
+            fullform = tform
+        else:
+            fullform += tform
+
+    # evaluate the form on some random data
+    np.random.seed(132574)
+    for dat in ufull.dat:
+        dat.data[:] = np.random.randn(*(dat.data.shape))
+
+    # copy the data from the full list into the local time slice
+    for step in range(aaofunc.nlocal_timesteps):
+        windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
+        aaofunc[step].assign(ufull.subfunctions[windx])
+
+    # assemble and compare
+    aaoform.assemble()
+    Ffull = assemble(fullform)
+
+    PETSc.Sys.Print()
+    for step in range(aaofunc.nlocal_timesteps):
+        windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
+        userial = Ffull.subfunctions[windx]
+        uparallel = aaoform.F[step].subfunctions[0]
+        err = fd.errornorm(userial, uparallel)
+        PETSc.Sys.Print(f'{err = }')
+        assert (err < 1e-12), "Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally"

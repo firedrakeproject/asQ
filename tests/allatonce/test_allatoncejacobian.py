@@ -1,5 +1,6 @@
 import asQ
 import firedrake as fd
+from firedrake.petsc import PETSc
 import numpy as np
 import pytest
 from functools import reduce
@@ -116,6 +117,129 @@ def test_heat_jacobian():
         yserial = yfull.subfunctions[windx]
         yparallel = y[step].subfunctions[0]
         err = fd.errornorm(yserial, yparallel)
+        assert (err < 1e-12), "Each component of AllAtOnceJacobian action should match component of monolithic action calculated locally"
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_timedependent_heat_jacobian():
+    """
+    Test that the AllAtOnceJacobian is the same as the action of the
+    slice-local part of the derivative of an all-at-once form for
+    the whole timeseries.
+    """
+
+    # build the all-at-once function
+    nslices = fd.COMM_WORLD.size
+    slice_length = 4
+
+    time_partition = tuple((slice_length for _ in range(nslices)))
+    ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
+
+    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    x, y = fd.SpatialCoordinate(mesh)
+    V = fd.FunctionSpace(mesh, "CG", 1)
+
+    aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, V)
+
+    ics = fd.Function(V, name="ics")
+    ics.interpolate(fd.exp(-((x-0.5)**2 + (y-0.5)**2)/0.5**2))
+    aaofunc.assign(ics)
+
+    # build the all-at-once form
+
+    dt = fd.Constant(0.1)
+    theta = fd.Constant(0.6)
+
+    def form_function(u, v, t):
+        return (fd.Constant(0.1) + t)*fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+
+    def form_mass(u, v):
+        return u*v*fd.dx
+
+    aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
+                                form_mass, form_function)
+
+    # build the all-at-once jacobian
+    aaojac = asQ.AllAtOnceJacobian(aaoform)
+
+    full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))
+
+    # apply the form to some random data
+    np.random.seed(132574)
+    xfull = fd.Function(full_function_space)
+    for dat in xfull.dat:
+        dat.data[:] = np.random.randn(*(dat.data.shape))
+
+    # input/output vectors for aaojac
+    x = aaofunc.copy()
+    y = aaofunc.copy()
+    for step in range(aaofunc.nlocal_timesteps):
+        windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
+        x[step].assign(xfull.subfunctions[windx])
+    x.update_time_halos()
+
+    # evaluate the form at some random state
+    ufull = fd.Function(full_function_space)
+    for dat in ufull.dat:
+        dat.data[:] = np.random.randn(*(dat.data.shape))
+
+    # copy the data from the full list into the local time slice
+    for step in range(aaofunc.nlocal_timesteps):
+        windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
+        aaofunc[step].assign(ufull.subfunctions[windx])
+    aaofunc.update_time_halos()
+
+    # assemble the aao jacobian
+    with x.global_vec_ro() as xvec, y.global_vec_wo() as yvec:
+        aaojac.mult(None, xvec, yvec)
+
+    # update to the next window
+    aaoform.time_update()
+
+    # on each time-slice, build the form for the entire timeseries
+    t0 = fd.Constant(aaoform.t0)
+    time = tuple(fd.Constant(t0 + (i+1)*dt) for i in range(aaofunc.ntimesteps))
+
+    vfull = fd.TestFunction(full_function_space)
+    ufulls = fd.split(ufull)
+    vfulls = fd.split(vfull)
+    for i in range(aaofunc.ntimesteps):
+        if i == 0:
+            un = ics
+            tn = t0
+        else:
+            un = ufulls[i-1]
+            tn = time[i-1]
+
+        unp1 = ufulls[i]
+        tnp1 = time[i]
+
+        v = vfulls[i]
+        tform = form_mass(unp1 - un, v/dt)
+        tform += theta*form_function(unp1, v, tnp1) + (1-theta)*form_function(un, v, tn)
+        if i == 0:
+            fullform = tform
+        else:
+            fullform += tform
+
+    # create the full jacobian
+    full_jacobian = fd.derivative(fullform, ufull)
+
+    # assemble the aao jacobian
+    with x.global_vec_ro() as xvec, y.global_vec_wo() as yvec:
+        aaojac.mult(None, xvec, yvec)
+
+    # assemble the full jacobian
+    yfull = assemble(fd.action(full_jacobian, xfull))
+
+    # check they match
+
+    for step in range(aaofunc.nlocal_timesteps):
+        windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
+        yserial = yfull.subfunctions[windx]
+        yparallel = y[step]
+        err = fd.errornorm(yserial, yparallel)
+        PETSc.Sys.Print(f"{ensemble.ensemble_comm.rank = }, {err = }", comm=ensemble.comm)
         assert (err < 1e-12), "Each component of AllAtOnceJacobian action should match component of monolithic action calculated locally"
 
 
