@@ -351,14 +351,8 @@ class SliceJacobiPC(AllAtOncePCBase):
         slice_form = self.slice_form
 
         # slice initial time
-        if self.slice_rank == 0:
-            slice_form.t0.assign(aaoform.t0)
-        else:
-            slice_form.t0.assign(aaoform.time[0] - aaoform.dt)
-
-        # slice times
-        for i in range(self.nlocal_timesteps):
-            slice_form.time[i].assign(aaoform.time[i])
+        t0 = aaoform.t0 if self.slice_rank == 0 else aaoform.tprev
+        slice_form.time_update(t0)
 
         # # # update the slice
         self.slice_solver.jacobian.update()

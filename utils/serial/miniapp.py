@@ -25,6 +25,7 @@ class SerialMiniApp(object):
         '''
         self.dt = dt
         self.time = fd.Constant(dt)
+        self.tprev = fd.Constant(self.time - dt)
         self.theta = theta
         self.function_space = w_initial.function_space()
         self.initial_condition = w_initial.copy(deepcopy=True)
@@ -72,7 +73,7 @@ class SerialMiniApp(object):
         w0s = fd.split(w0)
         dqdt = form_mass(*w1s, *v) - form_mass(*w0s, *v)
 
-        L = theta*form_function(*w1s, *v, self.time) + (1 - theta)*form_function(*w0s, *v, self.time - dt)
+        L = theta*form_function(*w1s, *v, self.time) + (1 - theta)*form_function(*w0s, *v, self.tprev)
 
         return dt1*dqdt + L
 
@@ -94,6 +95,7 @@ class SerialMiniApp(object):
             postproc(self, step, float(self.time))
 
             self.w0.assign(self.w1)
+            self.tprev.assign(self.time)
             self.time.assign(self.time + self.dt)
 
 

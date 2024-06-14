@@ -42,9 +42,10 @@ class AllAtOnceForm(TimePartitionMixin):
 
         self.dt = fd.Constant(dt)
         self.t0 = fd.Constant(0)
+        self.tprev = fd.Constant(0)
         self.time = tuple(fd.Constant(0) for _ in range(self.aaofunc.nlocal_timesteps))
-        for n in range((self.aaofunc.nlocal_timesteps)):
-            self.time[n].assign(self.t0 + self.dt*(self.aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
+        self.time_update(t=0)
+
         self.theta = fd.Constant(theta)
 
         self.form_mass = form_mass
@@ -81,9 +82,12 @@ class AllAtOnceForm(TimePartitionMixin):
         else:
             self.t0.assign(self.t0 + self.dt*self.ntimesteps)
 
-        for n in range((self.nlocal_timesteps)):
+        for n, t in enumerate(self.time):
             time_idx = self.aaofunc.transform_index(n, from_range='slice', to_range='window')
-            self.time[n].assign(self.t0 + self.dt*(time_idx + 1))
+            t.assign(self.t0 + self.dt*(time_idx + 1))
+
+        time_idx = self.aaofunc.transform_index(0, from_range='slice', to_range='window')
+        self.tprev.assign(self.t0 + self.dt*time_idx)
         return
 
     def _set_bcs(self, field_bcs):
@@ -211,14 +215,18 @@ class AllAtOnceForm(TimePartitionMixin):
                     uns = ics
                     if self.alpha is not None:
                         uns = tuple(un + self.alpha*up for un, up in zip(uns, uprevs))
+                    tn = self.t0
                 else:
                     uns = uprevs
+                    tn = self.tprev
             else:
                 uns = get_step(n-1)
+                tn = self.time[n-1]
 
             # current time level
             un1s = get_step(n)
             vs = get_test(n)
+            tn1 = self.time[n]
 
             # time derivative
             if n == 0:
@@ -228,7 +236,7 @@ class AllAtOnceForm(TimePartitionMixin):
             form -= (1.0/dt)*form_mass(*uns, *vs)
 
             # vector field
-            form += theta*form_function(*un1s, *vs, self.time[n])
-            form += (1.0 - theta)*form_function(*uns, *vs, self.time[n]-dt)
+            form += theta*form_function(*un1s, *vs, tn1)
+            form += (1.0 - theta)*form_function(*uns, *vs, tn)
 
         return form
