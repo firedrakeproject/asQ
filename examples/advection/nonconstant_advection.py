@@ -21,6 +21,7 @@ parser.add_argument('--nwindows', type=int, default=1, help='Number of time-wind
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=0.0001, help='Circulant coefficient.')
+parser.add_argument('--modes', type=int, default=4, help='Number of time-varying modes. 0 for constant-coefficient')
 parser.add_argument('--cycle_type', type=str, default='fv', help='Cycle type. "v" for v-cycle, "d" for down cycle, "fv" for full cycle with v sweeps, "fd" for full cycle with down sweeps.')
 parser.add_argument('--last_cycle', type=str, default='v', help='Type of the final sweep for full cycles. "v" for v cycle, "d" for down cycle.')
 parser.add_argument('--coarsen', type=int, default=2, help='Coarsening ratio between SliceJacobiPC levels.')
@@ -57,9 +58,9 @@ omegas = [1.43, 2.27, 4.83, 6.94]
 
 # how many points per wavelength for each spatial and temporal frequency
 PETSc.Sys.Print(f"{cfl = }, {T = }, {nt = }")
-PETSc.Sys.Print(f"Periods: {[round(T*o,3) for o in omegas]}")
+PETSc.Sys.Print(f"Periods: {[round(T*o,3) for o in omegas[:args.modes]]}")
 
-PETSc.Sys.Print(f"Temporal resolution (ppm): {[round(1/(o*dt),3) for o in omegas]}")
+PETSc.Sys.Print(f"Temporal resolution (ppm): {[round(1/(o*dt),3) for o in omegas[:args.modes]]}")
 PETSc.Sys.Print(f"Spatial resolution (ppm): {round(1/dx,3)}, {round((1/2)/dx,3)}, {round((1/4)/dx,3)}, {round((1/6)/dx,3)}")
 
 # The Ensemble with the spatial and time communicators
@@ -93,13 +94,16 @@ q0.interpolate(1 + gaussian(x, y))
 
 # The advecting velocity field oscillates around a mean value in time and space
 def velocity(t):
-    return (
-        fd.as_vector((fd.Constant(ubar*cos(args.angle)), fd.Constant(ubar*sin(args.angle))))
-        + fd.sin(pi2*omegas[0]*t-0.0)*fd.as_vector([+0.25*fd.sin(1*x*pi2+0.3), +0.20*fd.cos(1*y*pi2-0.9)])
-        - fd.cos(pi2*omegas[1]*t-0.7)*fd.as_vector([-0.05*fd.cos(2*x*pi2-0.8), +0.10*fd.sin(2*x*pi2+0.1)])
-        + fd.sin(pi2*omegas[2]*t+0.6)*fd.as_vector([+0.15*fd.cos(4*x*pi2+0.0), -0.05*fd.sin(4*x*pi2-0.4)])
-        - fd.cos(pi2*omegas[3]*t-0.3)*fd.as_vector([-0.03*fd.cos(6*x*pi2-0.9), +0.08*fd.sin(6*x*pi2+0.2)])
-    )
+    c = fd.as_vector((fd.Constant(ubar*cos(args.angle)), fd.Constant(ubar*sin(args.angle))))
+    if args.modes > 0:
+        c += fd.sin(pi2*omegas[0]*t-0.0)*fd.as_vector([+0.25*fd.sin(1*x*pi2+0.3), +0.20*fd.cos(1*y*pi2-0.9)])
+    if args.modes > 1:
+        c -= fd.cos(pi2*omegas[1]*t-0.7)*fd.as_vector([-0.05*fd.cos(2*x*pi2-0.8), +0.10*fd.sin(2*x*pi2+0.1)])
+    if args.modes > 2:
+        c += fd.sin(pi2*omegas[2]*t+0.6)*fd.as_vector([+0.15*fd.cos(4*x*pi2+0.0), -0.05*fd.sin(4*x*pi2-0.4)])
+    if args.modes > 3:
+        c -= fd.cos(pi2*omegas[3]*t-0.3)*fd.as_vector([-0.03*fd.cos(6*x*pi2-0.9), +0.08*fd.sin(6*x*pi2+0.2)])
+    return c
 
 
 # # # === --- finite element forms --- === # # #
@@ -143,8 +147,9 @@ block_parameters = {
     # 'pc_factor_mat_solver_type': 'mumps'
     'pc_type': 'ilu',
     'ksp_type': 'richardson',
+    'ksp_richardson_scale': 0.8,
     # 'ksp_rtol': 1e-5,
-    'ksp_max_it': 30,
+    'ksp_max_it': 50,
     'ksp_convergence_test': 'skip',
     'converged_maxits': None,
 }
@@ -171,8 +176,8 @@ def slice_parameters(nsteps):
         'slice_jacobi_slice': circulant_parameters,
         'slice_jacobi_slice_ksp': {
             'type': 'gmres',
-            'richardson_scale': 1.0,
-            'max_it': 1 if nsteps > 1 else 1,
+            'richardson_scale': 0.8,
+            'max_it': 1 if nsteps > 0 else 1,
             'convergence_test': 'skip',
             'converged_maxits': None,
         },
@@ -191,18 +196,13 @@ def composite_parameters(*nsteps):
         params[f'sub_{i}_ksp'].update({
             'ksp_type': 'richardson',
             'ksp_richardson_scale': 0.9,
-            'ksp_max_it': 1 if s != nt else 1,
+            'ksp_max_it': 4 if s != nt else 1,
             'ksp_convergence_test': 'skip',
             'ksp_converged_maxits': None,
             'ksp_converged_rate': None,
+            # 'ksp_monitor_true_residual': None,
         })
     return params
-    # return {
-    #     'pc_type': 'composite',
-    #     'pc_composite_type': 'multiplicative',
-    #     'pc_composite_pcs': ','.join('python' for _ in range(len(nsteps))),
-    # } | {f'sub_{i}': slice_parameters(s)
-    #      for i, s in enumerate(nsteps)}
 
 
 def composite_composite_parameters(nsteps_list):
@@ -218,7 +218,8 @@ paradiag_parameters = {
     'snes_type': 'ksponly',  # for a linear system
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    'ksp_richardson_scale': 1.0,
+    'ksp_gmres_restart': nt,
+    'ksp_richardson_scale': 0.9,
     'ksp': {
         # 'monitor_true_residual': None,
         'monitor': None,
@@ -283,6 +284,7 @@ PETSc.Sys.Print(f"{len(composite_steps)} sweeps: {composite_steps}")
 composite_steps = unflatten(composite_steps, 8)
 
 paradiag_parameters.update(composite_composite_parameters(composite_steps))
+# paradiag_parameters.update(circulant_parameters)
 
 # from json import dumps
 # PETSc.Sys.Print(dumps(paradiag_parameters, indent=3))

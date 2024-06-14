@@ -276,8 +276,8 @@ none_parameters = {
 circulant_parameters = {
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
-    'diagfft_block': block_sparams,
-    'diagfft_alpha': args.alpha,
+    'circulant_block': block_sparams,
+    'circulant_alpha': args.alpha,
 }
 
 jacobi_parameters = {

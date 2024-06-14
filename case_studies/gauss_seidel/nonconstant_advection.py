@@ -3,14 +3,10 @@ from firedrake.petsc import PETSc
 from pyop2.mpi import MPI
 import asQ
 import firedrake as fd
-from utils import units
-from utils.planets import earth
-import utils.shallow_water as swe
-from utils.shallow_water import galewsky
 
 from time import sleep  # noqa: F401
 import numpy as np
-from math import sqrt
+from math import sqrt, pi, cos, sin
 
 PETSc.Sys.popErrorHandler()
 
@@ -21,17 +17,21 @@ parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
 )
 
-parser.add_argument('--ref_level', type=int, default=2, help='Refinement level of icosahedral grid.')
-parser.add_argument('--base_level', type=int, default=2, help='Refinement level of coarse grid.')
+parser.add_argument('--nx', type=int, default=16, help='Number of cells along each square side.')
+parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
+parser.add_argument('--angle', type=float, default=pi/6, help='Angle of the convective velocity.')
+parser.add_argument('--degree', type=int, default=1, help='Degree of the scalar and velocity spaces.')
+parser.add_argument('--theta', type=float, default=0.5, help='Parameter for the implicit theta timestepping method.')
+parser.add_argument('--width', type=float, default=0.2, help='Width of the Gaussian bump.')
+parser.add_argument('--modes', type=int, default=4, help='Number of time-varying modes. 0 for constant-coefficient')
 parser.add_argument('--nwindows', type=int, default=1, help='Total number of time-windows.')
 parser.add_argument('--nchunks', type=int, default=4, help='Number of chunks to solve simultaneously.')
-parser.add_argument('--nsweeps', type=int, default=4, help='Number of nonlinear sweeps.')
-parser.add_argument('--nsmooth', type=int, default=1, help='Number of nonlinear iterations per chunk at each sweep.')
-parser.add_argument('--atol', type=float, default=1e5, help='Average atol of each timestep.')
+parser.add_argument('--nsweeps', type=int, default=4, help='Number of linear sweeps.')
+parser.add_argument('--nsmooth', type=int, default=1, help='Number of linear iterations per chunk at each sweep.')
+parser.add_argument('--atol', type=float, default=1e-4, help='Average atol of each timestep.')
 parser.add_argument('--nslices', type=int, default=2, help='Number of time-slices per time-window.')
 parser.add_argument('--slice_length', type=int, default=2, help='Number of timesteps per time-slice.')
 parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
-parser.add_argument('--dt', type=float, default=0.5, help='Timestep in hours.')
 parser.add_argument('--serial', action='store_true', help='Calculate each chunk in serial.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
@@ -60,195 +60,142 @@ chunk_ensemble = asQ.split_ensemble(global_ensemble, args.nslices)
 # which chunk are we?
 chunk_id = global_ensemble.ensemble_comm.rank // args.nslices
 
-dt = args.dt*units.hour
+# Calculate the CFL from the timestep number
+ubar = 1.
+dx = 1./args.nx
+dt = args.dt
+cfl = ubar*dt/dx
+T = dt*chunk_length
+pi2 = fd.Constant(2*pi)
+
+# frequency of velocity oscillations in time
+omegas = [1.43, 2.27, 4.83, 6.94]
+
+# how many points per wavelength for each spatial and temporal frequency
+PETSc.Sys.Print(f"{cfl = }, {T = }, {chunk_length = }")
+PETSc.Sys.Print(f"Periods: {[round(T*o,3) for o in omegas[:args.modes]]}")
+
+PETSc.Sys.Print(f"Temporal resolution (ppm): {[round(1/(o*dt),3) for o in omegas[:args.modes]]}")
+PETSc.Sys.Print(f"Spatial resolution (ppm): {round(1/dx,3)}, {round((1/2)/dx,3)}, {round((1/4)/dx,3)}, {round((1/6)/dx,3)}")
 
 PETSc.Sys.Print('### === --- Create mesh --- === ###')
 PETSc.Sys.Print('')
 
-mesh = swe.create_mg_globe_mesh(
-    ref_level=args.ref_level, base_level=args.base_level,
-    coords_degree=1, comm=chunk_ensemble.comm)
-coords = fd.SpatialCoordinate(mesh)
+mesh = fd.PeriodicUnitSquareMesh(args.nx, args.nx,
+                                 quadrilateral=True,
+                                 comm=chunk_ensemble.comm)
 
 PETSc.Sys.Print('### === --- Forms --- === ###')
 PETSc.Sys.Print('')
 
-# alternative operator to precondition blocks
-g = earth.Gravity
-f = swe.earth_coriolis_expression(*coords)
-H = galewsky.H0
-b = galewsky.topography_expression(*coords)
+# We use a discontinuous Galerkin space for the advected scalar
+V = fd.FunctionSpace(mesh, "DQ", args.degree)
+
+# # # === --- initial conditions --- === # # #
+
+x, y = fd.SpatialCoordinate(mesh)
 
 
-def form_mass(u, h, v, q):
-    return swe.nonlinear.form_mass(mesh, u, h, v, q)
+def radius(x, y):
+    return fd.sqrt(pow(x-0.5, 2) + pow(y-0.5, 2))
 
 
-def form_function(u, h, v, q, t=None):
-    return swe.nonlinear.form_function(mesh, g, b, f,
-                                       u, h, v, q, t)
+def gaussian(x, y):
+    return fd.exp(-0.5*pow(radius(x, y)/args.width, 2))
 
 
-def aux_form_function(u, h, v, q, t=None):
-    return swe.linear.form_function(mesh, g, H, f,
-                                    u, h, v, q, t)
+# The scalar initial conditions are a Gaussian bump centred at (0.5, 0.5)
+q0 = fd.Function(V, name="scalar_initial")
+q0.interpolate(1 + gaussian(x, y))
+
+
+# The advecting velocity field oscillates around a mean value in time and space
+def velocity(t):
+    c = fd.as_vector((fd.Constant(ubar*cos(args.angle)), fd.Constant(ubar*sin(args.angle))))
+    if args.modes > 0:
+        c += fd.sin(pi2*omegas[0]*t-0.0)*fd.as_vector([+0.25*fd.sin(1*x*pi2+0.3), +0.20*fd.cos(1*y*pi2-0.9)])
+    if args.modes > 1:
+        c -= fd.cos(pi2*omegas[1]*t-0.7)*fd.as_vector([-0.05*fd.cos(2*x*pi2-0.8), +0.10*fd.sin(2*x*pi2+0.1)])
+    if args.modes > 2:
+        c += fd.sin(pi2*omegas[2]*t+0.6)*fd.as_vector([+0.15*fd.cos(4*x*pi2+0.0), -0.05*fd.sin(4*x*pi2-0.4)])
+    if args.modes > 3:
+        c -= fd.cos(pi2*omegas[3]*t-0.3)*fd.as_vector([-0.03*fd.cos(6*x*pi2-0.9), +0.08*fd.sin(6*x*pi2+0.2)])
+    return c
+
+
+# # # === --- finite element forms --- === # # #
+
+
+# The time-derivative mass form for the scalar advection equation.
+# asQ assumes that the mass form is linear so here
+# q is a TrialFunction and phi is a TestFunction
+def form_mass(q, phi):
+    return phi*q*fd.dx
+
+
+# The DG advection form for the scalar advection equation.
+# asQ assumes that the function form is nonlinear so here
+# q is a Function and phi is a TestFunction
+def form_function(q, phi, t):
+    n = fd.FacetNormal(mesh)
+    u = velocity(t)
+
+    # upwind switch
+    un = fd.Constant(0.5)*(fd.dot(u, n) + abs(fd.dot(u, n)))
+
+    # integration over element volume
+    int_cell = q*fd.div(phi*u)*fd.dx
+
+    # integration over internal facets
+    int_facet = (phi('+')-phi('-'))*(un('+')*q('+')-un('-')*q('-'))*fd.dS
+
+    return int_facet - int_cell
 
 
 PETSc.Sys.Print('### === --- Parameters --- === ###')
 PETSc.Sys.Print('')
 
-block_appctx = {
-    'aux_form_function': aux_form_function
-}
-
-snes_linear_params = {
-    'type': 'ksponly',
-    'lag_jacobian': -2,
-    'lag_jacobian_persists': None,
-    'lag_preconditioner': -2,
-    'lag_preconditioner_persists': None,
-}
-
-# parameters for the implicit diagonal solve in step-(b)
-factorisation_params = {
-    'ksp_type': 'preonly',
-    # 'pc_factor_mat_ordering_type': 'rcm',
-    'pc_factor_reuse_ordering': None,
-    'pc_factor_reuse_fill': None,
-}
-
-lu_params = {
-    'pc_type': 'lu',
-    'pc_factor_mat_solver_type': 'mumps',
-    'pc_factor_shift_type': 'nonzero',
-}
-lu_params.update(factorisation_params)
-
-aux_pc = {
-    'pc_type': 'python',
-    'pc_python_type': 'asQ.AuxiliaryBlockPC',
-    'aux_snes': snes_linear_params,
-    'aux': lu_params,
-    'ksp_max_it': 50,
-}
-
-patch_parameters = {
-    'pc_patch': {
-        'save_operators': True,
-        'partition_of_unity': True,
-        'sub_mat_type': 'seqdense',
-        'construct_dim': 0,
-        'construct_type': 'vanka',
-        'local_type': 'additive',
-        'precompute_element_tensors': True,
-        'symmetrise_sweep': False
-    },
-    'sub': {
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_shift_type': 'nonzero',
-    }
-}
-
-from utils.mg import ManifoldTransferManager  # noqa: F401
-mg_parameters = {
-    'transfer_manager': f'{__name__}.ManifoldTransferManager',
-    'levels': {
-        'ksp_type': 'gmres',
-        'ksp_max_it': 4,
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.PatchPC',
-        'patch': patch_parameters
-    },
-    'coarse': {
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.AssembledPC',
-        'assembled': lu_params,
-    }
-}
-
-mg_pc = {
-    'pc_type': 'mg',
-    'pc_mg_cycle_type': 'v',
-    'pc_mg_type': 'multiplicative',
-    'mg': mg_parameters,
-    'ksp_max_it': 10,
-}
-
 sparameters = {
-    'mat_type': 'matfree',
-    'ksp_type': 'fgmres',
-    'ksp': {
-        'atol': 1e-5,
-        'rtol': 1e-5,
-        'converged_maxits': None,
-    },
+    'ksp_type': 'preonly',
+    'pc_type': 'lu',
 }
-# sparameters.update(aux_pc)
-sparameters.update(mg_pc)
 
 atol = args.atol
 patol = sqrt(chunk_length)*atol
 sparameters_diag = {
+    'snes_type': 'newtonls',
     'snes': {
         'linesearch_type': 'basic',
-        # 'monitor': None,
-        # 'converged_reason': None,
-        'atol': patol,
-        'rtol': 1e-10,
-        'stol': 1e-12,
-        # 'ksp_ew': None,
-        # 'ksp_ew_version': 1,
-        # 'ksp_ew_threshold': 1e-2,
-        'max_it': args.nsmooth,
+        'monitor': None,
+        'converged_reason': None,
+        'max_it': 1,
         'convergence_test': 'skip',
     },
     'mat_type': 'matfree',
-    'ksp_type': 'preonly',
+    'ksp_type': 'gmres',
     'ksp': {
-        # 'monitor': None,
-        # 'converged_reason': None,
-        # 'max_it': 2,
-        # 'converged_maxits': None,
-        'rtol': 1e-2,
-        'atol': patol,
+        # 'monitor_true_residual': None,
+        'monitor': None,
+        'converged_rate': None,
+        'max_it': args.nsmooth,
+        'converged_maxits': None,
+        # 'atol': patol,
     },
     'pc_type': 'python',
     'pc_python_type': 'asQ.CirculantPC',
     'circulant_alpha': args.alpha,
-    'circulant_state': 'window',
     'circulant_block': sparameters,
+    'circulant_state': 'window',
     'aaos_jacobian_state': 'current'
 }
-
-appctx = {'block_appctx': block_appctx}
-
-# function spaces and initial conditions
-
-PETSc.Sys.Print('### === --- Initial conditions --- === ###')
-PETSc.Sys.Print('')
-
-PETSc.Sys.Print(1)
-W = swe.default_function_space(mesh)
-
-PETSc.Sys.Print(2)
-winitial = fd.Function(W)
-PETSc.Sys.Print(3)
-uinitial, hinitial = winitial.subfunctions
-PETSc.Sys.Print(4)
-expr = galewsky.velocity_expression(*coords)
-PETSc.Sys.Print(4.5)
-uinitial.project(expr)
-PETSc.Sys.Print(5)
-hinitial.project(galewsky.depth_expression(*coords))
 
 # all at once solver
 
 PETSc.Sys.Print('### === --- AAOFunction --- === ###')
 PETSc.Sys.Print('')
 
-chunk_aaofunc = asQ.AllAtOnceFunction(chunk_ensemble, chunk_partition, W)
-chunk_aaofunc.assign(winitial)
+chunk_aaofunc = asQ.AllAtOnceFunction(chunk_ensemble, chunk_partition, V)
+chunk_aaofunc.assign(q0)
 
 PETSc.Sys.Print('### === --- AAOForm --- === ###')
 PETSc.Sys.Print('')
@@ -256,13 +203,14 @@ PETSc.Sys.Print('')
 theta = 0.5
 chunk_aaoform = asQ.AllAtOnceForm(chunk_aaofunc, dt, theta,
                                   form_mass, form_function)
+for i in range(chunk_id):
+    chunk_aaoform.time_update()
 
 PETSc.Sys.Print('### === --- AAOSolver --- === ###')
 PETSc.Sys.Print('')
 
 chunk_solver = asQ.AllAtOnceSolver(chunk_aaoform, chunk_aaofunc,
-                                   solver_parameters=sparameters_diag,
-                                   appctx=appctx)
+                                   solver_parameters=sparameters_diag)
 
 # which chunk_id is holding which part of the total timeseries?
 chunk_indexes = np.array([*range(args.nchunks)], dtype=int)
@@ -277,7 +225,7 @@ chunk_root = lambda c: c*chunk_ensemble.global_comm.size
 earliest = lambda: (chunk_id == chunk_indexes[0])
 
 # update chunk ics from previous chunk
-uprev = fd.Function(W)
+uprev = fd.Function(V)
 
 
 def update_chunk_halos(uhalo):
@@ -357,21 +305,36 @@ for j in range(args.nsweeps):
     PETSc.Sys.Print('')
 
     # 1) one smoothing application on each chunk
+    t0 = chunk_aaoform.t0.values()[0]
     if args.serial:
         for i in range(args.nchunks):
             PETSc.Sys.Print(f'--- Calculating chunk {i} on solver {chunk_indexes[i]} ---        ')
-
             global_comm.Barrier()
             sleep(sleep_time)
+
             if chunk_id == chunk_indexes[i]:
+
+                # chunk_aaoform.assemble()
+                # with chunk_aaoform.F.global_vec_ro() as rvec:
+                #     chunk_residual = rvec.norm()
+                #     PETSc.Sys.Print(f">>> Solver {chunk_id} residual = {chunk_residual}",
+                #                     comm=chunk_ensemble.global_comm)
+
                 chunk_solver.solve()
+
+                # chunk_aaoform.assemble()
+                # with chunk_aaoform.F.global_vec_ro() as rvec:
+                #     chunk_residual = rvec.norm()
+                #     PETSc.Sys.Print(f">>> Solver {chunk_id} residual = {chunk_residual}",
+                #                     comm=chunk_ensemble.global_comm)
+
             global_comm.Barrier()
             sleep(sleep_time)
-
             PETSc.Sys.Print("")
 
     else:
         chunk_solver.solve()
+    assert chunk_aaoform.t0.values()[0] == t0, f'{chunk_id = }'
 
     # 2) update ics of each chunk from previous chunk
     update_chunk_halos(uprev)
@@ -380,6 +343,11 @@ for j in range(args.nsweeps):
     # with earliest timesteps (already has 'exact' ic)
     if not earliest():
         chunk_aaofunc.initial_condition.assign(uprev)
+    else:
+        PETSc.Sys.Print(f">>> Solver {chunk_id} is earliest",
+                        comm=chunk_ensemble.global_comm)
+    assert chunk_aaoform.t0.values()[0] == t0, f'{chunk_id = }'
+
 
     # 3) check convergence of earliest chunk
     if earliest():
@@ -387,6 +355,8 @@ for j in range(args.nsweeps):
         with chunk_aaoform.F.global_vec_ro() as rvec:
             res = rvec.norm()
         convergence_residual[0] = res
+        # convergence_residual[0] = chunk_solver.snes.ksp.getResidualNorm()
+    assert chunk_aaoform.t0.values()[0] == t0, f'{chunk_id = }'
 
     # rank 0 on the earliest chunk tells everyone if they've converged
     global_ensemble.global_comm.Bcast(convergence_residual,
@@ -395,10 +365,10 @@ for j in range(args.nsweeps):
     # update and report
     iteration_converged = convergence_residual[0] < patol
     if iteration_converged:
+        PETSc.Sys.Print(f">>> Chunk {nconverged} converged with residual {convergence_residual[0]:.3e}")
         nconverged += 1
-        PETSc.Sys.Print(f">>> Chunk {nconverged-1} converged with residual {convergence_residual[0]:.3e}")
     else:
-        PETSc.Sys.Print(f">>> Chunk {nconverged-1} did not converge with residual {convergence_residual[0]:.3e}")
+        PETSc.Sys.Print(f">>> Chunk {nconverged} did not converge with residual {convergence_residual[0]:.3e}")
 
     converged_time = nconverged*chunk_length*args.dt
     PETSc.Sys.Print(f">>> Converged time: {converged_time} hours")
@@ -422,6 +392,9 @@ for j in range(args.nsweeps):
         # earliest chunk_id becomes last chunk
         if earliest():
             chunk_aaofunc.assign(uprev)
+            # shift time to the end of the series
+            for i in range(args.nchunks):
+                chunk_aaoform.time_update()
 
         # update record of which chunk_id is in which position
         for i in range(args.nchunks):
