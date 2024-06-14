@@ -88,12 +88,11 @@ def test_Nitsche_BCs():
 @pytest.mark.parallel(nprocs=4)
 def test_Nitsche_heat_timeseries():
     from utils.serial import ComparisonMiniapp
-    from copy import deepcopy
 
-    nwindows = 10
+    nwindows = 5
     nslices = 2
-    slice_length = 2
-    dt = 0.5
+    slice_length = 4
+    dt = 0.1
     theta = 0.5
 
     time_partition = [slice_length for _ in range(nslices)]
@@ -111,12 +110,10 @@ def test_Nitsche_heat_timeseries():
 
     # Heat equaion with Nitsch BCs.
     def form_function(u, v, t):
-        return (
-            fd.inner(fd.grad(u), fd.grad(v))*fd.dx
-            - fd.inner(v, fd.inner(fd.grad(u), n))*fd.ds
-            - fd.inner(u-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(v), n))*fd.ds
-            + 20*nx*fd.inner(u-fd.exp(0.5*x + y + 1.25*t), v)*fd.ds
-        )
+        return (fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+                - fd.inner(v, fd.inner(fd.grad(u), n))*fd.ds
+                - fd.inner(u-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(v), n))*fd.ds
+                + 20*nx*fd.inner(u-fd.exp(0.5*x + y + 1.25*t), v)*fd.ds)
 
     def form_mass(u, v):
         return u*v*fd.dx
@@ -124,17 +121,12 @@ def test_Nitsche_heat_timeseries():
     block_sparameters = {
         'ksp_type': 'preonly',
         'pc_type': 'lu',
-    }
-
-    snes_sparameters = {
-        'type': 'ksponly',
-        'monitor': None,
-        'converged_reason': None,
+        'pc_factor_mat_solver_type': 'mumps'
     }
 
     # solver parameters for serial method
     serial_sparameters = {
-        'snes': snes_sparameters
+        'snes_type': 'ksponly',
     }
     serial_sparameters.update(block_sparameters)
     if ensemble.ensemble_comm.rank == 0:
@@ -143,9 +135,13 @@ def test_Nitsche_heat_timeseries():
 
     # solver parameters for parallel method
     parallel_sparameters = {
-        'snes': snes_sparameters,
+        'snes': {
+            'type': 'ksponly',
+            'monitor': None,
+            'converged_reason': None,
+        },
         'mat_type': 'matfree',
-        'ksp_type': 'gmres',
+        'ksp_type': 'fgmres',
         'ksp': {
             'monitor': None,
             'converged_rate': None,
@@ -191,18 +187,16 @@ def test_Nitsche_heat_timeseries():
         PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
 
     for err in errors:
-        assert err/norm0 < 1e-3
+        assert err/norm0 < 1e-10, "Serial and parallel solutions should match to solver tolerance"
 
 
 @pytest.mark.parallel(nprocs=4)
 def test_galewsky_timeseries():
     from utils import units
-    from utils import mg
     from utils.planets import earth
     import utils.shallow_water as swe
     from utils.shallow_water import galewsky
     from utils.serial import ComparisonMiniapp
-    from copy import deepcopy
 
     ref_level = 2
     nwindows = 1
@@ -276,7 +270,7 @@ def test_galewsky_timeseries():
         'transfer_manager': f'{__name__}.ManifoldTransferManager',
         'levels': {
             'ksp_type': 'gmres',
-            'ksp_max_it': 5,
+            'ksp_max_it': 3,
             'pc_type': 'python',
             'pc_python_type': 'firedrake.PatchPC',
             'patch': patch_parameters
@@ -306,11 +300,12 @@ def test_galewsky_timeseries():
     }
 
     # nonlinear solver options
+    tol = 1e-6
     snes_sparameters = {
         'monitor': None,
         'converged_reason': None,
         'atol': 1e-0,
-        'rtol': 1e-10,
+        'rtol': tol,
         'stol': 1e-12,
         'ksp_ew': None,
         'ksp_ew_version': 1,
@@ -320,9 +315,9 @@ def test_galewsky_timeseries():
     serial_sparameters = {
         'snes': snes_sparameters
     }
-    serial_sparameters.update(deepcopy(block_sparameters))
-    serial_sparameters['ksp']['monitor'] = None
-    serial_sparameters['ksp']['converged_reason'] = None
+    serial_sparameters.update(block_sparameters)
+    serial_sparameters['ksp_monitor'] = None
+    serial_sparameters['ksp_converged_rate'] = None
 
     # solver parameters for parallel method
     parallel_sparameters = {
@@ -331,32 +326,19 @@ def test_galewsky_timeseries():
         'ksp_type': 'fgmres',
         'ksp': {
             'monitor': None,
-            'converged_reason': None,
+            'converged_rate': None,
         },
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
-        'circulant_alpha': 1e-3,
+        'circulant_alpha': 1e-5,
+        'circulant_block': block_sparameters
     }
 
-    for i in range(sum(time_partition)):
-        parallel_sparameters['circulant_block_'+str(i)] = block_sparameters
-
-    appctx = {}
-    transfer_managers = []
-    for _ in range(time_partition[ensemble.ensemble_comm.rank]):
-        transfer_managers.append(mg.ManifoldTransferManager())
-    appctx['diag_transfer_managers'] = transfer_managers
-
     miniapp = ComparisonMiniapp(ensemble, time_partition,
-                                form_mass,
-                                form_function,
+                                form_mass, form_function,
                                 w_initial, dt, theta,
                                 serial_sparameters,
-                                parallel_sparameters,
-                                appctx=appctx)
-
-    miniapp.serial_app.nlsolver.set_transfer_manager(
-        mg.ManifoldTransferManager())
+                                parallel_sparameters)
 
     norm0 = fd.norm(w_initial)
 
@@ -387,7 +369,7 @@ def test_galewsky_timeseries():
         PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
 
     for err in errors:
-        assert err/norm0 < 1e-5
+        assert err/norm0 < 10*tol, "Serial and parallel solutions should match to solver tolerance + leeway"
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -412,20 +394,13 @@ def test_steady_swe_miniapp():
         coords_degree=1)
 
     # Parameters for the diag
-    sparameters = {
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_mat_solver_type': 'mumps',
-        'pc_factor_reuse_fill': None,
-        'pc_factor_reuse_ordering': None,
-    }
-
+    tol = 1e-4
     solver_parameters_diag = {
         "snes_linesearch_type": "basic",
         'snes_atol': 1e3,
         'snes_monitor': None,
         'snes_converged_reason': None,
-        'ksp_rtol': 1e-3,
+        'ksp_rtol': tol,
         'ksp_monitor': None,
         'ksp_converged_reason': None,
         'mat_type': 'matfree',
@@ -434,11 +409,13 @@ def test_steady_swe_miniapp():
         'pc_python_type': 'asQ.CirculantPC',
         'aaos_jacobian_state': 'initial',
         'circulant_state': 'initial',
-        'circulant_alpha': 1e-5,
+        'circulant_alpha': 1e-6,
+        'circulant_block': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor_mat_solver_type': 'mumps',
+        }
     }
-
-    for i in range(sum(time_partition)):
-        solver_parameters_diag["circulant_block_"+str(i)] = sparameters
 
     dt = 0.2*units.hour
 
@@ -482,8 +459,8 @@ def test_steady_swe_miniapp():
         htol = pow(10, -ref_level)
         utol = pow(10, -ref_level)
 
-        assert (abs(herr) < htol)
-        assert (abs(uerr) < utol)
+        assert (abs(herr) < htol), "Steady state solution should be maintained"
+        assert (abs(uerr) < utol), "Steady state solution should be maintained"
 
 
 bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
@@ -526,12 +503,6 @@ def test_solve_para_form(bc_opt, extruded):
     ntimesteps = sum(time_partition)
 
     # Parameters for the diag
-    sparameters = {
-        "ksp_type": "preonly",
-        'pc_type': 'lu',
-        'pc_factor_mat_solver_type': 'mumps'
-    }
-
     solver_parameters_diag = {
         "snes_linesearch_type": "basic",
         'snes_monitor': None,
@@ -542,10 +513,13 @@ def test_solve_para_form(bc_opt, extruded):
         'ksp_monitor': None,
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
+        'circulant_alpha': 1e-6,
+        'circulant_block': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor_mat_solver_type': 'mumps'
+        }
     }
-
-    for i in range(ntimesteps):
-        solver_parameters_diag[f"circulant_block_{i}_"] = sparameters
 
     def form_function(u, v, t):
         return fd.inner((1.+c*fd.inner(u, u))*fd.grad(u), fd.grad(v))*fd.dx
@@ -598,7 +572,7 @@ def test_solve_para_form(bc_opt, extruded):
     for i in range(pdg.nlocal_timesteps):
         fidx = pdg.aaofunc.transform_index(i, from_range='slice', to_range='window')
         u.assign(pdg.aaofunc[i])
-        assert (fd.errornorm(vfull.sub(fidx), u) < 1.0e-9)
+        assert (fd.errornorm(vfull.sub(fidx), u) < 1.0e-9), "Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally"
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -615,12 +589,6 @@ def test_diagnostics():
     theta = 0.5
     time_partition = [2, 2, 2]
 
-    block_sparameters = {
-        "ksp_type": "preonly",
-        'pc_type': 'lu',
-        'pc_factor_mat_solver_type': 'mumps'
-    }
-
     diag_sparameters = {
         'snes_converged_reason': None,
         'ksp_converged_reason': None,
@@ -628,10 +596,12 @@ def test_diagnostics():
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
         'circulant_alpha': 1e-3,
+        'circulant_block': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor_mat_solver_type': 'mumps'
+        }
     }
-
-    for i in range(sum(time_partition)):
-        diag_sparameters["circulant_block_" + str(i) + "_"] = block_sparameters
 
     def form_function(u, v, t):
         return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
@@ -650,24 +620,24 @@ def test_diagnostics():
 
     pdg.sync_diagnostics()
 
-    assert pdg.total_timesteps == pdg.ntimesteps
-    assert pdg.total_windows == 1
-    assert pdg.linear_iterations == pdg.solver.snes.getLinearSolveIterations()
-    assert pdg.nonlinear_iterations == pdg.solver.snes.getIterationNumber()
+    assert pdg.total_timesteps == pdg.ntimesteps, "total timesteps after a single window should be ntimesteps"
+    assert pdg.total_windows == 1, "Only one window solve requested"
+    assert pdg.linear_iterations == pdg.solver.snes.getLinearSolveIterations(), "linear iterations should match aaoksp iterations"
+    assert pdg.nonlinear_iterations == pdg.solver.snes.getIterationNumber(), "linear iterations should match aaosnes iterations"
 
     # direct block solve
     for i in range(pdg.ntimesteps):
-        assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations
+        assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations, "Direct block solve so block iterations should equal aao iterations"
 
     linear_iterations0 = pdg.linear_iterations
     nonlinear_iterations0 = pdg.nonlinear_iterations
 
     pdg.solve(nwindows=1)
 
-    assert pdg.total_timesteps == 2*pdg.ntimesteps
-    assert pdg.total_windows == 2
-    assert pdg.linear_iterations == linear_iterations0 + pdg.solver.snes.getLinearSolveIterations()
-    assert pdg.nonlinear_iterations == nonlinear_iterations0 + pdg.solver.snes.getIterationNumber()
+    assert pdg.total_timesteps == 2*pdg.ntimesteps, "total timesteps after two windows"
+    assert pdg.total_windows == 2, "second window solve completed"
+    assert pdg.linear_iterations == linear_iterations0 + pdg.solver.snes.getLinearSolveIterations(), "linear iterations should increment at every window"
+    assert pdg.nonlinear_iterations == nonlinear_iterations0 + pdg.solver.snes.getIterationNumber(), "nonlinear iterations should increment at every window"
 
     for i in range(pdg.ntimesteps):
-        assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations
+        assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations, "Direct block solve so block iterations should equal aao iterations"

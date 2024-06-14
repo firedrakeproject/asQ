@@ -1,3 +1,5 @@
+[![Lint and test](https://github.com/firedrakeproject/asQ/actions/workflows/test.yml/badge.svg)](https://github.com/firedrakeproject/asQ/actions/workflows/test.yml)
+
 # asQ: Parallel-in-time simulation of finite element models using ParaDiag
 
 asQ is a python package for developing parallel-in-time ParaDiag methods for finite element models.
