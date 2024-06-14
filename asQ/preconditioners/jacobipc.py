@@ -282,11 +282,8 @@ class SliceJacobiPC(AllAtOncePCBase):
         slice_func = AllAtOnceFunction(self.slice_ensemble,
                                        slice_partition,
                                        field_function_space)
-        slice_func.zero()
         self.slice_func = slice_func
-
-        for i in range(self.nlocal_timesteps):
-            slice_func[i].assign(self.aaofunc[i])
+        self._update_function()
 
         # the result is placed in here and then copied
         # out to the global result
@@ -303,6 +300,7 @@ class SliceJacobiPC(AllAtOncePCBase):
         # the new form over the ensemble of the
         # aaofunc kwarg not its own ensemble.
         self.slice_form = self.aaoform.copy(aaofunc=slice_func)
+        self._update_time()
 
         # # # slice parameters # # #
         default_slice_prefix = f"{self.full_prefix}slice_"
@@ -325,11 +323,7 @@ class SliceJacobiPC(AllAtOncePCBase):
 
         self.initialized = final_initialize
 
-    @profiler()
-    def update(self, pc):
-        """
-        Update the slice states.
-        """
+    def _update_function(self):
         # # # update the timestep values
         aaofunc = self.aaofunc
         slice_func = self.slice_func
@@ -346,6 +340,7 @@ class SliceJacobiPC(AllAtOncePCBase):
             slice_func[i].assign(aaofunc[i])
         slice_func.update_time_halos()
 
+    def _update_time(self):
         # # # update the time values
         aaoform = self.aaoform
         slice_form = self.slice_form
@@ -353,6 +348,14 @@ class SliceJacobiPC(AllAtOncePCBase):
         # slice initial time
         t0 = aaoform.t0 if self.slice_rank == 0 else aaoform.tprev
         slice_form.time_update(t0)
+
+    @profiler()
+    def update(self, pc):
+        """
+        Update the slice states.
+        """
+        self._update_function()
+        self._update_time()
 
         # # # update the slice
         self.slice_solver.jacobian.update()
