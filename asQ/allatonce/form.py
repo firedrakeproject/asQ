@@ -15,7 +15,7 @@ class AllAtOnceForm(TimePartitionMixin):
     def __init__(self,
                  aaofunc, dt, theta,
                  form_mass, form_function,
-                 bcs=[], alpha=None):
+                 bcs=[], t0=0, alpha=None):
         """
         The all-at-once form representing the implicit theta-method (trapezium rule version)
         over multiple timesteps of a time-dependent finite-element problem.
@@ -32,6 +32,7 @@ class AllAtOnceForm(TimePartitionMixin):
             Must have signature `def form_function(*u, *v):` where *u and *v are a split(Function)
             and a split(TestFunction) from aaofunction.field_function_space.
         :arg bcs: a list of DirichletBC boundary conditions on aaofunc.field_function_space.
+        :arg t0: the time at the initial conditions of aaofunc.
         :arg alpha: float, circulant matrix parameter. if None then no circulant approximation used.
         """
         self._time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
@@ -41,10 +42,11 @@ class AllAtOnceForm(TimePartitionMixin):
         self.function_space = aaofunc.function_space
 
         self.dt = fd.Constant(dt)
+
         self.t0 = fd.Constant(0)
         self.tprev = fd.Constant(0)
         self.time = tuple(fd.Constant(0) for _ in range(self.aaofunc.nlocal_timesteps))
-        self.time_update(t=0)
+        self.time_update(t=self.t0)
 
         self.theta = fd.Constant(theta)
 
@@ -129,7 +131,8 @@ class AllAtOnceForm(TimePartitionMixin):
 
         return AllAtOnceForm(aaofunc, self.dt, self.theta,
                              self.form_mass, self.form_function,
-                             bcs=self.field_bcs, alpha=self.alpha)
+                             bcs=self.field_bcs, t0=self.t0,
+                             alpha=self.alpha)
 
     @profiler()
     def assemble(self, func=None, tensor=None):
