@@ -430,7 +430,7 @@ for i in range(neigs):
     solver.invalidate_jacobian()
 
     if verbosity > 0:
-        PETSc.Sys.Print(f"Eigenvalues {str(k).rjust(3)}:\n    d1 = {np.round(d1,4)}, d2 = {np.round(d2,4)}, dhat = {np.round(dhat,4)}")
+        PETSc.Sys.Print(f"Eigenvalues {str(k).rjust(3)}:\n    d1 = {np.round(d1, 4)}, d2 = {np.round(d2, 4)}, dhat = {np.round(dhat, 4)}")
 
     np.random.seed(args.seed)
     for j in range(args.nrhs):
