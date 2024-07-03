@@ -86,7 +86,9 @@ class BrokenHDivProjector:
                   "dst": (dst, INC)})
 
 
-def _break_function_space(V, appctx):
+def _break_function_space(V, appctx=None):
+    if appctx is None:
+        appctx = {}
     cpx = appctx.get('cpx', None)
     mesh = V.mesh()
 
