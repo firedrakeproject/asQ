@@ -166,18 +166,18 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
         # Problem parameter options
         if self.deprecated_prefix is None:
             self.dt = PETSc.Options().getReal(
-                f"{self.full_prefix}dt", default=self.aaoform.dt)
+                f"{self.full_prefix}dt", default=self.aaoform.dt.values()[0])
 
             self.theta = PETSc.Options().getReal(
-                f"{self.full_prefix}theta", default=self.aaoform.theta)
+                f"{self.full_prefix}theta", default=self.aaoform.theta.values()[0])
         else:
             self.dt = get_deprecated_option(
                 PETSc.Options().getReal, self.full_prefix,
-                self.deprecated_prefix, "dt", default=self.aaoform.dt)
+                self.deprecated_prefix, "dt", default=self.aaoform.dt.values()[0])
 
             self.theta = get_deprecated_option(
                 PETSc.Options().getReal, self.full_prefix,
-                self.deprecated_prefix, "theta", default=self.aaoform.theta)
+                self.deprecated_prefix, "theta", default=self.aaoform.theta.values()[0])
 
         self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
 

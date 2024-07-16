@@ -26,31 +26,23 @@ def get_option_from_list(prefix, option_name, option_list,
     return option
 
 
-class MissingOption:
-    pass
-
-
-missing_option = MissingOption()
-
-
 def get_deprecated_option(getOption, prefix, deprecated_prefix,
                           option_name, default=None):
     deprecated_name = deprecated_prefix + option_name
     option_name = prefix + option_name
 
     deprecated_option = getOption(deprecated_name,
-                                  default=missing_option)
+                                  default=default)
     option = getOption(option_name,
-                       default=missing_option)
+                       default=default)
 
-    if deprecated_option is not missing_option:
+    if deprecated_option != default:
         msg = f"Prefix {deprecated_prefix} is deprecated and will be removed in the future. Use {prefix} instead."
         warn(msg)
-
-        if option is not missing_option:
+        if option != default:
             msg = f"{deprecated_name} ignored in favour of {option_name}"
             warn(msg)
+        else:
+            option = deprecated_option
 
-    for opt in (option, deprecated_option, default):
-        if opt is not missing_option:
-            return opt
+    return option
