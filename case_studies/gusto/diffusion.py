@@ -26,7 +26,7 @@ kappa = 1.
 f_end_expr = (1/(1+4*tmax))*f_init**(1/(1+4*tmax))
 
 V = domain.spaces("DG")
-Print(f"{V = }")
+Print(f"{V=}")
 
 mu = 5.
 
@@ -55,12 +55,12 @@ asqstepper = SerialMiniApp(dt, theta, f0, form_mass, form_function,
 # Run gusto stepper
 timestepper.run(0., tmax)
 gusto_f_end = timestepper.fields('f')
-Print(f"{errornorm(f_end_expr, gusto_f_end) = }")
+Print(f"{errornorm(f_end_expr, gusto_f_end)=}")
 
 # Run asQ stepper
 asqstepper.solve(nt=timestepper.step-1)
 asq_f_end = asqstepper.w1
-Print(f"{errornorm(f_end_expr, asq_f_end) = }")
+Print(f"{errornorm(f_end_expr, asq_f_end)=}")
 
 # error
-Print(f"{errornorm(gusto_f_end, asq_f_end) = }")
+Print(f"{errornorm(gusto_f_end, asq_f_end)=}")

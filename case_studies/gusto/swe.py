@@ -151,8 +151,8 @@ asq_D = asqstepper.w1.subfunctions[1]
 # ------------------------------------------------------------------------ #
 
 uinit, Dinit = w0.subfunctions
-Print(f"{errornorm(asq_u, uinit)/norm(uinit) = }")
-Print(f"{errornorm(asq_D, Dinit)/norm(Dinit) = }")
+Print(f"{errornorm(asq_u, uinit)/norm(uinit)=}")
+Print(f"{errornorm(asq_D, Dinit)/norm(Dinit)=}")
 
-Print(f"{errornorm(asq_u, gusto_u)/norm(uinit) = }")
-Print(f"{errornorm(asq_D, gusto_D)/norm(uinit) = }")
+Print(f"{errornorm(asq_u, gusto_u)/norm(uinit)=}")
+Print(f"{errornorm(asq_D, gusto_D)/norm(uinit)=}")

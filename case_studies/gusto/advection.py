@@ -137,8 +137,8 @@ stepper.run(0, tmax=tmax)
 # Set up asQ stepper
 # ------------------------------------------------------------------------ #
 
-Print(f"{equation.function_space = }")
-Print(f"{V = }")
+Print(f"{equation.function_space=}")
+Print(f"{V=}")
 params = {
     'snes_type': 'ksponly',
     'ksp_type': 'preonly',
@@ -162,10 +162,10 @@ asqstep.solve(nt=stepper.step-1)
 # ------------------------------------------------------------------------ #
 
 gusto_error = norm(stepper.fields('f') - f_end) / norm(f_end)
-Print(f"{gusto_error = }")
+Print(f"{gusto_error=}")
 
 asq_error = norm(asqstep.w1 - f_end) / norm(f_end)
-Print(f"{asq_error = }")
+Print(f"{asq_error=}")
 
 gusto_asq_error = norm(stepper.fields('f') - asqstep.w1) / norm(f_end)
-Print(f"{gusto_asq_error = }")
+Print(f"{gusto_asq_error=}")
