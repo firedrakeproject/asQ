@@ -3,12 +3,12 @@ from firedrake.fml import (
     replace_subject, replace_test_function
 )
 from firedrake.formmanipulation import split_form
-from gusto.labels import time_derivative, prognostic
+from gusto import time_derivative, prognostic, transporting_velocity
+from ufl import replace
 
 
-def asq_forms(equation):
+def asq_forms(equation, transport_velocity_index=None):
     NullTerm = Term(None)
-
     V = equation.function_space
     ncpts = len(V)
     residual = equation.residual
@@ -38,7 +38,7 @@ def asq_forms(equation):
     # generate ufl for linear operator over given trial/tests
     def form_function(*trials_and_tests):
         trials = trials_and_tests[:ncpts] if ncpts > 1 else trials_and_tests[0]
-        tests = trials_and_tests[ncpts:]
+        tests = trials_and_tests[ncpts:2*ncpts]
 
         fields = equation.field_names if ncpts > 1 else [equation.field_name]
 
@@ -58,6 +58,12 @@ def asq_forms(equation):
             fi = fi.label_map(
                 all_terms,
                 replace_subject(trials))
+
+            if transport_velocity_index is not None:
+                transport_velocity = trials[transport_velocity_index]
+                fi = fi.label_map(
+                    lambda t: t.has_label(transporting_velocity),
+                    map_if_true=lambda t: Term(replace(t.form, {t.get(transporting_velocity): transport_velocity}), t.labels))
 
             f += fi
         f = f.label_map(lambda t: t is NullTerm, drop)

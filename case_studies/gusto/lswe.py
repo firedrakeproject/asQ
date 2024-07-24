@@ -88,5 +88,9 @@ asqstepper.solve(nt=stepper.step-1)
 asq_u = asqstepper.w1.subfunctions[0]
 asq_D = asqstepper.w1.subfunctions[1]
 
+# ------------------------------------------------------------------------ #
+# Compare results
+# ------------------------------------------------------------------------ #
+
 Print(f"{errornorm(asq_u, gusto_u)/norm(gusto_u) = }")
 Print(f"{errornorm(asq_D, gusto_D)/norm(gusto_D) = }")
