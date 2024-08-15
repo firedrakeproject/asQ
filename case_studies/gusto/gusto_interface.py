@@ -1,24 +1,26 @@
+try:
+    from gusto import time_derivative, prognostic, transporting_velocity
+except ModuleNotFoundError as err:
+    raise type(err)("Gusto must be installed to use the asQ-Gusto interface.") from err
+
 from firedrake.fml import (
     Term, all_terms, drop,
     replace_subject, replace_test_function
 )
 from firedrake.formmanipulation import split_form
-from gusto import time_derivative, prognostic, transporting_velocity
 from ufl import replace
 
 
 def asq_forms(equation, transport_velocity_index=None):
     NullTerm = Term(None)
-    V = equation.function_space
-    ncpts = len(V)
-    residual = equation.residual
+    ncpts = len(equation.function_space)
 
     # split equation into mass matrix and linear operator
-    mass = residual.label_map(
+    mass = equation.residual.label_map(
         lambda t: t.has_label(time_derivative),
         map_if_false=drop)
 
-    function = residual.label_map(
+    function = equation.residual.label_map(
         lambda t: t.has_label(time_derivative),
         map_if_true=drop)
 
