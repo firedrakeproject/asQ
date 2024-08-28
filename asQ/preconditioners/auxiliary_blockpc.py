@@ -14,8 +14,11 @@ class AuxiliaryBlockPCBase(fd.AuxiliaryOperatorPC):
         self.prefix = pc.getOptionsPrefix() + self._prefix
         self.options = PETSc.Options(self.prefix)
 
-        self.uref = appctx.get('uref')
-        assert self.uref.function_space() == u.function_space()
+        uref = appctx.get('uref')
+        self.uref = appctx.get('aux_uref', uref)
+        self.u = fd.Function(u.function_space())
+
+        self.frozen = self.options.getBool("frozen", default=False)
 
         self.bcs = appctx['bcs']
         self.tref = appctx['tref']
@@ -25,6 +28,12 @@ class AuxiliaryBlockPCBase(fd.AuxiliaryOperatorPC):
 
         self.form_mass = appctx.get('aux_form_mass', form_mass)
         self.form_function = appctx.get('aux_form_function', form_function)
+
+    def update(self, pc):
+        if not self.frozen:
+            self.update_state(pc)
+            super().update(pc)
+        return
 
 
 class AuxiliaryRealBlockPC(AuxiliaryBlockPCBase):
@@ -57,8 +66,12 @@ class AuxiliaryRealBlockPC(AuxiliaryBlockPCBase):
     'aux_theta': <float>
         Alternative implicit theta parameter.
     """
+    def update_state(self, pc):
+        self.u.assign(self.uref)
+
     def form(self, pc, v, u):
         self._setup(pc, v, u)
+        self.update_state(pc)
 
         dt = self.appctx['dt']
         theta = self.appctx['theta']
@@ -66,7 +79,7 @@ class AuxiliaryRealBlockPC(AuxiliaryBlockPCBase):
         dt = self.options.getReal('dt', default=dt)
         theta = self.options.getReal('theta', default=theta)
 
-        us = fd.split(self.uref)
+        us = fd.split(self.u)
         vs = fd.split(v)
 
         dt1 = fd.Constant(1/dt)
@@ -75,7 +88,7 @@ class AuxiliaryRealBlockPC(AuxiliaryBlockPCBase):
         M = self.form_mass(*fd.split(u), *vs)
 
         F = self.form_function(*us, *vs, self.tref)
-        K = fd.derivative(F, self.uref)
+        K = fd.derivative(F, self.u)
 
         a = dt1*M + thet*K
 
@@ -118,10 +131,18 @@ class AuxiliaryComplexBlockPC(AuxiliaryBlockPCBase):
     'aux_d2i': <float>
         Imaginary part of an alternative complex coefficient on the stiffness matrix.
     """
+    def update_state(self, pc):
+        if self.u.function_space() == self.uref.function_space():
+            self.u.assign(self.uref)
+        else:
+            self.cpx.set_real(self.u, self.uref)
+            self.cpx.set_imag(self.u, self.uref)
+
     def form(self, pc, v, u):
         self._setup(pc, v, u)
-
         cpx = self.appctx['cpx']
+        self.cpx = cpx
+        self.update_state(pc)
 
         d1 = self.appctx['d1']
         d2 = self.appctx['d2']
@@ -138,15 +159,10 @@ class AuxiliaryComplexBlockPC(AuxiliaryBlockPCBase):
 
         # complex and real valued function spaces
         W = v.function_space()
-        V = W.sub(0)
-
-        bcs = tuple((cb
-                     for bc in self.bcs
-                     for cb in cpx.DirichletBC(W, V, bc, 0*bc.function_arg)))
 
         M = cpx.BilinearForm(W, d1, self.form_mass)
-        K = cpx.derivative(d2, partial(self.form_function, t=self.tref), self.uref)
+        K = cpx.derivative(d2, partial(self.form_function, t=self.tref), self.u)
 
         a = M + K
 
-        return (a, bcs)
+        return (a, self.bcs)
