@@ -47,7 +47,7 @@ def u_mass(u, w):
 
 def u_tendency(w, n, u, theta, rho, gas, Up,
                mu=None, f=None, F=None,
-               pi_degree=6):
+               pi_degree=4):
     """
     Written in a dimension agnostic way
     """
@@ -86,12 +86,13 @@ def get_form_mass():
 
 def get_form_function(n, Up, c_pen, gas, mu,
                       f=None, F=None,
-                      viscosity=None, diffusivity=None):
+                      viscosity=None, diffusivity=None,
+                      pi_degree=4):
     def form_function(u, rho, theta, du, drho, dtheta, t):
         eqn = theta_tendency(dtheta, u, theta, n, Up, c_pen)
         eqn += rho_tendency(drho, rho, u, n)
         eqn += u_tendency(du, n, u, theta, rho,
-                          gas, Up, mu, f, F)
+                          gas, Up, mu, f, F, pi_degree=pi_degree)
         if viscosity:
             eqn += form_viscosity(u, du, viscosity)
         if diffusivity:
