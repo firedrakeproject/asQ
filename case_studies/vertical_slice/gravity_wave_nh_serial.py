@@ -3,8 +3,8 @@ from firedrake.petsc import PETSc
 from firedrake.output import VTKFile
 from pyop2.mpi import MPI
 from utils.diagnostics import convective_cfl_calculator
-from utils.serial import SerialMiniApp
 from utils import compressible_flow as euler
+from utils.serial import SerialMiniApp
 import numpy as np
 
 
@@ -115,6 +115,8 @@ uback, rho_back, theta_back = Uback.subfunctions
 U0 = Uback.copy(deepcopy=True)  # background state at rest
 U0.subfunctions[0].assign(0)
 
+# finite element forms
+
 form_mass = euler.get_form_mass()
 
 up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
@@ -122,8 +124,9 @@ up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 form_function = euler.get_form_function(
     n, up, c_pen=fd.Constant(2.0**(-7./2)), gas=gas, mu=None)
 
-bcs = [fd.DirichletBC(W.sub(0), 0., "bottom"),
-       fd.DirichletBC(W.sub(0), 0., "top")]
+zv = fd.as_vector([fd.Constant(0.), fd.Constant(0.)])
+bcs = [fd.DirichletBC(W.sub(0), zv, "bottom"),
+       fd.DirichletBC(W.sub(0), zv, "top")]
 for bc in bcs:
     bc.apply(Un)
 
