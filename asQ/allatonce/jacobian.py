@@ -75,6 +75,11 @@ class AllAtOnceJacobian(TimePartitionMixin):
             self.form_prev = None
             self.action_prev = None
 
+        # matrix type for applying the Jacobian action.
+        # 'matfree' or 'aij'
+        self.mat_type = PETSc.Options().getString(
+            options_prefix + 'mat_type', 'matfree')
+
         # option for what state to linearise around
         valid_jacobian_states = tuple(('current', 'window', 'slice', 'linear',
                                        'initial', 'reference', 'user'))
@@ -143,9 +148,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.x.assign(X, update_halos=True, blocking=True)
 
         # assembly stage
-        fd.assemble(self.action, tensor=self.F.function)
+        fd.assemble(self.action, tensor=self.F.function, mat_type=self.mat_type)
         if self._useprev:
-            fd.assemble(self.action_prev, tensor=self.Fprev)
+            fd.assemble(self.action_prev, tensor=self.Fprev, mat_type=self.mat_type)
             self.F.function += self.Fprev
 
         # Apply boundary conditions
