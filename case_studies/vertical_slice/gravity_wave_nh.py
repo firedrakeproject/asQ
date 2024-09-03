@@ -145,7 +145,7 @@ patch_parameters = {
         'pc_star': {
             'construct_dim': 0,
             'sub_sub_pc_type': 'lu',
-            'sub_sub_pc_factor_mat_solver_type': 'petsc',
+            'sub_sub_pc_factor_mat_solver_type': 'mumps',
         },
     },
 }
@@ -183,49 +183,41 @@ composite_parameters = {
 block_parameters = {
     'mat_type': 'matfree',
     'ksp_type': 'fgmres',
-    # 'ksp_pc_side': 'right',
-    # 'ksp_norm_type': 'unpreconditioned',
     'ksp': {
         'rtol': args.alpha,
-        'max_it': 8,
+        'max_it': 50,
         'converged_maxits': None,
         'convergence_test': 'skip',
     },
-    'snes_lag_preconditioner': -2,
-    'snes_lag_preconditioner_persists': None,
-    'snes_lag_jacobian': -2,
-    'snes_lag_jacobian_persists': None,
 }
 
 block_parameters.update(composite_parameters)
 
-atol = sqrt(window_length)*args.atol
+patol = sqrt(window_length)*args.atol
 solver_parameters_diag = {
     "snes": {
         "monitor": None,
         "converged_reason": None,
         "rtol": 1e-8,
-        "atol": atol,
+        "atol": patol,
         "ksp_ew": None,
         "ksp_ew_version": 1,
         "ksp_ew_rtol0": 1e-1,
         "ksp_ew_threshold": 1e-1,
         'lag_preconditioner': -2,
         'lag_preconditioner_persists': None,
-        # 'lag_jacobian': -2,
-        # 'lag_jacobian_persists': None,
     },
-    "ksp_type": "fgmres",
     "mat_type": "matfree",
+    "ksp_type": "fgmres",
     "ksp": {
         "monitor": None,
         "converged_rate": None,
-        "atol": atol,
+        "atol": patol,
     },
     "pc_type": "python",
     "pc_python_type": "asQ.CirculantPC",
+    "circulant_state": "reference",
     "circulant_alpha": args.alpha,
-    "circulant_state": "window",
     "circulant_block": block_parameters
 }
 
@@ -238,6 +230,7 @@ pdg = asQ.Paradiag(ensemble=ensemble,
                    form_function=form_function,
                    form_mass=form_mass,
                    ics=Un, dt=dt, theta=theta,
+                   reference_state=Uback,
                    bcs=bcs, appctx=appctx,
                    solver_parameters=solver_parameters_diag)
 
