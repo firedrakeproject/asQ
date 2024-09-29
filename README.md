@@ -22,10 +22,9 @@ To install asQ, pass the arguments `--install asQ` to the `firedrake-install` sc
 
 ## Getting started
 
-The best place to start is the [examples directory](https://github.com/firedrakeproject/asQ/tree/master/examples).
-Annotated scripts for the linear advection equation and the heat equation show how to set up a problem with asQ and solve the timeseries using ParaDiag.
+The best place to start is the examples from the asQ release paper on arXiv in [this directory](https://github.com/firedrakeproject/asQ/tree/master/asq_manuscript_examples).
 
-More advanced scripts can be found in the [case studies directory](https://github.com/firedrakeproject/asQ/tree/master/case_studies), including scripts for the shallow water equations and a model for stratigraphic evolution of the sea floor.
+Other examples can be found in the [examples directory](https://github.com/firedrakeproject/asQ/tree/master/examples) and more advanced scripts can be found in the [case studies directory](https://github.com/firedrakeproject/asQ/tree/master/case_studies), including scripts for the shallow water equations and a model for stratigraphic evolution of the sea floor.
 
 ## Help and support
 
