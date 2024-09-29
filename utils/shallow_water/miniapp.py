@@ -104,8 +104,8 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         u0 = w0.subfunctions[self.velocity_index]
         h0 = w0.subfunctions[self.depth_index]
 
-        u0.project(velocity_expression(*x))
-        h0.project(depth_expression(*x))
+        u0.project(velocity_expression(*x), quadrature_degree=6)
+        h0.interpolate(depth_expression(*x))
 
         if reference_state:
             self.reference_state = fd.Function(self.function_space())
@@ -235,7 +235,8 @@ class ShallowWaterMiniApp(TimePartitionMixin):
 
         Until this method is called, diagnostic information is not guaranteed to be valid.
         """
-        self.cfl_series.synchronise()
+        if self.record_diagnostics['cfl']:
+            self.cfl_series.synchronise()
 
     def solve(self,
               nwindows=1,
@@ -261,7 +262,8 @@ class ShallowWaterMiniApp(TimePartitionMixin):
             postproc(self, pdg, w)
 
         # extend cfl array
-        self.cfl_series.resize(self.paradiag.total_windows + nwindows)
+        if self.record_diagnostics['cfl']:
+            self.cfl_series.resize(self.paradiag.total_windows + nwindows)
 
         self.paradiag.solve(nwindows,
                             preproc=preprocess,
