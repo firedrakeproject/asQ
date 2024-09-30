@@ -10,7 +10,6 @@ from utils import units
 from argparse import ArgumentParser
 from argparse_formatter import DefaultsAndRawTextFormatter
 
-PETSc.Sys.popErrorHandler()
 
 # get command arguments
 parser = ArgumentParser(
