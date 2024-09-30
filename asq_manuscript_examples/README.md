@@ -1,8 +1,8 @@
 # Example scripts for "asQ: parallel-in-time finite element simulations using ParaDiag for geoscientific models and beyond"
 
-These are the python scripts used to generate the data for the asQ library paper.
+These are the python scripts used to generate the data for the asQ library paper https://arxiv.org/abs/2409.18792.
 
-## Heat equation example script
+## Section 3.2 "Heat equation example" script
 `heat.py` is the example in Section 3.2 "A heat equation example".
 It explicitly uses the `AllAtOnce*` objects to create each component of the all-at-once system.
 Because it is hard-coded to four ensemble ranks (i.e. four MPI ranks in time), it must be run with a multiple of 4 MPI ranks, e.g.
