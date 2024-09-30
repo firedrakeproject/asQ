@@ -185,6 +185,7 @@ def write_solver_parameters(sparams, directory=""):
 
     with open(file_name, "w") as f:
         f.write(dumps(sparams, indent=4))
+        f.write("\n")
 
     return
 
@@ -216,7 +217,7 @@ def write_paradiag_setup(pdg, directory=""):
                 f"global_comm.size = {pdg.ensemble.global_comm.size}\n"
             jacobian = pdg.solver.jacobian
             if hasattr(jacobian, "pc") and hasattr(jacobian.pc, "alpha"):
-                info += f"alpha = {pdg.solver.jacobian.pc.alpha}"
+                info += f"alpha = {pdg.solver.jacobian.pc.alpha}\n"
             f.write(info)
     return
 
@@ -254,7 +255,7 @@ def write_aaos_solve_metrics(pdg, directory=""):
                 f"nonlinear iterations per window = {nlits/nw}\n" + \
                 f"linear iterations per window = {lits/nw}\n" + \
                 f"linear iterations per nonlinear iteration = {lits/nlits}\n" + \
-                f"max iterations per block solve = {blits/lits}"
+                f"max iterations per block solve = {blits/lits}\n"
             f.write(info)
     return
 

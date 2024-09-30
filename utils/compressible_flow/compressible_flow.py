@@ -135,7 +135,7 @@ def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,
         Pif = pi_formula(rho, thetan, gas)
 
         rhoeqn = gas.cp*(
-            (fd.inner(v, dv) - fd.div(dv*thetan)*Pif)*fd.dx
+            (fd.inner(v, dv) - fd.div(dv*thetan)*Pif)*fd.dx(degree=6)
             + drho*fd.div(thetan*v)*fd.dx
         )
 
