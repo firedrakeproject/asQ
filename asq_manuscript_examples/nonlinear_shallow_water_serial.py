@@ -14,7 +14,6 @@ import utils.shallow_water as swe
 from utils.shallow_water import galewsky
 from utils import diagnostics
 
-PETSc.Sys.popErrorHandler()
 
 # get command arguments
 parser = ArgumentParser(
