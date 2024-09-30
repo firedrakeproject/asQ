@@ -24,7 +24,7 @@ jobs:
     runs-on: self-hosted
     # The docker container to use.
     container:
-      image: firedrakeproject/firedrake:latest
+      image: firedrakeproject/firedrake-vanilla:latest
     env:
       ASQ_CI_TESTS: 1
       OMP_NUM_THREADS: 1
@@ -46,6 +46,10 @@ jobs:
           . /home/firedrake/firedrake/bin/activate
           python -m pip install pytest-timeout
           python -m pip install pytest-cov
+      - name: Install
+        run: |
+          . /home/firedrake/firedrake/bin/activate
+          python -m pip install -e .
       - name: Lint
         run: |
           . /home/firedrake/firedrake/bin/activate
