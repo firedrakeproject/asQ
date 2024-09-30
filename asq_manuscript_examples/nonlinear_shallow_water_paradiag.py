@@ -13,7 +13,6 @@ from functools import partial
 import argparse
 from argparse_formatter import DefaultsAndRawTextFormatter
 
-PETSc.Sys.popErrorHandler()
 
 # get command arguments
 parser = argparse.ArgumentParser(
