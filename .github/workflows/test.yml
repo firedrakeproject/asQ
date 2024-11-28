@@ -10,7 +10,7 @@ on:
   schedule:
     # * is a special character in YAML so you have to quote this string
     # Scheduled run over the weekend to detect any upstream breaks.
-    - cron:  '00 1 * * 7'
+    - cron:  '0 1 * * 0'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -44,7 +44,7 @@ jobs:
         # (copied from https://help.github.com/en/actions/migrating-to-github-actions/migrating-from-circleci-to-github-actions)
         run: |
           sudo chmod -R 777 $GITHUB_WORKSPACE /github /__w/_temp
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install test dependencies
         run: |
           . /home/firedrake/firedrake/bin/activate
