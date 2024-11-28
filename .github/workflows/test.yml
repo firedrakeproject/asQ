@@ -7,6 +7,10 @@ on:
       - master
   # And all pull requests
   pull_request:
+  schedule:
+    # * is a special character in YAML so you have to quote this string
+    # Scheduled run over the weekend to detect any upstream breaks.
+    - cron:  '00 1 * * 7'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -46,19 +50,35 @@ jobs:
           . /home/firedrake/firedrake/bin/activate
           python -m pip install pytest-timeout
           python -m pip install pytest-cov
+          # try and reduce the number of warnings to sift through
+          python -m pip install siphash24
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
           python -m pip install -e .
+          python --version
+          python -m pytest --version
+          flake8 --version
+          firedrake-status
       - name: Lint
         run: |
           . /home/firedrake/firedrake/bin/activate
-          flake8 --version
           flake8 .
-      - name: Test
+      - name: Test - unit tests
         run: |
           . /home/firedrake/firedrake/bin/activate
-          python --version
-          python -m pytest --version
-          firedrake-status
-          python -m pytest -v -n 6 --durations=40 --timeout=600 --cov=asQ --cov-report=term tests/
+          python -m pytest \
+            -n 12 --dist worksteal \
+            --durations=40 \
+            --timeout=300 \
+            --cov=asQ --cov-report=term \
+            -v tests/unit
+      - name: Test - integration tests
+        run: |
+          . /home/firedrake/firedrake/bin/activate
+          python -m pytest \
+            -n 4 --dist worksteal \
+            --durations=40 \
+            --timeout=600 \
+            --cov=asQ --cov-report=term --cov-append \
+            -v tests/integration
