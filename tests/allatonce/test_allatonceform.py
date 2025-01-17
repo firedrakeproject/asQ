@@ -6,11 +6,11 @@ from functools import reduce
 from operator import mul
 
 
-def assemble(form):
-    return fd.assemble(form).riesz_representation(riesz_map='l2')
+def assemble(form, *args, **kwargs):
+    return fd.assemble(form, *args, **kwargs).riesz_representation(riesz_map='l2')
 
 
-bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
+bc_options = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
 alphas = [pytest.param(None, id="alpha_None"),
           pytest.param(0, id="alpha_0"),
@@ -18,9 +18,9 @@ alphas = [pytest.param(None, id="alpha_None"),
 
 
 @pytest.mark.parallel(nprocs=4)
-@pytest.mark.parametrize("bc_opt", bc_opts)
+@pytest.mark.parametrize("bc_option", bc_options)
 @pytest.mark.parametrize("alpha", alphas)
-def test_heat_form(bc_opt, alpha):
+def test_heat_form(bc_option, alpha):
     """
     Test that assembling the AllAtOnceForm is the same as assembling the
     slice-local part of an all-at-once form for the whole timeseries.
@@ -61,11 +61,11 @@ def test_heat_form(bc_opt, alpha):
     def form_mass(u, v):
         return u*v*fd.dx
 
-    if bc_opt == "inhomogeneous_bcs":
+    if bc_option == "inhomogeneous_bcs":
         bc_val = fd.sin(2*fd.pi*x)
         bc_domain = "on_boundary"
         bcs = [fd.DirichletBC(V, bc_val, bc_domain)]
-    elif bc_opt == "homogeneous_bcs":
+    elif bc_option == "homogeneous_bcs":
         bc_val = 0.
         bc_domain = 1
         bcs = [fd.DirichletBC(V, bc_val, bc_domain)]
@@ -83,7 +83,7 @@ def test_heat_form(bc_opt, alpha):
     full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))
     ufull = fd.Function(full_function_space)
 
-    if bc_opt == "no_bcs":
+    if bc_option == "no_bcs":
         bcs_full = []
     else:
         bcs_full = []
@@ -119,21 +119,19 @@ def test_heat_form(bc_opt, alpha):
 
     # assemble and compare
     aaoform.assemble()
-    Ffull = assemble(fullform)
-    for bc in bcs_full:
-        bc.apply(Ffull, u=ufull)
+    Ffull = fd.assemble(fullform, bcs=bcs_full)
 
     for step in range(aaofunc.nlocal_timesteps):
         windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
         userial = Ffull.subfunctions[windx]
         uparallel = aaoform.F[step].subfunctions[0]
-        err = fd.errornorm(userial, uparallel)
-        assert (err < 1e-12), "Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally"
+        for pdat, sdat in zip(uparallel.dat, userial.dat):
+            assert np.allclose(pdat.data, sdat.data), "Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally"
 
 
-@pytest.mark.parametrize("bc_opt", bc_opts)
+@pytest.mark.parametrize("bc_option", bc_options)
 @pytest.mark.parallel(nprocs=4)
-def test_mixed_heat_form(bc_opt):
+def test_mixed_heat_form(bc_option):
     """
     Test that assembling the AllAtOnceForm is the same as assembling the
     slice-local part of an all-at-once form for the whole timeseries.
@@ -172,11 +170,11 @@ def test_mixed_heat_form(bc_opt):
     def form_mass(u, p, v, q):
         return (fd.inner(u, v) + p*q)*fd.dx
 
-    if bc_opt == "inhomogeneous_bcs":
+    if bc_option == "inhomogeneous_bcs":
         bc_val = fd.as_vector([fd.sin(2*fd.pi*x), -fd.cos(fd.pi*y)])
         bc_domain = "on_boundary"
         bcs = [fd.DirichletBC(V.sub(0), bc_val, bc_domain)]
-    elif bc_opt == "homogeneous_bcs":
+    elif bc_option == "homogeneous_bcs":
         bc_val = fd.as_vector([0., 0.])
         bc_domain = "on_boundary"
         bcs = [fd.DirichletBC(V.sub(0), bc_val, bc_domain)]
@@ -191,7 +189,7 @@ def test_mixed_heat_form(bc_opt):
     full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))
     ufull = fd.Function(full_function_space)
 
-    if bc_opt == "no_bcs":
+    if bc_option == "no_bcs":
         bcs_full = []
     else:
         bcs_full = []
@@ -233,9 +231,7 @@ def test_mixed_heat_form(bc_opt):
 
     # assemble and compare
     aaoform.assemble()
-    Ffull = assemble(fullform)
-    for bc in bcs_full:
-        bc.apply(Ffull, u=ufull)
+    Ffull = fd.assemble(fullform, bcs=bcs_full)
 
     for step in range(aaofunc.nlocal_timesteps):
         windices = aaofunc._component_indices(step, to_range='window')
@@ -243,8 +239,8 @@ def test_mixed_heat_form(bc_opt):
             windx = windices[cpt]
             userial = Ffull.subfunctions[windx]
             uparallel = aaoform.F[step].subfunctions[cpt]
-            err = fd.errornorm(userial, uparallel)
-            assert (err < 1e-12), "Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally"
+            for pdat, sdat in zip(uparallel.dat, userial.dat):
+                assert np.allclose(pdat.data, sdat.data), "Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally"
 
 
 @pytest.mark.parallel(nprocs=4)

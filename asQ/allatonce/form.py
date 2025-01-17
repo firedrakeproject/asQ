@@ -59,8 +59,10 @@ class AllAtOnceForm(TimePartitionMixin):
         for bc in self.bcs:
             bc.apply(aaofunc.function)
 
-        # function to assemble the nonlinear residual into
+        # cofunction to assemble the nonlinear residual into
         self.F = aaofunc.copy(copy_values=False).zero()
+        self.F = AllAtOnceCofunction(self.ensemble, self.time_partition,
+                                     aaofunc.field_function_space.dual())
 
         self.form = self._construct_form()
 
@@ -147,11 +149,8 @@ class AllAtOnceForm(TimePartitionMixin):
         self.aaofunc.update_time_halos()
 
         # assembly stage
-        fd.assemble(self.form, tensor=self.F.function)
-
-        # apply boundary conditions
-        for bc in self.bcs:
-            bc.apply(self.F.function, u=self.aaofunc.function)
+        fd.assemble(self.form, bcs=self.bcs,
+                    tensor=self.F.cofunction)
 
         # copy into return buffer
 
