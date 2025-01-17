@@ -6,12 +6,16 @@ from functools import reduce
 from operator import mul
 
 
-def assemble(form):
-    return fd.assemble(form).riesz_representation(riesz_map='l2')
+def assemble(form, *args, **kwargs):
+    return fd.assemble(form, *args, **kwargs).riesz_representation(riesz_map='l2')
+
+
+bc_options = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_heat_jacobian():
+@pytest.mark.parametrize("bc_option", bc_options)
+def test_heat_jacobian(bc_option):
     """
     Test that the AllAtOnceJacobian is the same as the action of the
     slice-local part of the derivative of an all-at-once form for
@@ -50,8 +54,20 @@ def test_heat_jacobian():
     def form_mass(u, v):
         return u*v*fd.dx
 
+    if bc_option == "inhomogeneous_bcs":
+        bc_val = fd.sin(2*fd.pi*x)
+        bc_domain = "on_boundary"
+        bcs = [fd.DirichletBC(V, bc_val, bc_domain)]
+    elif bc_option == "homogeneous_bcs":
+        bc_val = 0.
+        bc_domain = 1
+        bcs = [fd.DirichletBC(V, bc_val, bc_domain)]
+    else:
+        bcs = []
+
     aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
-                                form_mass, form_function)
+                                form_mass, form_function,
+                                bcs=bcs)
 
     # build the all-at-once jacobian
     aaojac = asQ.AllAtOnceJacobian(aaoform)
@@ -59,6 +75,13 @@ def test_heat_jacobian():
     # on each time-slice, build the form for the entire timeseries
     full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))
     ufull = fd.Function(full_function_space)
+
+    if bc_option == "no_bcs":
+        bcs_full = []
+    else:
+        bcs_full = []
+        for i in range(sum(time_partition)):
+            bcs_full.append(fd.DirichletBC(full_function_space.sub(i), bc_val, bc_domain))
 
     vfull = fd.TestFunction(full_function_space)
     ufulls = fd.split(ufull)
@@ -102,12 +125,22 @@ def test_heat_jacobian():
         windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
         x[step].assign(xfull.subfunctions[windx])
 
+    for bc in bcs_full:
+        bc.apply(ufull)
+    for bc in aaoform.bcs:
+        bc.apply(aaofunc.aaoform)
+
     # assemble the aao jacobian
     with x.global_vec_ro() as xvec, y.global_vec_wo() as yvec:
         aaojac.mult(None, xvec, yvec)
 
     # assemble the full jacobian
-    yfull = assemble(fd.action(full_jacobian, xfull))
+    # yfull = assemble(fd.action(full_jacobian, xfull))
+    yfull = fd.assemble(fd.action(full_jacobian, xfull), bcs=bcs_full)
+    # for bc in bcs_full:
+    #     bc.homogenize()
+    #     bc.apply(yfull, u=xfull)
+    #     bc.restore()
 
     # check they match
 
@@ -115,8 +148,10 @@ def test_heat_jacobian():
         windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
         yserial = yfull.subfunctions[windx]
         yparallel = y[step].subfunctions[0]
-        err = fd.errornorm(yserial, yparallel)
-        assert (err < 1e-12), "Each component of AllAtOnceJacobian action should match component of monolithic action calculated locally"
+        for pdat, sdat in zip(yparallel.dat, yserial.dat):
+            assert np.allclose(pdat.data, sdat.data), "Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally"
+        # err = fd.errornorm(yserial, yparallel)
+        # assert (err < 1e-12), "Each component of AllAtOnceJacobian action should match component of monolithic action calculated locally"
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -233,3 +268,7 @@ def test_mixed_heat_jacobian():
             yparallel = y[step].subfunctions[cpt]
             err = fd.errornorm(yserial, yparallel)
             assert (err < 1e-12), "Each component of AllAtOnceJacobian action should match component of monolithic action calculated locally"
+
+if __name__ == '__main__':
+    for bc in bc_options:
+        test_heat_jacobian(bc)

@@ -143,10 +143,20 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.x.assign(X, update_halos=True, blocking=True)
 
         # assembly stage
-        fd.assemble(self.action, tensor=self.F.function)
+        cofunc = fd.Function(self.F.function.function_space().dual())
+        fd.assemble(self.action, tensor=cofunc)
+
         if self._useprev:
-            fd.assemble(self.action_prev, tensor=self.Fprev)
+            cofunc_prev = fd.Function(self.Fprev.function_space().dual())
+            fd.assemble(self.action_prev, tensor=cofunc_prev)
+            for fdat, cdat in zip(self.Fprev.dat, cofunc_prev.dat):
+                fdat.data[:] = cdat.data[:]
+            # cofunc += cofunc_prev
             self.F.function += self.Fprev
+
+        # for fdat, cdat in zip(self.F.function.dat, cofunc.dat):
+        #     fdat.data[:] = cdat.data[:]
+        self.F.assign(cofunc.riesz_representation())
 
         # Apply boundary conditions
         # For Jacobian action we should just return the values in X
