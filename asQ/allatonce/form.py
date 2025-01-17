@@ -146,16 +146,21 @@ class AllAtOnceForm(TimePartitionMixin):
 
         # Set the current state
         if func is not None:
-            self.aaofunc.assign(func)
-        else:
-            self.aaofunc.update_time_halos()
+            self.aaofunc.assign(func, update_halos=False)
 
         # Assembly stage
         # The residual on the DirichletBC nodes is set to zero,
         # so we need to make sure that the function conforms
         # with the boundary conditions.
         for bc in self.bcs:
-            bc.apply(self.aaofunc)
+            bc.apply(self.aaofunc.function)
+
+        # Update the halos after enforcing the bcs so we
+        # know they are correct. This doesn't make a
+        # difference now because we only support constant
+        # bcs, but it will be important once we support
+        # time-dependent bcs.
+        self.aaofunc.update_time_halos()
 
         fd.assemble(self.form, bcs=self.bcs,
                     tensor=self.F.cofunction)

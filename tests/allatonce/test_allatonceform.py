@@ -6,10 +6,6 @@ from functools import reduce
 from operator import mul
 
 
-def assemble(form, *args, **kwargs):
-    return fd.assemble(form, *args, **kwargs).riesz_representation(riesz_map='l2')
-
-
 bc_options = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
 alphas = [pytest.param(None, id="alpha_None"),
@@ -120,6 +116,12 @@ def test_heat_form(bc_option, alpha):
 
     # assemble and compare
     aaoform.assemble()
+
+    # aaoform.assemble enforces boundary
+    # conditions, but firedrake.assemble doesn't
+    # so we need to manually enforce them here.
+    for bc in bcs_full:
+        bc.apply(ufull)
     Ffull = fd.assemble(fullform, bcs=bcs_full)
 
     for step in range(aaofunc.nlocal_timesteps):
@@ -230,6 +232,12 @@ def test_mixed_heat_form(bc_option):
 
     # assemble and compare
     aaoform.assemble()
+
+    # aaoform.assemble enforces boundary
+    # conditions, but firedrake.assemble doesn't
+    # so we need to manually enforce them here.
+    for bc in bcs_full:
+        bc.apply(ufull)
     Ffull = fd.assemble(fullform, bcs=bcs_full)
 
     for step in range(aaofunc.nlocal_timesteps):
