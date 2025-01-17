@@ -152,10 +152,11 @@ class AllAtOnceForm(TimePartitionMixin):
 
         # Assembly stage
         # The residual on the DirichletBC nodes is set to zero,
-        # which assumes that the solution conforms to the bcs.
-        # This is enforced in the AllAtOnceSolver, but not here.
-        # TODO: Should they be enforced here instead so that
-        #       the resulting residual is always correct?
+        # so we need to make sure that the function conforms
+        # with the boundary conditions.
+        for bc in self.bcs:
+            bc.apply(self.aaofunc)
+
         fd.assemble(self.form, bcs=self.bcs,
                     tensor=self.F.cofunction)
 
