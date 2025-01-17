@@ -55,8 +55,10 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.x = aaofunc.copy()
 
         # output residual, and contribution from timestep at end of previous slice
-        self.F = aaofunc.copy()
-        self.Fprev = fd.Function(aaofunc.function_space)
+        self.F = aaoform.F.copy(copy_values=False)
+        self.Fprev = fd.Cofunction(self.F.function_space)
+
+        self.bcs = aaoform.bcs
 
         # working buffers for calculating time average when needed
         self.ureduce = fd.Function(aaofunc.field_function_space)
@@ -143,28 +145,30 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.x.assign(X, update_halos=True, blocking=True)
 
         # assembly stage
-        cofunc = fd.Function(self.F.function.function_space().dual())
-        fd.assemble(self.action, tensor=cofunc)
+        fd.assemble(self.action, bcs=self.bcs,
+                    tensor=self.F.cofunction)
 
         if self._useprev:
-            cofunc_prev = fd.Function(self.Fprev.function_space().dual())
-            fd.assemble(self.action_prev, tensor=cofunc_prev)
-            for fdat, cdat in zip(self.Fprev.dat, cofunc_prev.dat):
-                fdat.data[:] = cdat.data[:]
-            # cofunc += cofunc_prev
-            self.F.function += self.Fprev
+            fd.assemble(self.action_prev, bcs=self.bcs,
+                        tensor=self.Fprev)
+            self.F.cofunction += self.Fprev
 
-        # for fdat, cdat in zip(self.F.function.dat, cofunc.dat):
-        #     fdat.data[:] = cdat.data[:]
-        self.F.assign(cofunc.riesz_representation())
+        if len(self.bcs) > 0:
+            Fbuf = self.Fprev  # just using Fprev as a working buffer
+            from itertools import chain
+            row_bcs = tuple(bc for bc in chain(*self.bcs) if isinstance(bc, DirichletBC))
+            with Fbuf.dat.vec_wo as fvec:
+                X.copy(fvec)
+            for bc in row_bcs:
+                bc.set(self.F.cofunction, Fbuf)
 
-        # Apply boundary conditions
-        # For Jacobian action we should just return the values in X
-        # at boundary nodes
-        for bc in self.aaoform.bcs:
-            bc.homogenize()
-            bc.apply(self.F.function, u=self.x.function)
-            bc.restore()
+        # # Apply boundary conditions
+        # # For Jacobian action we should just return the values in X
+        # # at boundary nodes
+        # for bc in self.aaoform.bcs:
+        #     bc.homogenize()
+        #     bc.apply(self.F.function, u=self.x.function)
+        #     bc.restore()
 
         with self.F.global_vec_ro() as v:
             v.copy(Y)

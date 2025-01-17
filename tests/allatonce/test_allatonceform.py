@@ -86,9 +86,9 @@ def test_heat_form(bc_option, alpha):
     if bc_option == "no_bcs":
         bcs_full = []
     else:
-        bcs_full = []
-        for i in range(sum(time_partition)):
-            bcs_full.append(fd.DirichletBC(full_function_space.sub(i), bc_val, bc_domain))
+        bcs_full = [fd.DirichletBC(full_function_space.sub(i),
+                                   bc_val, bc_domain)
+                    for i in range(sum(time_partition))]
 
     vfull = fd.TestFunction(full_function_space)
     ufulls = fd.split(ufull)
@@ -192,11 +192,9 @@ def test_mixed_heat_form(bc_option):
     if bc_option == "no_bcs":
         bcs_full = []
     else:
-        bcs_full = []
-        for i in range(sum(time_partition)):
-            bcs_full.append(fd.DirichletBC(full_function_space.sub(2*i),
-                                           bc_val,
-                                           bc_domain))
+        bcs_full = [fd.DirichletBC(full_function_space.sub(2*i),
+                                   bc_val, bc_domain)
+                    for i in range(sum(time_partition))]
 
     vfull = fd.TestFunction(full_function_space)
     ufulls = fd.split(ufull)
