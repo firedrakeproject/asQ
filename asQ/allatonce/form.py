@@ -1,8 +1,7 @@
 import firedrake as fd
-from firedrake.petsc import PETSc
 
 from asQ.profiling import profiler
-from asQ.allatonce import AllAtOnceFunction, AllAtOnceCofunction
+from asQ.allatonce import AllAtOnceCofunction
 from asQ.allatonce.mixin import TimePartitionMixin
 
 from functools import partial
@@ -139,43 +138,33 @@ class AllAtOnceForm(TimePartitionMixin):
 
         :arg func: may optionally be an AllAtOnceFunction or a global PETSc Vec.
             if not None, the form will be evaluated at the state in `func`.
-        :arg tensor: may optionally be an AllAtOnceFunction, AllAtOnceCofunction,
-            a global PETSc Vec, or a Function in AllAtOnceFunction.function_space.
-            if not None, the result will be placed into `tensor`.
+        :arg tensor: may optionally be an AllAtOnceCofunction, in which case
+            the result will be placed into `tensor`.
         """
-        # set current state
-        if func is not None:
-            self.aaofunc.assign(func, update_halos=False)
-        self.aaofunc.update_time_halos()
+        if tensor is not None and not isinstance(tensor, AllAtOnceCofunction):
+            raise TypeError(f"tensor must be an AllAtOnceCofunction, not {type(tensor)}")
 
-        # assembly stage
+        # Set the current state
+        if func is not None:
+            self.aaofunc.assign(func)
+        else:
+            self.aaofunc.update_time_halos()
+
+        # Assembly stage
+        # The residual on the DirichletBC nodes is set to zero,
+        # which assumes that the solution conforms to the bcs.
+        # This is enforced in the AllAtOnceSolver, but not here.
+        # TODO: Should they be enforced here instead so that
+        #       the resulting residual is always correct?
         fd.assemble(self.form, bcs=self.bcs,
                     tensor=self.F.cofunction)
 
-        # copy into return buffer
-
-        if isinstance(tensor, AllAtOnceFunction):
+        if tensor:
             tensor.assign(self.F)
-
-        elif isinstance(tensor, fd.Function):
-            tensor.assign(self.F.function)
-
-        elif isinstance(tensor, AllAtOnceCofunction):
-            with self.F.global_vec_ro() as fvec:
-                with tensor.global_vec_wo() as tvec:
-                    fvec.copy(tvec)
-
-        elif isinstance(tensor, fd.Cofunction):
-            with self.F.function.dat.vec_ro as fvec:
-                with tensor.dat.vec_wo as tvec:
-                    fvec.copy(tvec)
-
-        elif isinstance(tensor, PETSc.Vec):
-            with self.F.global_vec_ro() as fvec:
-                fvec.copy(tensor)
-
-        elif tensor is not None:
-            raise TypeError(f"tensor must be AllAtOnceFunction, AllAtOnceCofunction, Function, Cofunction, or PETSc.Vec, not {type(tensor)}")
+            result = tensor
+        else:
+            result = self.F
+        return result
 
     def _construct_form(self):
         """

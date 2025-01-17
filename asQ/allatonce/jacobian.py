@@ -59,6 +59,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self.Fprev = fd.Cofunction(self.F.function_space)
 
         self.bcs = aaoform.bcs
+        self.field_bcs = aaoform.field_bcs
 
         # working buffers for calculating time average when needed
         self.ureduce = fd.Function(aaofunc.field_function_space)
@@ -140,35 +141,46 @@ class AllAtOnceJacobian(TimePartitionMixin):
         :arg X: a PETSc Vec to apply the action on.
         :arg Y: a PETSc Vec for the result.
         """
-
         # we could use nonblocking here and overlap comms with assembling form
         self.x.assign(X, update_halos=True, blocking=True)
+
+        # We use the same strategy as the implicit matrix context in firedrake
+        # for dealing with the boundary nodes. From the comments in that file:
+
+        # The matrix has an identity block corresponding to the Dirichlet
+        # boundary conditions.
+        # Our algorithm in this case is to save the BC values, zero them
+        # out before computing the action so that they don't pollute
+        # anything, and then set the values into the result.
+        # This has the effect of applying [ A_ii 0 ; 0 A_bb ] where A_ii
+        # is the block corresponding only to (non-fixed) internal dofs
+        # and A_bb=I is the identity block on the (fixed) boundary dofs.
+
+        # Zero the boundary nodes on the input so that A_ib = A_01 = 0
+        for bc in self.bcs:
+            bc.zero(self.x.function)
 
         # assembly stage
         fd.assemble(self.action, bcs=self.bcs,
                     tensor=self.F.cofunction)
 
         if self._useprev:
+            # repeat for the halo part of the matrix action
+            for bc in self.field_bcs:
+                bc.zero(self.x.uprev)
             fd.assemble(self.action_prev, bcs=self.bcs,
                         tensor=self.Fprev)
             self.F.cofunction += self.Fprev
 
         if len(self.bcs) > 0:
             Fbuf = self.Fprev  # just using Fprev as a working buffer
-            from itertools import chain
-            row_bcs = tuple(bc for bc in chain(*self.bcs) if isinstance(bc, DirichletBC))
+            # Get the original values again
             with Fbuf.dat.vec_wo as fvec:
                 X.copy(fvec)
-            for bc in row_bcs:
+            # Set the output boundary nodes to the input boundary nodes.
+            # This is equivalent to setting [A_bi, A_bb] = [0 I]
+            for bc in self.bcs:
                 bc.set(self.F.cofunction, Fbuf)
-
-        # # Apply boundary conditions
-        # # For Jacobian action we should just return the values in X
-        # # at boundary nodes
-        # for bc in self.aaoform.bcs:
-        #     bc.homogenize()
-        #     bc.apply(self.F.function, u=self.x.function)
-        #     bc.restore()
 
         with self.F.global_vec_ro() as v:
             v.copy(Y)

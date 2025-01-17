@@ -28,7 +28,8 @@ def test_heat_form(bc_option, alpha):
     """
 
     # build the all-at-once function
-    nslices = fd.COMM_WORLD.size//2
+    nspace_ranks = 1
+    nslices = fd.COMM_WORLD.size//nspace_ranks
     slice_length = 2
 
     time_partition = tuple((slice_length for _ in range(nslices)))

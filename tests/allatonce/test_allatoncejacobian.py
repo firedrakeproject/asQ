@@ -23,13 +23,14 @@ def test_heat_jacobian(bc_option):
     """
 
     # build the all-at-once function
-    nslices = fd.COMM_WORLD.size//2
+    nspace_ranks = 2
+    nslices = fd.COMM_WORLD.size//nspace_ranks
     slice_length = 2
 
     time_partition = tuple((slice_length for _ in range(nslices)))
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(4, 4, quadrilateral=True, comm=ensemble.comm)
     x, y = fd.SpatialCoordinate(mesh)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
@@ -108,10 +109,6 @@ def test_heat_jacobian(bc_option):
     for dat in ufull.dat:
         dat.data[:] = np.random.randn(*(dat.data.shape))
 
-    # make sure the state conforms with the boundary conditions
-    for bc in bcs_full:
-        bc.apply(ufull)
-
     # copy the data from the full list into the local time slice
     for step in range(aaofunc.nlocal_timesteps):
         windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
@@ -139,7 +136,6 @@ def test_heat_jacobian(bc_option):
     mat_full = jac_full.petscmat.getPythonContext()
 
     yfull = fd.Cofunction(full_function_space.dual())
-
     with xfull.dat.vec_ro as xvec, yfull.dat.vec_wo as yvec:
         mat_full.mult(None, xvec, yvec)
 
@@ -162,7 +158,8 @@ def test_mixed_heat_jacobian(bc_option):
     """
 
     # build the all-at-once function
-    nslices = fd.COMM_WORLD.size//2
+    nspace_ranks = 2
+    nslices = fd.COMM_WORLD.size//nspace_ranks
     slice_length = 2
 
     time_partition = tuple((slice_length for _ in range(nslices)))
@@ -250,10 +247,6 @@ def test_mixed_heat_jacobian(bc_option):
     for dat in ufull.dat:
         dat.data[:] = np.random.randn(*(dat.data.shape))
 
-    # make sure the state conforms with the boundary conditions
-    for bc in bcs_full:
-        bc.apply(ufull)
-
     # copy the data from the full list into the local time slice
     for step in range(aaofunc.nlocal_timesteps):
         windices = aaofunc._component_indices(step, to_range='window')
@@ -280,7 +273,13 @@ def test_mixed_heat_jacobian(bc_option):
         aaojac.mult(None, xvec, yvec)
 
     # assemble the full jacobian
-    yfull = assemble(fd.action(full_jacobian, xfull), bcs=bcs_full)
+    jac_full = fd.assemble(full_jacobian, bcs=bcs_full,
+                           mat_type='matfree')
+    mat_full = jac_full.petscmat.getPythonContext()
+
+    yfull = fd.Cofunction(full_function_space.dual())
+    with xfull.dat.vec_ro as xvec, yfull.dat.vec_wo as yvec:
+        mat_full.mult(None, xvec, yvec)
 
     for step in range(aaofunc.nlocal_timesteps):
         windices = aaofunc._component_indices(step, to_range='window')
@@ -293,5 +292,4 @@ def test_mixed_heat_jacobian(bc_option):
 
 
 if __name__ == '__main__':
-    for bc in bc_options[:]:
-        test_heat_jacobian(bc)
+    pass
