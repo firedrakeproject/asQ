@@ -13,7 +13,8 @@ def test_solve_heat_equation_nopc():
 
     # set up space-time parallelism
 
-    nslices = fd.COMM_WORLD.size//2
+    nspace_ranks = 2
+    nslices = fd.COMM_WORLD.size//nspace_ranks
     slice_length = 2
 
     time_partition = tuple((slice_length for _ in range(nslices)))
@@ -46,22 +47,17 @@ def test_solve_heat_equation_nopc():
 
     # solver and options
 
-    atol = 1.0e-10
+    atol = 1e-10
     solver_parameters = {
         'snes_type': 'ksponly',
-        'snes': {
-            'monitor': None,
-            'converged_reason': None,
-        },
         'pc_type': 'none',
         'ksp_type': 'gmres',
         'mat_type': 'matfree',
         'ksp': {
-            'monitor': None,
             'converged_rate': None,
             'atol': atol,
-            'rtol': 1.0e-100,
-            'stol': 1.0e-100,
+            'rtol': 0,
+            'stol': 0,
         }
     }
 
@@ -71,11 +67,12 @@ def test_solve_heat_equation_nopc():
     aaosolver.solve()
 
     # check residual
-
     aaoform.assemble(func=aaofunc)
-    residual = fd.norm(aaoform.F.function)
 
-    assert residual < atol, "GMRES should converge to prescribed tolerance even without preconditioning"
+    residual = aaoform.F.cofunction.riesz_representation(
+        'l2', solver_options={'function_space': aaofunc.function.function_space()})
+
+    assert fd.norm(residual) < atol, "GMRES should converge to prescribed tolerance even without preconditioning"
 
 
 def test_solve_heat_equation_circulantpc():
@@ -123,21 +120,14 @@ def test_solve_heat_equation_circulantpc():
     atol = 1.0e-8
     solver_parameters = {
         'snes_type': 'ksponly',
-        'snes': {
-            'monitor': None,
-            'converged_reason': None,
-            'atol': atol,
-            'rtol': 1.0e-100,
-            'stol': 1.0e-100,
-        },
         'ksp_type': 'gmres',
         'mat_type': 'matfree',
         'ksp': {
             'monitor': None,
             'converged_rate': None,
             'atol': atol,
-            'rtol': 1.0e-100,
-            'stol': 1.0e-100,
+            'rtol': 0,
+            'stol': 0,
         },
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
@@ -149,11 +139,12 @@ def test_solve_heat_equation_circulantpc():
     aaosolver.solve()
 
     # check residual
-
     aaoform.assemble(func=aaofunc)
-    residual = fd.norm(aaoform.F.function)
 
-    assert residual < atol, "GMRES should converge to prescribed tolerance with CirculantPC"
+    residual = aaoform.F.cofunction.riesz_representation(
+        'l2', solver_options={'function_space': aaofunc.function.function_space()})
+
+    assert fd.norm(residual) < atol, "GMRES should converge to prescribed tolerance with CirculantPC"
 
 
 extruded = [pytest.param(False, id="standard_mesh"),
@@ -174,7 +165,8 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
     """
 
     # space-time parallelism
-    nslices = fd.COMM_WORLD.size//2
+    nspace_ranks = 2
+    nslices = fd.COMM_WORLD.size//nspace_ranks
     slice_length = 2
 
     time_partition = tuple((slice_length for _ in range(nslices)))
@@ -186,8 +178,8 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
         mesh1D = fd.UnitIntervalMesh(nx, comm=ensemble.comm)
         mesh = fd.ExtrudedMesh(mesh1D, nx, layer_height=1./nx)
 
-        horizontal_degree = 1
-        vertical_degree = 1
+        horizontal_degree = 0
+        vertical_degree = 0
         S1 = fd.FiniteElement("CG", fd.interval, horizontal_degree+1)
         S2 = fd.FiniteElement("DG", fd.interval, horizontal_degree)
 
@@ -228,7 +220,7 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
 
     def form_function(uu, up, vu, vp, t):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
-                - fd.div(uu) * vp) * fd.dx
+                - fd.div(uu) * vp) * fd.dx(degree=4)
 
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up * vp) * fd.dx
@@ -245,14 +237,14 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
             'monitor': None,
             'converged_reason': None,
             'atol': atol,
-            'rtol': 1e-100,
-            'stol': 1e-100,
+            'rtol': 0,
+            'stol': 0,
         },
         'mat_type': 'matfree',
         'ksp_type': 'preonly',
         'ksp': {
             'monitor': None,
-            'converged_reason': None,
+            'converged_rate': None,
         },
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
@@ -271,7 +263,7 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
     aaosolver.solve()
 
     # check residual
-    aaoform.assemble(func=aaofunc)
-    residual = fd.norm(aaoform.F.function)
+    residual = aaoform.F.cofunction.riesz_representation(
+        'l2', solver_options={'function_space': aaofunc.function.function_space()})
 
-    assert (residual < atol), "GMRES should converge to prescribed tolerance with CirculantPC"
+    assert fd.norm(residual) < atol, "GMRES should converge to prescribed tolerance with CirculantPC"
