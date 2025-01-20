@@ -465,14 +465,20 @@ extruded_mixed = [pytest.param(False, id="standard_mesh"),
                   pytest.param(True, id="extruded_mesh",
                                marks=pytest.mark.xfail(reason="fd.split for TensorProductElements in unmixed spaces broken by ufl PR#122."))]
 
+cpx_types = [pytest.param('vector', id="vector_cpx"),
+             pytest.param('mixed', id="mixed_cpx")]
+
 
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("bc_opt", bc_opts)
 @pytest.mark.parametrize("extruded", extruded_mixed)
-def test_solve_para_form(bc_opt, extruded):
-    # checks that the all-at-once system is the same as solving
-    # timesteps sequentially using the NONLINEAR heat equation as an example by
-    # solving the all-at-once system and comparing with the sequential
+@pytest.mark.parametrize("cpx_type", cpx_types)
+def test_solve_para_form(bc_opt, extruded, cpx_type):
+    """
+    Checks that solving the all-at-once system is the same as solving
+    timesteps sequentially by solving the all-at-once system for a
+    nonlinear heat equation and comparing with the sequential solution.
+    """
 
     # set up the ensemble communicator for space-time parallelism
     nslices = fd.COMM_WORLD.size//2
@@ -514,7 +520,8 @@ def test_solve_para_form(bc_opt, extruded):
             'ksp_type': 'preonly',
             'pc_type': 'lu',
             'pc_factor_mat_solver_type': 'mumps'
-        }
+        },
+        'circulant_complex_proxy': cpx_type
     }
 
     def form_function(u, v, t):
@@ -587,7 +594,7 @@ def test_diagnostics():
 
     diag_sparameters = {
         'snes_converged_reason': None,
-        'ksp_converged_reason': None,
+        'ksp_converged_rate': None,
         'ksp_type': 'preonly',
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
