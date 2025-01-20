@@ -59,7 +59,6 @@ class AllAtOnceForm(TimePartitionMixin):
             bc.apply(aaofunc.function)
 
         # cofunction to assemble the nonlinear residual into
-        self.F = aaofunc.copy(copy_values=False).zero()
         self.F = AllAtOnceCofunction(self.ensemble, self.time_partition,
                                      aaofunc.field_function_space.dual())
 
