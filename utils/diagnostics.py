@@ -14,13 +14,15 @@ def convective_cfl_calculator(mesh,
     DG0 = fd.FunctionSpace(mesh, "DG", 0)
     v = fd.TestFunction(DG0)
 
-    cell_volume = fd.Function(DG0, name="Cell volume")
-    cell_flux = fd.Function(DG0, name="Cell surface flux")
+    cell_volume = fd.Cofunction(DG0.dual(), name="Cell volume")
+    cell_flux = fd.Cofunction(DG0.dual(), name="Cell surface flux")
     cfl = fd.Function(DG0, name=name)
 
     # mesh volume
     One = fd.Function(DG0, name="One").assign(1)
     fd.assemble(One*v*fd.dx, tensor=cell_volume)
+    cell_volume = cell_volume.riesz_representation(
+        'l2', solver_options={'function_space': DG0})
 
     # choose correct facet integral for mesh type
     if mesh.extruded:
@@ -43,9 +45,11 @@ def convective_cfl_calculator(mesh,
             + un*v*ds
         )
         fd.assemble(cell_flux_form, tensor=cell_flux)
+        cflx = cell_flux.riesz_representation(
+            'l2', solver_options={'function_space': DG0})
 
         dT = fd.Constant(dt)
-        cfl.interpolate(dT*cell_flux/cell_volume)
+        cfl.interpolate(dT*cflx/cell_volume)
         return cfl
 
     return cfl_calc

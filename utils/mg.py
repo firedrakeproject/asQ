@@ -42,7 +42,7 @@ class ManifoldTransferManager(fd.TransferManager):
         if not hasattr(mesh, "transfer_coordinates"):
             msg = "ManifoldTransferManager requires mesh to have " \
                   + "`transfer_coordinates` stashed on each member" \
-                  + " of heirarchy."
+                  + " of hierarchy."
             raise AttributeError(msg)
         if not hasattr(mesh, "original_coordinates"):
             mesh.original_coordinates = fd.Function(mesh.coordinates)

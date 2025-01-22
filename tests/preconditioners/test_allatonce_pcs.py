@@ -259,7 +259,8 @@ def test_slicejacobipc_slice(nsteps):
         'slice_jacobi_nsteps': nsteps,
         'slice_jacobi_state': 'linear',
         'slice_jacobi_slice': {
-            'ksp_type': 'fgmres',
+            'ksp_converged_rate': None,
+            'ksp_type': 'richardson',
             'ksp_rtol': 1e-15,
             'pc_type': 'python',
             'pc_python_type': 'asQ.CirculantPC',

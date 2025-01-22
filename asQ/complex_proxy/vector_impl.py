@@ -75,15 +75,11 @@ def DirichletBC(W, V, bc, function_arg=None):
     if function_arg is None:
         function_arg = bc.function_arg
 
-    sub_domain = bc.sub_domain
-
     if type(V.ufl_element()) is fd.MixedElement:
-        idx = bc.function_space().index
-        Ws = (W.sub(idx).sub(0), W.sub(idx).sub(1))
-    else:
-        Ws = (W.sub(0), W.sub(1))
+        W = W.sub(bc.function_space().index)
 
-    return tuple(fd.DirichletBC(Wsub, function_arg, sub_domain) for Wsub in Ws)
+    return tuple(fd.DirichletBC(W.sub(part), function_arg, bc.sub_domain)
+                 for part in (re, im))
 
 
 def split(u, i):

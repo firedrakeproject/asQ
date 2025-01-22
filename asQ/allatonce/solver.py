@@ -90,15 +90,15 @@ class AllAtOnceSolver(TimePartitionMixin):
 
         self.snes.setOptionsPrefix(options_prefix)
 
-        # residual vector
-        self.F = aaofunc._vec.duplicate()
-
         def assemble_function(snes, X, F):
             self.pre_function_callback(self, X)
-            self.aaoform.assemble(X, tensor=F)
+            self.aaoform.assemble(X)
+            with aaoform.F.global_vec_ro() as fvec:
+                fvec.copy(F)
             self.post_function_callback(self, X, F)
 
-        self.snes.setFunction(assemble_function, self.F)
+        self._F = aaoform.F._vec.duplicate()
+        self.snes.setFunction(assemble_function, self._F)
 
         # Jacobian
         with self.options.inserted_options():
