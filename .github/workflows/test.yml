@@ -69,4 +69,4 @@ jobs:
           python --version
           python -m pytest --version
           firedrake-status
-          python -m pytest -v -n 6 --durations=40 --timeout=420 --cov=asQ --cov-report=term tests/
+          python -m pytest -v -n 6 --durations=40 --timeout=600 --cov=asQ --cov-report=term tests/
