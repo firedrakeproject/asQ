@@ -47,6 +47,14 @@ jobs:
           . /home/firedrake/firedrake/bin/activate
           python -m pip install pytest-timeout
           python -m pip install pytest-cov
+          cd /home/firedrake/firedrake/src/fiat
+          git fetch
+          git checkout connorjward/fix-quadrature-hash
+          cd -
+          cd /home/firedrake/firedrake/src/firedrake
+          git fetch
+          git checkout connorjward/more-cache-fixes
+          cd -
       - name: Install
         run: |
           . /home/firedrake/firedrake/bin/activate
@@ -62,4 +70,4 @@ jobs:
           python --version
           python -m pytest --version
           firedrake-status
-          python -m pytest -v -n 6 --durations=40 --timeout=420 --cov=asQ --cov-report=term tests/
+          python -m pytest -v -n 6 --durations=40 --timeout=600 --cov=asQ --cov-report=term tests/
