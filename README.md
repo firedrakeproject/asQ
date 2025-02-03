@@ -1,4 +1,6 @@
-[![Lint and test](https://github.com/firedrakeproject/asQ/actions/workflows/test.yml/badge.svg)](https://github.com/firedrakeproject/asQ/actions/workflows/test.yml)
+[![Lint and test](https://github.com/firedrakeproject/asQ/actions/workflows/test.yml/badge.svg)](https://github.com/firedrakeproject/asQ/actions/workflows/test.yml) [![DOI](https://zenodo.org/badge/329630815.svg)](https://doi.org/10.5281/zenodo.14592039)
+
+
 
 # asQ: Parallel-in-time simulation of finite element models using ParaDiag
 
