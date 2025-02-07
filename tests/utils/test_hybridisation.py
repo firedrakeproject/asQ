@@ -5,7 +5,6 @@ from utils.planets import earth
 from utils import units
 from utils.hybridisation import HybridisedSCPC  # noqa: F401
 import numpy as np
-import pytest
 
 
 def test_real_hybridisation():
