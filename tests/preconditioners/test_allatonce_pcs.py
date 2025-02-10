@@ -5,8 +5,10 @@ import pytest
 
 def make_paradiag(time_partition, parameters):
     ensemble = asQ.create_ensemble(time_partition)
-    mesh = fd.UnitSquareMesh(nx=16, ny=16,
-                             comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(
+        nx=16, ny=16, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
+
     x, y = fd.SpatialCoordinate(mesh)
 
     V = fd.FunctionSpace(mesh, "CG", 1)
@@ -98,8 +100,10 @@ def test_slicejacobipc_jacobi(nsteps):
     time_partition = [slice_length for _ in range(8)]
     ensemble = asQ.create_ensemble(time_partition)
 
-    mesh = fd.UnitSquareMesh(nx=16, ny=16,
-                             comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(
+        nx=16, ny=16, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
+
     x, y = fd.SpatialCoordinate(mesh)
 
     V = fd.FunctionSpace(mesh, "CG", 1)
@@ -172,8 +176,9 @@ def test_slicejacobipc_circulant():
     time_partition = [slice_length for _ in range(4)]
     ensemble = asQ.create_ensemble(time_partition)
 
-    mesh = fd.UnitSquareMesh(nx=16, ny=16,
-                             comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(
+        nx=16, ny=16, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
     x, y = fd.SpatialCoordinate(mesh)
 
     V = fd.FunctionSpace(mesh, "CG", 1)

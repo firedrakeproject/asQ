@@ -31,7 +31,10 @@ def test_heat_form(bc_option, alpha):
     time_partition = tuple((slice_length for _ in range(nslices)))
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(
+        4, 4, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
+
     x, y = fd.SpatialCoordinate(mesh)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
@@ -147,7 +150,10 @@ def test_mixed_heat_form(bc_option):
     time_partition = tuple((slice_length for _ in range(nslices)))
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(
+        4, 4, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
+
     x, y = fd.SpatialCoordinate(mesh)
     V = fd.MixedFunctionSpace((fd.FunctionSpace(mesh, "BDM", 1),
                                fd.FunctionSpace(mesh, "DG", 0)))
@@ -263,7 +269,10 @@ def test_time_update():
     time_partition = tuple((slice_length for _ in range(nslices)))
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
-    mesh = fd.UnitSquareMesh(4, 4, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(
+        4, 4, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
+
     x, y = fd.SpatialCoordinate(mesh)
     V = fd.FunctionSpace(mesh, "CG", 1)
 

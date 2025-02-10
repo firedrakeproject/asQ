@@ -5,10 +5,8 @@ from utils.planets import earth
 from utils import units
 from utils.hybridisation import HybridisedSCPC  # noqa: F401
 import numpy as np
-import pytest
 
 
-@pytest.mark.xfail(reason="HybridisationSCPC not yet fixed after assemble(zero_bc_nodes) change (firedrake PR#3947)")
 def test_real_hybridisation():
     theta = 0.5
     dt = units.hour
@@ -89,7 +87,6 @@ def test_real_hybridisation():
     assert converged_reason == 2, "rtol should be almost machine precision for direct solve"
 
 
-@pytest.mark.xfail(reason="HybridisationSCPC not yet fixed after assemble(zero_bc_nodes) change (firedrake PR#3947)")
 def test_complex_hybridisation():
     from scipy.fft import fft
     from asQ.complex_proxy import vector as cpx

@@ -29,6 +29,7 @@ jobs:
       ASQ_CI_TESTS: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
+      PYOP2_SPMD_STRICT: 1
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:
@@ -61,4 +62,4 @@ jobs:
           python --version
           python -m pytest --version
           firedrake-status
-          python -m pytest -v -n 6 --durations=40 --timeout=420 --cov=asQ --cov-report=term tests/
+          python -m pytest -v -n 6 --durations=40 --timeout=600 --cov=asQ --cov-report=term tests/
