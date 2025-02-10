@@ -67,9 +67,9 @@ def create_mg_globe_mesh(comm=fd.COMM_WORLD,
     :arg radius: radius of the sphere
     '''
     distribution_parameters = distribution_parameters or {}
-    distribution_parameters.set_default(
+    distribution_parameters.setdefault(
         'partition', True)
-    distribution_parameters.set_default(
+    distribution_parameters.setdefault(
         'overlap_type', (fd.DistributedMeshOverlapType.VERTEX, 2))
     return mg.icosahedral_mesh(R0=radius,
                                base_level=base_level,
