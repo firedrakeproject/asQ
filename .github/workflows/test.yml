@@ -77,7 +77,7 @@ jobs:
         run: |
           . /home/firedrake/firedrake/bin/activate
           python -m pytest \
-            -n 12 --dist worksteal \
+            -n 6 --dist worksteal \
             --durations=40 \
             --timeout=300 \
             --cov=asQ --cov-report=term \
