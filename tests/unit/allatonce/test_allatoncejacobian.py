@@ -6,10 +6,6 @@ from functools import reduce
 from operator import mul
 
 
-def assemble(form, *args, **kwargs):
-    return fd.assemble(form, *args, **kwargs).riesz_representation(riesz_map='l2')
-
-
 bc_options = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
 
@@ -295,7 +291,3 @@ def test_mixed_heat_jacobian(bc_option):
             yparallel = y[step].subfunctions[cpt]
             for pdat, sdat in zip(yparallel.dat, yserial.dat):
                 assert np.allclose(pdat.data, sdat.data), f"Timestep {step}, component {cpt}, of AllAtOnceJacobian action doesn't match component of monolithic residual calculated locally"
-
-
-if __name__ == '__main__':
-    pass

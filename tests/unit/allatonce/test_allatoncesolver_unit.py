@@ -83,7 +83,8 @@ def test_solve_heat_equation_nopc(partition):
     # check residual
 
     aaoform.assemble(func=aaofunc)
-    residual = fd.norm(aaoform.F.function)
+    with aaoform.F.global_vec_ro() as fvec:
+        residual = fvec.norm()
 
     assert residual < atol, "GMRES should converge to prescribed tolerance even without preconditioning"
 
@@ -193,6 +194,7 @@ def test_solve_mixed_wave_equation_nopc(extrude):
 
     # check residual
     aaoform.assemble(func=aaofunc)
-    residual = fd.norm(aaoform.F.function)
+    with aaoform.F.global_vec_ro() as fvec:
+        residual = fvec.norm()
 
     assert (residual < atol), "GMRES should converge to prescribed tolerance with CirculantPC"
