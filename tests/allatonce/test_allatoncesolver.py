@@ -20,7 +20,10 @@ def test_solve_heat_equation_nopc():
     time_partition = tuple((slice_length for _ in range(nslices)))
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
-    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(
+        6, 6, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
+
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     # all-at-once function and initial conditions
@@ -90,7 +93,10 @@ def test_solve_heat_equation_circulantpc():
     time_partition = window_length
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
-    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(
+        6, 6, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
+
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     # all-at-once function and initial conditions
@@ -175,7 +181,9 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
     # mesh and function spaces
     nx = 6
     if extrude:
-        mesh1D = fd.UnitIntervalMesh(nx, comm=ensemble.comm)
+        mesh1D = fd.UnitIntervalMesh(
+            nx, comm=ensemble.comm,
+            distribution_parameters={'partitioner_type': 'simple'})
         mesh = fd.ExtrudedMesh(mesh1D, nx, layer_height=1./nx)
 
         horizontal_degree = 0
@@ -196,7 +204,10 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
         V = fd.FunctionSpace(mesh, V2_elt, name="HDiv")
         Q = fd.FunctionSpace(mesh, V3_elt, name="DG")
     else:
-        mesh = fd.UnitSquareMesh(nx, nx, comm=ensemble.comm)
+        mesh = fd.UnitSquareMesh(
+            nx, nx, comm=ensemble.comm,
+            distribution_parameters={'partitioner_type': 'simple'})
+
         V = fd.FunctionSpace(mesh, "BDM", 1)
         Q = fd.FunctionSpace(mesh, "DG", 0)
 
