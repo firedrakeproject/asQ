@@ -33,6 +33,7 @@ jobs:
       ASQ_CI_TESTS: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
+      PYOP2_SPMD_STRICT: 1
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:

@@ -34,7 +34,10 @@ def test_solve_heat_equation_circulantpc(partition):
 
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
-    mesh = fd.UnitSquareMesh(6, 6, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(
+        6, 6, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
+
     V = fd.FunctionSpace(mesh, "CG", 1)
 
     # all-at-once function and initial conditions
@@ -64,21 +67,14 @@ def test_solve_heat_equation_circulantpc(partition):
     atol = 1.0e-8
     solver_parameters = {
         'snes_type': 'ksponly',
-        'snes': {
-            'monitor': None,
-            'converged_reason': None,
-            'atol': atol,
-            'rtol': 1.0e-100,
-            'stol': 1.0e-100,
-        },
         'ksp_type': 'gmres',
         'mat_type': 'matfree',
         'ksp': {
             'monitor': None,
             'converged_rate': None,
             'atol': atol,
-            'rtol': 1.0e-100,
-            'stol': 1.0e-100,
+            'rtol': 0,
+            'stol': 0,
         },
         'pc_type': 'python',
         'pc_python_type': 'asQ.CirculantPC',
@@ -90,11 +86,12 @@ def test_solve_heat_equation_circulantpc(partition):
     aaosolver.solve()
 
     # check residual
-
     aaoform.assemble(func=aaofunc)
-    residual = fd.norm(aaoform.F.function)
 
-    assert residual < atol, "GMRES should converge to prescribed tolerance with CirculantPC"
+    residual = aaoform.F.cofunction.riesz_representation(
+        'l2', solver_options={'function_space': aaofunc.function.function_space()})
+
+    assert fd.norm(residual) < atol, "GMRES should converge to prescribed tolerance with CirculantPC"
 
 
 extruded = [pytest.param(False, id="standard_mesh"),
@@ -115,7 +112,8 @@ def test_solve_mixed_wave_equation_circulantpc(extrude, cpx_type):
     """
 
     # space-time parallelism
-    nslices = fd.COMM_WORLD.size//2
+    nspace_ranks = 2
+    nslices = fd.COMM_WORLD.size//nspace_ranks
     slice_length = 2
 
     time_partition = tuple((slice_length for _ in range(nslices)))
@@ -124,11 +122,13 @@ def test_solve_mixed_wave_equation_circulantpc(extrude, cpx_type):
     # mesh and function spaces
     nx = 6
     if extrude:
-        mesh1D = fd.UnitIntervalMesh(nx, comm=ensemble.comm)
+        mesh1D = fd.UnitIntervalMesh(
+            nx, comm=ensemble.comm,
+            distribution_parameters={'partitioner_type': 'simple'})
         mesh = fd.ExtrudedMesh(mesh1D, nx, layer_height=1./nx)
 
-        horizontal_degree = 1
-        vertical_degree = 1
+        horizontal_degree = 0
+        vertical_degree = 0
         S1 = fd.FiniteElement("CG", fd.interval, horizontal_degree+1)
         S2 = fd.FiniteElement("DG", fd.interval, horizontal_degree)
 
@@ -145,7 +145,10 @@ def test_solve_mixed_wave_equation_circulantpc(extrude, cpx_type):
         V = fd.FunctionSpace(mesh, V2_elt, name="HDiv")
         Q = fd.FunctionSpace(mesh, V3_elt, name="DG")
     else:
-        mesh = fd.UnitSquareMesh(nx, nx, comm=ensemble.comm)
+        mesh = fd.UnitSquareMesh(
+            nx, nx, comm=ensemble.comm,
+            distribution_parameters={'partitioner_type': 'simple'})
+
         V = fd.FunctionSpace(mesh, "BDM", 1)
         Q = fd.FunctionSpace(mesh, "DG", 0)
 
@@ -169,7 +172,7 @@ def test_solve_mixed_wave_equation_circulantpc(extrude, cpx_type):
 
     def form_function(uu, up, vu, vp, t):
         return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
-                - fd.div(uu) * vp) * fd.dx
+                - fd.div(uu) * vp) * fd.dx(degree=4)
 
     def form_mass(uu, up, vu, vp):
         return (fd.inner(uu, vu) + up * vp) * fd.dx
@@ -186,8 +189,8 @@ def test_solve_mixed_wave_equation_circulantpc(extrude, cpx_type):
             'monitor': None,
             'converged_reason': None,
             'atol': atol,
-            'rtol': 1e-100,
-            'stol': 1e-100,
+            'rtol': 0,
+            'stol': 0,
         },
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
@@ -213,7 +216,7 @@ def test_solve_mixed_wave_equation_circulantpc(extrude, cpx_type):
     aaosolver.solve()
 
     # check residual
-    aaoform.assemble(func=aaofunc)
-    residual = fd.norm(aaoform.F.function)
+    residual = aaoform.F.cofunction.riesz_representation(
+        'l2', solver_options={'function_space': aaofunc.function.function_space()})
 
-    assert (residual < atol), "GMRES should converge to prescribed tolerance with CirculantPC"
+    assert fd.norm(residual) < atol, "GMRES should converge to prescribed tolerance with CirculantPC"

@@ -93,8 +93,10 @@ def ensemble():
 def mesh(ensemble):
     if fd.COMM_WORLD.size == 1:
         return
-
-    return fd.UnitSquareMesh(3, 3, comm=ensemble.comm)
+    mesh = fd.UnitSquareMesh(
+        3, 3, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
+    return mesh
 
 
 @pytest.fixture

@@ -55,7 +55,8 @@ def create_mg_globe_mesh(comm=fd.COMM_WORLD,
                          base_level=1,
                          ref_level=default_icosahedral_refinement(),
                          coords_degree=default_degree()+2,
-                         radius=earth.radius):
+                         radius=earth.radius,
+                         distribution_parameters=None):
     '''
     Create icosahedral sphere mesh with a multigrid heirarchy
 
@@ -65,10 +66,11 @@ def create_mg_globe_mesh(comm=fd.COMM_WORLD,
     :arg coords_degree: degree of the coordinates
     :arg radius: radius of the sphere
     '''
-    distribution_parameters = {
-        "partition": True,
-        "overlap_type": (fd.DistributedMeshOverlapType.VERTEX, 2)
-    }
+    distribution_parameters = distribution_parameters or {}
+    distribution_parameters.setdefault(
+        'partition', True)
+    distribution_parameters.setdefault(
+        'overlap_type', (fd.DistributedMeshOverlapType.VERTEX, 2))
     return mg.icosahedral_mesh(R0=radius,
                                base_level=base_level,
                                degree=coords_degree,
