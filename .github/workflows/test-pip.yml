@@ -74,17 +74,18 @@ jobs:
         run: |
           . $ACTIVATE
           pip install ./asQ-repo
-          pip list
 
       - name: Install test dependencies
         run: |
           . $ACTIVATE
           python -m pip install pytest-cov
+          python -m pip install flake8
 
       - name: Show package versions
         run: |
           . $ACTIVATE
           python --version
+          pip list
           python -m pytest --version
           flake8 --version
           firedrake-status
