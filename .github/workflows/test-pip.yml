@@ -84,9 +84,12 @@ jobs:
         run: |
           . $ACTIVATE
           python -m pip install flake8
+          cd ./asQ-repo
           flake8 .
 
       - name: Run tests (nprocs = 1)
+        # Run even if earlier tests failed
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . $ACTIVATE
           : # Use pytest-xdist here so we can have a single collated output (not possible
