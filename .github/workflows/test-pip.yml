@@ -77,7 +77,7 @@ jobs:
           pip install ./asQ-repo
           pip list
           python -m pytest --version
-          : # TODO: firedrake-status doesn't work without $VIRTUAL_ENV/src. Is it obsolete now? 
+          # TODO: firedrake-status doesn't work without $VIRTUAL_ENV/src. Is it obsolete now? 
           # firedrake-status
 
       - name: Lint
