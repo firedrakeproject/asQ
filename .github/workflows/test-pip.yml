@@ -100,7 +100,7 @@ jobs:
           . $ACTIVATE
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 12 --dist worksteal "$EXTRA_PYTEST_ARGS" tests/
+          firedrake-run-split-tests 1 1 -n 12 --dist worksteal "$EXTRA_PYTEST_ARGS" asQ-repo/tests/
         timeout-minutes: 20
 
       # TODO: Seems like the ideal use for a matrix strategy
@@ -109,7 +109,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . $ACTIVATE
-          firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS" tests/
+          firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS" asQ-repo/tests/
         timeout-minutes: 20
 
       - name: Run tests (nprocs = 3)
@@ -117,7 +117,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . $ACTIVATE
-          firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS" tests/
+          firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS" asQ-repo/tests/
         timeout-minutes: 20
 
       - name: Run tests (nprocs = 4)
@@ -125,7 +125,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . $ACTIVATE
-          firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS" tests/
+          firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS" asQ-repo/tests/
         timeout-minutes: 20
 
       - name: Run tests (nprocs = 5)
@@ -133,7 +133,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . $ACTIVATE
-          firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS" tests/
+          firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS" asQ-repo/tests/
         timeout-minutes: 20
 
       - name: Run tests (nprocs = 6)
@@ -141,7 +141,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . $ACTIVATE
-          firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS" tests/
+          firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS" asQ-repo/tests/
         timeout-minutes: 20
 
       - name: Run tests (nprocs = 7)
@@ -149,7 +149,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . $ACTIVATE
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" tests/
+          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" asQ-repo/tests/
         timeout-minutes: 20
 
       - name: Run tests (nprocs = 8)
@@ -157,7 +157,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . $ACTIVATE
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" tests/
+          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" asQ-repo/tests/
         timeout-minutes: 20
 
       #TODO: Print out accumulated coverage from tests
