@@ -40,8 +40,8 @@ jobs:
       PYOP2_SPMD_STRICT: 1
       # Make sure tests with >8 processes are not silently skipped
       PYTEST_MPI_MAX_NPROCS: 8
-      # Common arguments for pytest. Accumulated coverage is printed after all tests
-      EXTRA_PYTEST_ARGS: --durations=50 --timeout=500 --timeout-method=thread -o faulthandler_timeout=600 --cov=asQ --cov-append --cov-report= --verbose
+      # Common arguments for pytest. TODO: Is pytest coverage possible firedrake-run-split-tests?
+      EXTRA_PYTEST_ARGS: --durations=50 --timeout=500 --timeout-method=thread -o faulthandler_timeout=600 --verbose
       # venv activation script
       ACTIVATE: venv-asQ/bin/activate
     steps:
@@ -73,27 +73,17 @@ jobs:
         id: install
         run: |
           . $ACTIVATE
-          pip install ./asQ-repo
-
-      - name: Install test dependencies
-        run: |
-          . $ACTIVATE
-          python -m pip install pytest-cov
-          python -m pip install flake8
-
-      - name: Show package versions
-        run: |
-          . $ACTIVATE
           python --version
+          pip install ./asQ-repo
           pip list
           python -m pytest --version
-          flake8 --version
           : # TODO: firedrake-status doesn't work without $VIRTUAL_ENV/src. Is it obsolete now? 
           # firedrake-status
 
       - name: Lint
         run: |
           . $ACTIVATE
+          python -m pip install flake8
           flake8 .
 
       - name: Run tests (nprocs = 1)
@@ -160,8 +150,6 @@ jobs:
           . $ACTIVATE
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" asQ-repo/tests/
         timeout-minutes: 20
-
-      #TODO: Print out accumulated coverage from tests
 
       - name: Upload log files
         uses: actions/upload-artifact@v4
