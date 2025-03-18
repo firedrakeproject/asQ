@@ -55,8 +55,7 @@ class AllAtOncePCBase(TimePartitionMixin):
         else:
             self.deprecated_prefix = None
 
-        A, _ = pc.getOperators()
-        jacobian = A.getPythonContext()
+        jacobian = self.get_jacobian(pc)
         self.jacobian = jacobian
         self._time_partition_setup(jacobian.ensemble, jacobian.time_partition)
 
@@ -75,6 +74,11 @@ class AllAtOncePCBase(TimePartitionMixin):
                                     aaofunc.field_function_space)
 
         self.initialized = final_initialize
+
+    def get_jacobian(self, pc, *args, **kwargs):
+        _, P = pc.getOperators()
+        jacobian = P.getPythonContext()
+        return jacobian
 
     @profiler()
     def _record_diagnostics(self):

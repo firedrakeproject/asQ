@@ -143,10 +143,11 @@ class AllAtOnceSolver(TimePartitionMixin):
 
 class LinearSolver(TimePartitionMixin):
     @profiler()
-    def __init__(self, aaoform,
-                 solver_parameters={},
-                 appctx={},
-                 options_prefix=""):
+    def __init__(self, aaoform, *,
+                 aaoform_pc=None,
+                 solver_parameters=None,
+                 appctx=None,
+                 options_prefix=None):
         """
         Solve a linear system where the matrix is an all-at-once Jacobian.
 
@@ -166,11 +167,12 @@ class LinearSolver(TimePartitionMixin):
         self._time_partition_setup(aaoform.ensemble, aaoform.time_partition)
 
         self.aaoform = aaoform
-        self.appctx = appctx
+        self.appctx = appctx if appctx is not None else {}
+        options_prefix = options_prefix if options_prefix is not None else ""
 
         # manage options from both dict and command line
-        self.solver_parameters = solver_parameters
-        self.flat_solver_parameters = flatten_parameters(solver_parameters)
+        self.solver_parameters = solver_parameters if solver_parameters is not None else {}
+        self.flat_solver_parameters = flatten_parameters(self.solver_parameters)
         self.options = OptionsManager(self.flat_solver_parameters, options_prefix)
         options_prefix = self.options.options_prefix
 
@@ -180,14 +182,28 @@ class LinearSolver(TimePartitionMixin):
 
         # create the all-at-once jacobian
         with self.options.inserted_options():
-            self.jacobian = AllAtOnceJacobian(aaoform, appctx=appctx,
-                                              options_prefix=options_prefix)
-
-        # create petsc matrix
+            self.jacobian = AllAtOnceJacobian(
+                aaoform, appctx=self.appctx,
+                options_prefix=options_prefix)
         self.jacobian_mat = self.jacobian.petsc_mat()
 
+        if aaoform_pc is None:
+            self.aaoform_pc = None
+            self.jacobian_pc = None
+            self.jacobian_mat_pc = None
+        else:
+            self.aaoform_pc = aaoform_pc
+            with self.options.inserted_options():
+                self.jacobian_pc = AllAtOnceJacobian(
+                    aaoform_pc, appctx=self.appctx,
+                    options_prefix=options_prefix)
+            self.jacobian_mat_pc = self.jacobian_pc.petsc_mat()
+
+        # create petsc matrix
+
         # finish setting up the ksp
-        self.ksp.setOperators(self.jacobian_mat)
+        self.ksp.setOperators(
+            self.jacobian_mat, self.jacobian_mat_pc or self.jacobian_mat)
         self.options.set_from_options(self.ksp)
 
     @profiler()

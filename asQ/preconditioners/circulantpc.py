@@ -103,9 +103,6 @@ class CirculantPC(AllAtOnceBlockPCBase):
         # basic model function space
         self.blockV = aaofunc.field_function_space
 
-        # Input/Output wrapper Functions for all-at-once residual being acted on
-        self.yf = fd.Function(aaofunc.function_space)  # output
-
         self.alpha = get_deprecated_option(
             PETSc.Options().getReal, prefix, self.deprecated_prefix,
             "alpha", default=self.default_alpha)
