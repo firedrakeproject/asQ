@@ -405,7 +405,7 @@ problem = fd.LinearVariationalProblem(A, L, wout,
 fstr = lambda x, n: str(round(x, n)).rjust(3+n)
 
 neigs = args.nt//2+1 if args.eigenvalue < 0 else 1
-eigs = [*range(neigs)] if args.eigenvalue < 0 else [args.eigenvalue,]
+eigs = [*range(neigs)] if args.eigenvalue < 0 else [args.eigenvalue]
 nits = np.zeros((neigs, args.nrhs), dtype=int)
 for i in range(neigs):
     k = eigs[i]
