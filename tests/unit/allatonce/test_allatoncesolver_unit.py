@@ -4,7 +4,7 @@ import pytest
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('partition', ['serial', 'parallel'])
+@pytest.mark.parametrize('partition', ['time-serial', 'time-parallel'])
 def test_solve_heat_equation_nopc(partition):
     """
     Tests the basic solver setup using the heat equation.
@@ -19,9 +19,9 @@ def test_solve_heat_equation_nopc(partition):
     nprocs = fd.COMM_WORLD.size
     assert window_length % nprocs == 0, "test setup incorrectly"
 
-    if partition == 'serial':
+    if partition == 'time-serial':
         time_partition = window_length
-    elif partition == 'parallel':
+    elif partition == 'time-parallel':
         slice_length = window_length//nprocs
         time_partition = [slice_length for _ in range(nprocs)]
     else:

@@ -67,7 +67,7 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         self.function_space = reduce(mul, (self.field_function_space
                                            for _ in range(self.nlocal_timesteps)))
 
-        self.ncomponents = len(self.field_function_space.subfunctions)
+        self.ncomponents = len(self.field_function_space.subspaces)
 
         # this will be renamed either self.function or self.cofunction
         self._fbuf = fd.Function(self.function_space)
