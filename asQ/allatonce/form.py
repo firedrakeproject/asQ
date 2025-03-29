@@ -1,10 +1,10 @@
 import firedrake as fd
 
 from asQ.profiling import profiler
-from asQ.allatonce import AllAtOnceCofunction
+from asQ.allatonce.function import AllAtOnceCofunction, AllAtOnceFunction
 from asQ.allatonce.mixin import TimePartitionMixin
 
-from functools import partial
+from functools import cached_property
 
 __all__ = ['AllAtOnceForm']
 
@@ -14,7 +14,8 @@ class AllAtOnceForm(TimePartitionMixin):
     def __init__(self,
                  aaofunc, dt, theta,
                  form_mass, form_function,
-                 bcs=[], alpha=None):
+                 bcs=[], alpha=None,
+                 form_parameters=None):
         """
         The all-at-once form representing the implicit theta-method (trapezium rule version)
         over multiple timesteps of a time-dependent finite-element problem.
@@ -32,6 +33,13 @@ class AllAtOnceForm(TimePartitionMixin):
             and a split(TestFunction) from aaofunction.field_function_space.
         :arg bcs: a list of DirichletBC boundary conditions on aaofunc.field_function_space.
         :arg alpha: float, circulant matrix parameter. if None then no circulant approximation used.
+        :arg form_parameters: dict, parameters for constructing the UFL form for the local slice.
+            Possible entries:
+            - 'form_construct_type': <'monolithic', 'step-wise', 'single-step'>
+                - 'monolithic': construct a single UFL form for all timesteps in the slice.
+                - 'step-wise': construct a separate UFL form for each timestep in the slice.
+                - 'single-step': construct one UFL form for a single step, and use to evaluate all steps.
+            - 'form_compiler_parameters': a dictionary to pass through to the assembly.
         """
         self._time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
 
@@ -42,27 +50,43 @@ class AllAtOnceForm(TimePartitionMixin):
         self.dt = fd.Constant(dt)
         self.t0 = fd.Constant(0)
         self.time = tuple(fd.Constant(0) for _ in range(self.aaofunc.nlocal_timesteps))
-        for n in range((self.aaofunc.nlocal_timesteps)):
-            self.time[n].assign(self.t0 + self.dt*(self.aaofunc.transform_index(n, from_range='slice', to_range='window') + 1))
+        self.time_update(self.t0)
+
         self.theta = fd.Constant(theta)
 
         self.form_mass = form_mass
         self.form_function = form_function
-
-        self.alpha = None if alpha is None else fd.Constant(alpha)
-
-        # should this make a copy of bcs instead of taking a reference?
         self.field_bcs = bcs
-        self.bcs = self._set_bcs(self.field_bcs)
 
-        for bc in self.bcs:
-            bc.apply(aaofunc.function)
+        self.alpha = alpha if alpha is None else fd.Constant(alpha)
+
+        self.form_parameters = form_parameters or {}
+        self.construct_type = self.form_parameters.get('form_construct_type', 'monolithic')
+
+        construction_types = ("monolithic", "step-wise", "single-step")
+        if self.construct_type not in construction_types:
+            raise ValueError(
+                "form_construct_type' for AllAtOnceForm must be one of "
+                " ".join(construction_types))
+
+        if self.construct_type == "monolithic":
+            self.form = self.monolithic_form
+            self.bcs = self.monolithic_bcs
+        elif self.construct_type == "step-wise":
+            self.form = self.stepwise_forms
+            self.bcs = self.stepwise_bcs
+        elif self.construct_type == "single-step":
+            self._un1 = fd.Function(self.field_function_space)
+            self._un = fd.Function(self.field_function_space)
+            self._tn1 = fd.Constant(self.t0)
+            self.form = self.singlestep_form
+            self.bcs = self.singlestep_bcs
+
+        self.apply_bcs(aaofunc)
 
         # cofunction to assemble the nonlinear residual into
         self.F = AllAtOnceCofunction(self.ensemble, self.time_partition,
                                      aaofunc.field_function_space.dual())
-
-        self.form = self._construct_form()
 
     def time_update(self, t=None):
         """
@@ -82,11 +106,12 @@ class AllAtOnceForm(TimePartitionMixin):
             self.t0.assign(self.t0 + self.dt*self.ntimesteps)
 
         for n in range((self.nlocal_timesteps)):
-            time_idx = self.aaofunc.transform_index(n, from_range='slice', to_range='window')
-            self.time[n].assign(self.t0 + self.dt*(time_idx + 1))
-        return
+            widx = 1 + self.aaofunc.transform_index(
+                n, from_range='slice', to_range='window')
+            self.time[n].assign(self.t0 + self.dt*widx)
 
-    def _set_bcs(self, field_bcs):
+    @cached_property
+    def monolithic_bcs(self):
         """
         Create a list of  boundary conditions on the all-at-once function space corresponding
         to the boundary conditions `field_bcs` on a single timestep applied to every timestep.
@@ -97,7 +122,7 @@ class AllAtOnceForm(TimePartitionMixin):
         is_mixed_element = isinstance(aaofunc.field_function_space.ufl_element(), fd.MixedElement)
 
         bcs_all = []
-        for bc in field_bcs:
+        for bc in self.field_bcs:
             for step in range(aaofunc.nlocal_timesteps):
                 if is_mixed_element:
                     cpt = bc.function_space().index
@@ -110,6 +135,37 @@ class AllAtOnceForm(TimePartitionMixin):
                 bcs_all.append(bc_all)
 
         return bcs_all
+
+    @cached_property
+    def stepwise_bcs(self):
+        return tuple(self.field_bcs
+                     for _ in range(self.nlocal_timesteps))
+
+    @cached_property
+    def singlestep_bcs(self):
+        return self.field_bcs
+
+    def apply_bcs(self, u, t=None):
+        if self.construct_type == "monolithic":
+            for bc in self.monolithic_bcs:
+                bc.apply(u.function)
+
+        elif self.construct_type == "step-wise":
+            for i in range(u.nlocal_timesteps):
+                for bc in self.stepwise_bcs[i]:
+                    bc.apply(u[i])
+
+        elif self.construct_type == "single-step":
+            if isinstance(u, AllAtOnceFunction):
+                for i in range(u.nlocal_timesteps):
+                    self._tn1.assign(self.time[i])
+                    for bc in self.singlestep_bcs:
+                        bc.apply(u[i])
+            elif isinstance(u, fd.Function):
+                if t is not None:
+                    self._tn1.assign(t)
+                for bc in self.singlestep_bcs:
+                    bc.apply(u)
 
     @profiler()
     def copy(self, aaofunc=None):
@@ -151,8 +207,9 @@ class AllAtOnceForm(TimePartitionMixin):
         # The residual on the DirichletBC nodes is set to zero,
         # so we need to make sure that the function conforms
         # with the boundary conditions.
-        for bc in self.bcs:
-            bc.apply(self.aaofunc.function)
+        self.apply_bcs(self.aaofunc)
+        # for bc in self.bcs:
+        #     bc.apply(self.aaofunc.function)
 
         # Update the halos after enforcing the bcs so we
         # know they are correct. This doesn't make a
@@ -161,8 +218,40 @@ class AllAtOnceForm(TimePartitionMixin):
         # time-dependent bcs.
         self.aaofunc.update_time_halos()
 
-        fd.assemble(self.form, bcs=self.bcs,
-                    tensor=self.F.cofunction)
+        fc_params = self.form_parameters.get('form_compiler_parameters', None)
+
+        if self.construct_type == "monolithic":
+            fd.assemble(
+                self.monolithic_form,
+                bcs=self.monolithic_bcs,
+                tensor=self.F.cofunction,
+                form_compiler_parameters=fc_params)
+
+        elif self.construct_type == "step-wise":
+            for n in range(self.nlocal_timesteps):
+                fd.assemble(
+                    self.stepwise_forms[n],
+                    bcs=self.stepwise_bcs[n],
+                    tensor=self.F[n],
+                    form_compiler_parameters=fc_params)
+
+        elif self.construct_type == "single-step":
+            for n in range(self.nlocal_timesteps):
+                for dst, src in zip(self._un.subfunctions,
+                                    self._get_uns(n, split=False)):
+                    dst.assign(src)
+                self._un1.assign(self.aaofunc[n])
+                self._tn1.assign(self.time[n])
+
+                fd.assemble(
+                    self.singlestep_form,
+                    bcs=self.singlestep_bcs,
+                    tensor=self.F[n],
+                    form_compiler_parameters=fc_params)
+
+        else:
+            raise ValueError(
+                f"Unrecognised form_construct_type {self.construct_type}")
 
         if tensor:
             tensor.assign(self.F)
@@ -171,57 +260,84 @@ class AllAtOnceForm(TimePartitionMixin):
             result = self.F
         return result
 
-    def _construct_form(self):
+    @cached_property
+    def monolithic_form(self):
         """
-        Constructs the (possibly nonlinear) form for the all at once system.
+        Constructs the all-at-once UFL form for all timesteps on the local slice.
+        """
+        funcs = fd.split(self.aaofunc.function)
+        tests = fd.TestFunctions(self.aaofunc.function_space)
+
+        def cpts(fs, n):
+            return tuple(fs[j] for j in self.aaofunc._component_indices(n))
+
+        return sum(
+            self._construct_step_form(
+                cpts(funcs, n),
+                self._get_uns(n, split=True, construct_type='monolithic'),
+                cpts(tests, n), self.time[n])
+            for n in range(self.nlocal_timesteps))
+
+    @cached_property
+    def stepwise_forms(self):
+        """
+        Constructs the UFL forms for each timesteps on the local slice.
+        """
+        """
+        Constructs the all-at-once UFL form for all timesteps on the local slice.
+        """
+        tests = fd.TestFunctions(self.aaofunc.field_function_space)
+        return tuple(self._construct_step_form(fd.split(self.aaofunc[n]),
+                                               self._get_uns(n, split=True),
+                                               tests, self.time[n])
+                     for n in range(self.nlocal_timesteps))
+
+    @cached_property
+    def singlestep_form(self):
+        return self._construct_step_form(
+            fd.split(self._un1), fd.split(self._un),
+            fd.TestFunctions(self.aaofunc.field_function_space),
+            self._tn1)
+
+    def _get_uns(self, n, split=False, construct_type=None):
+        construct_type = construct_type or self.construct_type
+
+        get = fd.split if split else lambda u: u.subfunctions
+
+        if n > 0:  # previous timestep is ic or is on previous slice
+            if construct_type == "monolithic":
+                funcs = get(self.aaofunc.function)
+                uns = tuple(funcs[j] for j in self.aaofunc._component_indices(n-1))
+            else:
+                uns = get(self.aaofunc[n])
+        else:
+            uprevs = get(self.aaofunc.uprev)
+            if self.time_rank > 0:
+                uns = uprevs
+            else:
+                uns = get(self.aaofunc.initial_condition)
+                if self.alpha is not None:
+                    uns = tuple(un + self.alpha*up for un, up in zip(uns, uprevs))
+        return uns
+
+    def _construct_step_form(self, un1s, uns, vs, t):
+        """
+        Constructs the (possibly nonlinear) form for a single step.
         Specific to the implicit theta-method (trapezium rule version).
         """
-        aaofunc = self.aaofunc
-
-        funcs = fd.split(aaofunc.function)
-
-        ics = fd.split(aaofunc.initial_condition)
-        uprevs = fd.split(aaofunc.uprev)
-
-        form_mass = self.form_mass
-        form_function = self.form_function
-
-        test_funcs = fd.TestFunctions(aaofunc.function_space)
-
         dt = self.dt
         theta = self.theta
+        dt1 = (1.0/dt)
+        imw = theta
+        exw = (1.0 - theta)
 
-        def get_components(i, funcs=None):
-            return tuple(funcs[j] for j in aaofunc._component_indices(i))
+        imt = t
+        ext = t - dt
 
-        get_step = partial(get_components, funcs=funcs)
-        get_test = partial(get_components, funcs=test_funcs)
+        M = dt1*(self.form_mass(*un1s, *vs) - self.form_mass(*uns, *vs))
 
-        for n in range(self.nlocal_timesteps):
+        Kim = imw*self.form_function(*un1s, *vs, imt)
+        Kex = exw*self.form_function(*uns, *vs, ext)
+        K = Kim + Kex
 
-            if n == 0:  # previous timestep is ic or is on previous slice
-                if self.time_rank == 0:
-                    uns = ics
-                    if self.alpha is not None:
-                        uns = tuple(un + self.alpha*up for un, up in zip(uns, uprevs))
-                else:
-                    uns = uprevs
-            else:
-                uns = get_step(n-1)
-
-            # current time level
-            un1s = get_step(n)
-            vs = get_test(n)
-
-            # time derivative
-            if n == 0:
-                form = (1.0/dt)*form_mass(*un1s, *vs)
-            else:
-                form += (1.0/dt)*form_mass(*un1s, *vs)
-            form -= (1.0/dt)*form_mass(*uns, *vs)
-
-            # vector field
-            form += theta*form_function(*un1s, *vs, self.time[n])
-            form += (1.0 - theta)*form_function(*uns, *vs, self.time[n]-dt)
-
-        return form
+        return M + K

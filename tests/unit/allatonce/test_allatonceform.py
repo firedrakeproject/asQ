@@ -2,6 +2,7 @@ import asQ
 import firedrake as fd
 import numpy as np
 import pytest
+from pytest_mpi.parallel_assert import parallel_assert
 from functools import reduce
 from operator import mul
 
@@ -12,21 +13,30 @@ alphas = [pytest.param(None, id="alpha_None"),
           pytest.param(0, id="alpha_0"),
           pytest.param(0.1, id="alpha_0.1")]
 
+form_params = [
+    pytest.param(None, id="no_form_params"),
+    *[pytest.param({"form_construct_type": ftype},
+                   id=ftype.replace("-", "_"))
+      for ftype in ("monolithic", "step-wise", "single-step")]]
 
-@pytest.mark.parallel(nprocs=4)
+
+@pytest.mark.parallel(nprocs=[1, 4])
 @pytest.mark.parametrize("bc_option", bc_options)
 @pytest.mark.parametrize("alpha", alphas)
-def test_heat_form(bc_option, alpha):
+@pytest.mark.parametrize("form_parameters", form_params)
+def test_heat_form(bc_option, alpha, form_parameters):
     """
     Test that assembling the AllAtOnceForm is the same as assembling the
     slice-local part of an all-at-once form for the whole timeseries.
     Diffusion coefficient is time-dependent.
     """
+    comm_size = fd.COMM_WORLD.size
 
-    # build the all-at-once function
+    # time partition
+    ntotal_steps = 4
     nspace_ranks = 1
-    nslices = fd.COMM_WORLD.size//nspace_ranks
-    slice_length = 2
+    nslices = comm_size // nspace_ranks
+    slice_length = ntotal_steps // nslices
 
     time_partition = tuple((slice_length for _ in range(nslices)))
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
@@ -38,6 +48,7 @@ def test_heat_form(bc_option, alpha):
     x, y = fd.SpatialCoordinate(mesh)
     V = fd.FunctionSpace(mesh, "CG", 1)
 
+    # build the all-at-once function
     aaofunc = asQ.AllAtOnceFunction(ensemble, time_partition, V)
 
     ics = fd.Function(V, name="ics")
@@ -72,9 +83,11 @@ def test_heat_form(bc_option, alpha):
     else:
         bcs = []
 
-    aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
-                                form_mass, form_function,
-                                bcs=bcs, alpha=alpha)
+    aaoform = asQ.AllAtOnceForm(
+        aaofunc, dt, theta,
+        form_mass, form_function,
+        bcs=bcs, alpha=alpha,
+        form_parameters=form_parameters)
 
     alpha = alpha if alpha is not None else 0
     alpha = fd.Constant(alpha)
@@ -127,25 +140,34 @@ def test_heat_form(bc_option, alpha):
         bc.apply(ufull)
     Ffull = fd.assemble(fullform, bcs=bcs_full)
 
+    success = True
     for step in range(aaofunc.nlocal_timesteps):
         windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
         userial = Ffull.subfunctions[windx]
         uparallel = aaoform.F[step].subfunctions[0]
         for pdat, sdat in zip(uparallel.dat, userial.dat):
-            assert np.allclose(pdat.data, sdat.data), "Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally"
+            success = success and np.allclose(pdat.data, sdat.data)
+
+    parallel_assert(
+        lambda: success,
+        msg="Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally")
 
 
+@pytest.mark.parallel(nprocs=[1, 4])
 @pytest.mark.parametrize("bc_option", bc_options)
-@pytest.mark.parallel(nprocs=4)
-def test_mixed_heat_form(bc_option):
+@pytest.mark.parametrize("form_parameters", form_params)
+def test_mixed_heat_form(bc_option, form_parameters):
     """
     Test that assembling the AllAtOnceForm is the same as assembling the
     slice-local part of an all-at-once form for the whole timeseries.
     """
+    comm_size = fd.COMM_WORLD.size
 
-    # build the all-at-once function
-    nslices = fd.COMM_WORLD.size//2
-    slice_length = 2
+    # time partition
+    ntotal_steps = 4
+    nspace_ranks = 1
+    nslices = comm_size // nspace_ranks
+    slice_length = ntotal_steps // nslices
 
     time_partition = tuple((slice_length for _ in range(nslices)))
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
@@ -190,9 +212,10 @@ def test_mixed_heat_form(bc_option):
     else:
         bcs = []
 
-    aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
-                                form_mass, form_function,
-                                bcs=bcs)
+    aaoform = asQ.AllAtOnceForm(
+        aaofunc, dt, theta,
+        form_mass, form_function,
+        bcs=bcs, form_parameters=form_parameters)
 
     # on each time-slice, build the form for the entire timeseries
     full_function_space = reduce(mul, (V for _ in range(sum(time_partition))))
