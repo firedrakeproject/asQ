@@ -69,8 +69,9 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
 
         # function space for the slice of the all-at-once system on this process
         if full_function_space is None:
-            self.function_space = reduce(mul, (self.field_function_space
-                                               for _ in range(self.nlocal_timesteps)))
+            self.function_space = fd.MixedFunctionSpace([
+                self.field_function_space
+                for _ in range(self.nlocal_timesteps)])
         else:
             self.function_space = full_function_space
 

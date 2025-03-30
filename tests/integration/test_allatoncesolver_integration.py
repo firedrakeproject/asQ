@@ -6,8 +6,7 @@ import pytest
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize('partition', ['serial', 't-parallel', 'st-parallel'])
 def test_solve_heat_equation_circulantpc(partition):
-    """
-    Tests the basic solver setup using the heat equation.
+    """ Tests the basic solver setup using the heat equation.
     Solves using GMRES preconditioned with the CirculantPC
     and checks that the residual of the all-at-once-form
     is below tolerance.
@@ -170,12 +169,14 @@ def test_solve_mixed_wave_equation_circulantpc(extrude, cpx_type):
     c = fd.Constant(10)
     eps = fd.Constant(0.001)
 
-    def form_function(uu, up, vu, vp, t):
-        return (fd.div(vu) * up + c * fd.sqrt(fd.inner(uu, uu) + eps) * fd.inner(uu, vu)
-                - fd.div(uu) * vp) * fd.dx(degree=4)
+    def form_function(u, p, v, q, t):
+        return (
+            (fd.div(v)*p + - fd.div(u)*q)*fd.dx
+            + c*fd.sqrt(fd.inner(u, u) + eps)*fd.inner(u, v)*fd.dx(degree=4)
+        )
 
-    def form_mass(uu, up, vu, vp):
-        return (fd.inner(uu, vu) + up * vp) * fd.dx
+    def form_mass(u, p, v, q):
+        return (fd.inner(u, v) + p * q) * fd.dx
 
     aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
                                 form_mass, form_function)

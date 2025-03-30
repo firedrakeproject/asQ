@@ -3,10 +3,17 @@ import firedrake as fd
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 
+form_params = [
+    pytest.param(None, id="no_form_params"),
+    *[pytest.param({"form_construct_type": ftype},
+                   id=ftype.replace("-", "_"))
+      for ftype in ("monolithic", "stepwise", "single_step")]]
+
 
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize('partition', ['time_serial', 'time_parallel'])
-def test_solve_heat_equation_nopc(partition):
+@pytest.mark.parametrize("form_parameters", form_params)
+def test_solve_heat_equation_nopc(partition, form_parameters):
     """
     Tests the basic solver setup using the heat equation.
     Solves using unpreconditioned GMRES and checks that the
@@ -15,19 +22,20 @@ def test_solve_heat_equation_nopc(partition):
 
     # set up space-time parallelism
 
-    window_length = 6
+    window_length = 2
 
     nprocs = fd.COMM_WORLD.size
     assert window_length % nprocs == 0, "test setup incorrectly"
 
     if partition == 'time_serial':
-        time_partition = window_length
+        nslices = 1
     elif partition == 'time_parallel':
-        slice_length = window_length//nprocs
-        time_partition = [slice_length for _ in range(nprocs)]
+        nslices = nprocs
     else:
         assert False, "Unrecognised partition type"
 
+    slice_length = window_length//nslices
+    time_partition = [slice_length for _ in range(nslices)]
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
 
     mesh = fd.UnitSquareMesh(
@@ -54,8 +62,10 @@ def test_solve_heat_equation_nopc(partition):
     def form_mass(u, v):
         return fd.inner(u, v)*fd.dx
 
-    aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
-                                form_mass, form_function)
+    aaoform = asQ.AllAtOnceForm(
+        aaofunc, dt, theta,
+        form_mass, form_function,
+        form_parameters=form_parameters)
 
     # solver and options
 
@@ -89,22 +99,16 @@ def test_solve_heat_equation_nopc(partition):
     with aaoform.F.global_vec_ro() as fvec:
         residual = fvec.norm()
 
-    parallel_assert(
-        lambda: residual < atol,
-        msg="GMRES should converge to prescribed tolerance with CirculantPC")
+    for n in reversed(range(aaoform.F.nlocal_timesteps)):
+        with aaoform.F[n].dat.vec_ro as fvec:
+            residual = fvec.norm()
+        parallel_assert(
+            lambda: residual < atol,
+            msg=f"Residual at step {n} is not converged")
 
 
 extruded = [pytest.param(False, id="standard_mesh"),
             pytest.param(True, id="extruded_mesh")]
-
-form_params = [
-    pytest.param(None, id="no_form_params"),
-    *[pytest.param({"form_construct_type": ftype},
-                   id=ftype.replace("-", "_"))
-      for ftype in ("monolithic", "step-wise", "single-step")]]
-
-pints = [pytest.param(False, id="time_serial"),
-         pytest.param(True, id="time_parallel")]
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -230,7 +234,6 @@ def test_solve_mixed_wave_equation_nopc(extrude, partition, form_parameters):
 
 
 if __name__ == "__main__":
-    test_solve_mixed_wave_equation_nopc(
-        extrude=True,
+    test_solve_heat_equation_nopc(
         partition="time_parallel",
         form_parameters=None)

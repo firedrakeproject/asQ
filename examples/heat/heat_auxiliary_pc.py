@@ -1,6 +1,8 @@
+from mpi4py import MPI
+stime = MPI.Wtime()
 import firedrake as fd
+etime = MPI.Wtime()
 from firedrake.petsc import PETSc
-from pyop2.mpi import MPI
 import asQ
 from math import pi
 from numpy import random as rand
@@ -8,6 +10,7 @@ from numpy import random as rand
 import argparse
 
 Print = PETSc.Sys.Print
+Print(f"firedrake.__init__ took: {etime-stime} seconds")
 
 parser = argparse.ArgumentParser(
     description='Solve the heat equation all-at-once system by preconditioning with an auxiliary operator with a different diffusion coefficient.',
@@ -23,7 +26,7 @@ parser.add_argument('--dt', type=float, default=0.1, help='Timestep size.')
 parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
 parser.add_argument('--nu', type=float, default=1, help='Diffusion coefficient.')
 parser.add_argument('--pnu', type=float, default=1, help='Diffusion coefficient in the auxiliary preconditioning operator.')
-parser.add_argument('--form_type', type=str, default="single-step", help='Construction type of all-at-once form: <monolithic,step-wise,single-step>.')
+parser.add_argument('--form_type', type=str, default="single_step", help='Construction type of all-at-once form: <monolithic,stepwise,single_step>.')
 parser.add_argument('--print_params', action='store_true', help='Print the parameters dictionary.')
 parser.add_argument('--print_rates', action='store_true', help='Print the parameters dictionary.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')

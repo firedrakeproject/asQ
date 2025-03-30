@@ -1,5 +1,6 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
+from firedrake.assemble import get_assembler
 
 from asQ.profiling import profiler
 from asQ.common import get_option_from_list
@@ -132,6 +133,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
                          self.x.function)
 
     @cached_property
+    def monolithic_assemble(self):
+        fc_params = self.aaoform.form_parameters.get(
+            "form_compiler_parameters", None)
+        return get_assembler(
+            self.monolithic_action,
+            bcs=self.aaoform.monolithic_bcs,
+            form_compiler_parameters=fc_params
+        ).assemble
+
+    @cached_property
     def monolithic_form_prev(self):
         return fd.derivative(self.aaoform.monolithic_form,
                              self.aaoform.aaofunc.uprev)
@@ -140,6 +151,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
     def monolithic_action_prev(self):
         return fd.action(self.monolithic_form_prev,
                          self.x.uprev)
+
+    @cached_property
+    def monolithic_assemble_prev(self):
+        fc_params = self.aaoform.form_parameters.get(
+            "form_compiler_parameters", None)
+        return get_assembler(
+            self.monolithic_action_prev,
+            bcs=self.aaoform.monolithic_bcs,
+            form_compiler_parameters=fc_params
+        ).assemble
 
     @cached_property
     def stepwise_forms_implicit(self):
@@ -153,6 +174,18 @@ class AllAtOnceJacobian(TimePartitionMixin):
         return tuple(
             fd.action(self.stepwise_forms_implicit[n],
                       self.x[n])
+            for n in range(self.nlocal_timesteps))
+
+    @cached_property
+    def stepwise_assembles_implicit(self):
+        fc_params = self.aaoform.form_parameters.get(
+            "form_compiler_parameters", None)
+        return tuple(
+            get_assembler(
+                self.stepwise_actions_implicit[n],
+                bcs=self.aaoform.stepwise_bcs[n],
+                form_compiler_parameters=fc_params
+            ).assemble
             for n in range(self.nlocal_timesteps))
 
     @cached_property
@@ -170,6 +203,18 @@ class AllAtOnceJacobian(TimePartitionMixin):
             for n in range(self.nlocal_timesteps-1))
 
     @cached_property
+    def stepwise_assembles_explicit(self):
+        fc_params = self.aaoform.form_parameters.get(
+            "form_compiler_parameters", None)
+        return tuple(
+            get_assembler(
+                self.stepwise_actions_explicit[n],
+                bcs=self.aaoform.stepwise_bcs[n],
+                form_compiler_parameters=fc_params
+            ).assemble
+            for n in range(self.nlocal_timesteps-1))
+
+    @cached_property
     def stepwise_form_prev(self):
         return fd.derivative(
             self.aaoform.stepwise_forms[0],
@@ -179,6 +224,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
     def stepwise_action_prev(self):
         return fd.action(self.stepwise_form_prev,
                          self.x.uprev)
+
+    @cached_property
+    def stepwise_assemble_prev(self):
+        fc_params = self.aaoform.form_parameters.get(
+            "form_compiler_parameters", None)
+        return get_assembler(
+            self.stepwise_action_prev,
+            bcs=self.aaoform.stepwise_bcs[0],
+            form_compiler_parameters=fc_params
+        ).assemble
 
     @cached_property
     def singlestep_form_implicit(self):
@@ -193,6 +248,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
             self._xn1)
 
     @cached_property
+    def singlestep_assemble_implicit(self):
+        fc_params = self.aaoform.form_parameters.get(
+            "form_compiler_parameters", None)
+        return get_assembler(
+            self.singlestep_action_implicit,
+            bcs=self.aaoform.singlestep_bcs,
+            form_compiler_parameters=fc_params
+        ).assemble
+
+    @cached_property
     def singlestep_form_explicit(self):
         return fd.derivative(
             self.aaoform.singlestep_form,
@@ -204,6 +269,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
             self.singlestep_form_explicit,
             self._xn)
 
+    @cached_property
+    def singlestep_assemble_explicit(self):
+        fc_params = self.aaoform.form_parameters.get(
+            "form_compiler_parameters", None)
+        return get_assembler(
+            self.singlestep_action_explicit,
+            bcs=self.aaoform.singlestep_bcs,
+            form_compiler_parameters=fc_params
+        ).assemble
+
     @profiler()
     def mult(self, A, x, y):
         """
@@ -214,9 +289,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
         """
         if self.aaoform.construct_type == "monolithic":
             self._mult_monolithic(A, x, y)
-        elif self.aaoform.construct_type == "step-wise":
+        elif self.aaoform.construct_type == "stepwise":
             self._mult_stepwise(A, x, y)
-        elif self.aaoform.construct_type == "single-step":
+        elif self.aaoform.construct_type == "single_step":
             self._mult_singlestep(A, x, y)
 
     @profiler()
@@ -247,18 +322,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
             bc.zero(self.x.function)
 
         # assembly stage
-        fd.assemble(self.monolithic_action,
-                    bcs=self.aaoform.monolithic_bcs,
-                    tensor=self.F.cofunction)
+        self.monolithic_assemble(
+            tensor=self.F.cofunction)
 
         if self.aaoform.use_halo:
             # repeat for the halo part of the matrix action
             for bc in self.aaoform.field_bcs:
                 bc.zero(self.x.uprev)
 
-            fd.assemble(self.monolithic_action_prev,
-                        bcs=self.aaoform.monolithic_bcs,
-                        tensor=self.Fprev.cofunction)
+            self.monolithic_assemble_prev(
+                tensor=self.Fprev.cofunction)
             self.F.cofunction += self.Fprev.cofunction
 
         if len(self.aaoform.field_bcs) > 0:
@@ -310,14 +383,10 @@ class AllAtOnceJacobian(TimePartitionMixin):
             Fim.zero()
             Fex.zero()
 
-            fd.assemble(self.stepwise_actions_implicit[n],
-                        bcs=self.aaoform.stepwise_bcs[n],
-                        tensor=Fim)
+            self.stepwise_assembles_implicit[n](tensor=Fim)
 
             if n > 0:
-                fd.assemble(self.stepwise_actions_explicit[n-1],
-                            bcs=self.aaoform.stepwise_bcs[n-1],
-                            tensor=Fex)
+                self.stepwise_assembles_explicit[n-1](tensor=Fex)
 
             self.F[n].assign(Fim + Fex)
 
@@ -326,9 +395,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
             for bc in self.aaoform.field_bcs:
                 bc.zero(self.x.uprev)
 
-            fd.assemble(self.stepwise_action_prev,
-                        bcs=self.aaoform.stepwise_bcs[0],
-                        tensor=Fex)
+            self.stepwise_assemble_prev(tensor=Fex)
 
             self.F[0].assign(self.F[0] + Fex)
 
@@ -385,15 +452,13 @@ class AllAtOnceJacobian(TimePartitionMixin):
             self.aaoform._tn1.assign(self.aaoform.time[n])
 
             self._xn1.assign(self.x[n])
-            fd.assemble(self.singlestep_action_implicit,
-                        bcs=self.aaoform.singlestep_bcs,
-                        tensor=Fim)
+            self.singlestep_assemble_implicit(
+                tensor=Fim)
 
             if n > 0:
                 self._xn.assign(self.x[n-1])
-                fd.assemble(self.singlestep_action_explicit,
-                            bcs=self.aaoform.singlestep_bcs,
-                            tensor=Fex)
+                self.singlestep_assemble_explicit(
+                    tensor=Fex)
 
             self.F[n].assign(Fim + Fex)
 
@@ -404,9 +469,8 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
             self._xn.assign(self.x.uprev)
             self.aaoform._tn1.assign(self.aaoform.time[0])
-            fd.assemble(self.singlestep_action_explicit,
-                        bcs=self.aaoform.singlestep_bcs,
-                        tensor=Fex)
+            self.singlestep_assemble_explicit(
+                tensor=Fex)
 
             self.F[0].assign(self.F[0] + Fex)
 
