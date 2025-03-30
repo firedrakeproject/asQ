@@ -17,6 +17,7 @@ class Paradiag(TimePartitionMixin):
                  solver_parameters={},
                  appctx={}, bcs=[],
                  options_prefix="",
+                 form_parameters=None,
                  reference_state=None,
                  function_alpha=None, jacobian_alpha=None,
                  jacobian_mass=None, jacobian_function=None,
@@ -48,6 +49,7 @@ class Paradiag(TimePartitionMixin):
         :arg options_prefix: an optional prefix used to distinguish PETSc options.
             Use this option if you want to pass options to the solver from the
             command line in addition to through the solver_parameters dict.
+        :arg form_parameters: A dictionary of options for the AllAtOnceForm.
         :arg reference_state: A reference firedrake.Function in ics.function_space().
             Only needed if 'aaos_jacobian_state' or 'diagfft_state' is 'reference'.
         :arg function_alpha: float, circulant matrix parameter used in the nonlinear residual.

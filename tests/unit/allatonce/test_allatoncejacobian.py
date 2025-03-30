@@ -8,20 +8,27 @@ from operator import mul
 
 bc_options = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
+form_params = [
+    pytest.param(None, id="no_form_params"),
+    *[pytest.param({"form_construct_type": ftype},
+                   id=ftype.replace("-", "_"))
+      for ftype in ("monolithic", "step-wise", "single-step")]]
 
-@pytest.mark.parallel(nprocs=4)
+
+@pytest.mark.parallel(nprocs=[1, 4])
 @pytest.mark.parametrize("bc_option", bc_options)
-def test_heat_jacobian(bc_option):
+@pytest.mark.parametrize("form_parameters", form_params)
+def test_heat_jacobian(bc_option, form_parameters):
     """
     Test that the AllAtOnceJacobian is the same as the action of the
     slice-local part of the derivative of an all-at-once form for
     the whole timeseries.
     """
 
-    # build the all-at-once function
-    nspace_ranks = 2
+    ntotal_steps = 4
+    nspace_ranks = 1
     nslices = fd.COMM_WORLD.size//nspace_ranks
-    slice_length = 2
+    slice_length = ntotal_steps // nslices
 
     time_partition = tuple((slice_length for _ in range(nslices)))
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
@@ -65,9 +72,10 @@ def test_heat_jacobian(bc_option):
     else:
         bcs = []
 
-    aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
-                                form_mass, form_function,
-                                bcs=bcs)
+    aaoform = asQ.AllAtOnceForm(
+        aaofunc, dt, theta,
+        form_mass, form_function,
+        bcs=bcs, form_parameters=form_parameters)
 
     # build the all-at-once jacobian
     aaojac = asQ.AllAtOnceJacobian(aaoform)
@@ -147,9 +155,10 @@ def test_heat_jacobian(bc_option):
             assert np.allclose(pdat.data, sdat.data), f"Timestep {step} of AllAtOnceJacobian action doesn't match component of monolithic residual calculated locally"
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(nprocs=[1, 4])
 @pytest.mark.parametrize("bc_option", bc_options)
-def test_mixed_heat_jacobian(bc_option):
+@pytest.mark.parametrize("form_parameters", form_params)
+def test_mixed_heat_jacobian(bc_option, form_parameters):
     """
     Test that the AllAtOnceJacobian is the same as the action of the
     slice-local part of the derivative of an all-at-once form for
@@ -157,9 +166,10 @@ def test_mixed_heat_jacobian(bc_option):
     """
 
     # build the all-at-once function
-    nspace_ranks = 2
+    ntotal_steps = 4
+    nspace_ranks = 2 if (fd.COMM_WORLD.size == 4) else 1
     nslices = fd.COMM_WORLD.size//nspace_ranks
-    slice_length = 2
+    slice_length = ntotal_steps // nslices
 
     time_partition = tuple((slice_length for _ in range(nslices)))
     ensemble = asQ.create_ensemble(time_partition, comm=fd.COMM_WORLD)
@@ -204,9 +214,10 @@ def test_mixed_heat_jacobian(bc_option):
     else:
         bcs = []
 
-    aaoform = asQ.AllAtOnceForm(aaofunc, dt, theta,
-                                form_mass, form_function,
-                                bcs=bcs)
+    aaoform = asQ.AllAtOnceForm(
+        aaofunc, dt, theta,
+        form_mass, form_function,
+        bcs=bcs, form_parameters=form_parameters)
 
     # build the all-at-once jacobian
     aaojac = asQ.AllAtOnceJacobian(aaoform)

@@ -140,17 +140,17 @@ def test_heat_form(bc_option, alpha, form_parameters):
         bc.apply(ufull)
     Ffull = fd.assemble(fullform, bcs=bcs_full)
 
-    success = True
     for step in range(aaofunc.nlocal_timesteps):
         windx = aaofunc.transform_index(step, from_range='slice', to_range='window')
         userial = Ffull.subfunctions[windx]
         uparallel = aaoform.F[step].subfunctions[0]
+        success = True
         for pdat, sdat in zip(uparallel.dat, userial.dat):
             success = success and np.allclose(pdat.data, sdat.data)
 
-    parallel_assert(
-        lambda: success,
-        msg="Each component of AllAtOnceForm residual should match component of monolithic residual calculated locally")
+        parallel_assert(
+            lambda: success,
+            msg=f"AllAtOnceForm residual step {step} doesn't match monolithic residual")
 
 
 @pytest.mark.parallel(nprocs=[1, 4])

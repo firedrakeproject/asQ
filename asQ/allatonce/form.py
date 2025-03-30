@@ -60,13 +60,16 @@ class AllAtOnceForm(TimePartitionMixin):
 
         self.alpha = alpha if alpha is None else fd.Constant(alpha)
 
+        self.use_halo = (self.time_rank > 0) or (self.alpha is not None)
+
         self.form_parameters = form_parameters or {}
-        self.construct_type = self.form_parameters.get('form_construct_type', 'monolithic')
+        self.construct_type = self.form_parameters.get("form_construct_type",
+                                                       "monolithic")
 
         construction_types = ("monolithic", "step-wise", "single-step")
         if self.construct_type not in construction_types:
             raise ValueError(
-                "form_construct_type' for AllAtOnceForm must be one of "
+                "'form_construct_type' for AllAtOnceForm must be one of "
                 " ".join(construction_types))
 
         if self.construct_type == "monolithic":
@@ -76,9 +79,6 @@ class AllAtOnceForm(TimePartitionMixin):
             self.form = self.stepwise_forms
             self.bcs = self.stepwise_bcs
         elif self.construct_type == "single-step":
-            self._un1 = fd.Function(self.field_function_space)
-            self._un = fd.Function(self.field_function_space)
-            self._tn1 = fd.Constant(self.t0)
             self.form = self.singlestep_form
             self.bcs = self.singlestep_bcs
 
@@ -181,7 +181,8 @@ class AllAtOnceForm(TimePartitionMixin):
 
         return AllAtOnceForm(aaofunc, self.dt, self.theta,
                              self.form_mass, self.form_function,
-                             bcs=self.field_bcs, alpha=self.alpha)
+                             bcs=self.field_bcs, alpha=self.alpha,
+                             form_parameters=self.form_parameters)
 
     @profiler()
     def assemble(self, func=None, tensor=None):
@@ -294,6 +295,9 @@ class AllAtOnceForm(TimePartitionMixin):
 
     @cached_property
     def singlestep_form(self):
+        self._un1 = fd.Function(self.field_function_space)
+        self._un = fd.Function(self.field_function_space)
+        self._tn1 = fd.Constant(self.t0)
         return self._construct_step_form(
             fd.split(self._un1), fd.split(self._un),
             fd.TestFunctions(self.aaofunc.field_function_space),
@@ -309,7 +313,7 @@ class AllAtOnceForm(TimePartitionMixin):
                 funcs = get(self.aaofunc.function)
                 uns = tuple(funcs[j] for j in self.aaofunc._component_indices(n-1))
             else:
-                uns = get(self.aaofunc[n])
+                uns = get(self.aaofunc[n-1])
         else:
             uprevs = get(self.aaofunc.uprev)
             if self.time_rank > 0:
