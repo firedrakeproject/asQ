@@ -11,3 +11,5 @@
 .coverage*
 **/metrics/*
 *.svg
+*.flamelog
+*.log
