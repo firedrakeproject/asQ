@@ -85,8 +85,11 @@ class AllAtOnceForm(TimePartitionMixin):
         self.apply_bcs(aaofunc)
 
         # cofunction to assemble the nonlinear residual into
-        self.F = AllAtOnceCofunction(self.ensemble, self.time_partition,
-                                     aaofunc.field_function_space.dual())
+        self.F = AllAtOnceCofunction(
+            self.ensemble, self.time_partition,
+            aaofunc.field_function_space.dual(),
+            full_function_space=aaofunc.dual_space,
+            full_dual_space=aaofunc.function_space)
 
     def time_update(self, t=None):
         """

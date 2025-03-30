@@ -1,9 +1,9 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
+from pyop2.mpi import MPI
 import asQ
 from math import pi
 from numpy import random as rand
-rand.seed(6)
 
 import argparse
 
@@ -23,7 +23,9 @@ parser.add_argument('--dt', type=float, default=0.1, help='Timestep size.')
 parser.add_argument('--alpha', type=float, default=1e-4, help='Circulant coefficient.')
 parser.add_argument('--nu', type=float, default=1, help='Diffusion coefficient.')
 parser.add_argument('--pnu', type=float, default=1, help='Diffusion coefficient in the auxiliary preconditioning operator.')
+parser.add_argument('--form_type', type=str, default="single-step", help='Construction type of all-at-once form: <monolithic,step-wise,single-step>.')
 parser.add_argument('--print_params', action='store_true', help='Print the parameters dictionary.')
+parser.add_argument('--print_rates', action='store_true', help='Print the parameters dictionary.')
 parser.add_argument('--show_args', action='store_true', help='Output all the arguments.')
 
 args = parser.parse_known_args()
@@ -81,24 +83,25 @@ phi_max = phi(zmax, args.theta)
 phi_aux_min = phi(zaux_min, args.theta)
 phi_aux_max = phi(zaux_max, args.theta)
 
-Print(f"{phi_min     = :.4e} | {phi_max     = :.4e}")
-Print(f"{phi_aux_min = :.4e} | {phi_aux_max = :.4e}")
-
 dphi_min = abs(phi_min - phi_aux_min)
 dphi_max = abs(phi_max - phi_aux_max)
 gamma_min = gamma(phi_aux_min, nt)
 gamma_max = gamma(phi_aux_max, nt)
 
-Print(f"{dphi_min    = :.4e} | {dphi_max    = :.4e}")
-Print(f"{gamma_min   = :.4e} | {gamma_max   = :.4e}")
-
 eta_min = eta(zmin, zaux_min, args.theta, args.alpha, nt)
 eta_max = eta(zmax, zaux_max, args.theta, args.alpha, nt)
 
-Print(f"{eta_min     = :.4e} | {eta_max     = :.4e}")
+if args.print_rates:
+    Print(f"{phi_min     = :.4e} | {phi_max     = :.4e}")
+    Print(f"{phi_aux_min = :.4e} | {phi_aux_max = :.4e}")
+
+    Print(f"{dphi_min    = :.4e} | {dphi_max    = :.4e}")
+    Print(f"{gamma_min   = :.4e} | {gamma_max   = :.4e}")
+
+    Print(f"{eta_min     = :.4e} | {eta_max     = :.4e}")
 
 mesh = fd.UnitIntervalMesh(nx, comm=ensemble.comm)
-V = fd.FunctionSpace(mesh, "CG", 1)
+V = fd.FunctionSpace(mesh, "CG", 2)
 bcs = [fd.DirichletBC(V, 0, 1)]
 
 
@@ -118,14 +121,15 @@ aaofunc = asQ.AllAtOnceFunction(
 # the problem we're solving uses the reference diffusivity
 aaoform = asQ.AllAtOnceForm(
     aaofunc, dt, args.theta,
-    form_mass, form_heat(nu),
-    bcs=bcs)
+    form_mass, form_heat(nu), bcs=bcs,
+    form_parameters={"form_construct_type": args.form_type})
 
 # the preconditioner is built with the shifted diffusivity
 aaoform_pc = asQ.AllAtOnceForm(
     aaofunc, dt, args.theta,
     form_mass, form_heat(pnu),
-    bcs=bcs)
+    bcs=bcs,
+    form_parameters={"form_construct_type": args.form_type})
 
 
 class AuxiliaryHeatPC(asQ.AuxiliaryOperatorPC):
@@ -184,10 +188,19 @@ solver = asQ.LinearSolver(
     solver_parameters=solver_parameters)
 
 sol = aaofunc.copy(copy_values=False)
-rhs = aaofunc.riesz_representation()
+rhs = asQ.AllAtOnceCofunction(
+    ensemble, time_partition, V.dual(),
+    full_function_space=sol.dual_space,
+    full_dual_space=sol.function_space)
 
-with rhs.global_vec_wo() as v:
-    v.array[:] = rand.random_sample(v.array.shape)
-with sol.global_vec_wo() as v:
-    v.array[:] = rand.random_sample(v.array.shape)
-solver.solve(rhs, sol)
+for cache in ("Cold", "Hot"):
+    rand.seed(6)
+    with rhs.global_vec_wo() as v:
+        v.array[:] = rand.random_sample(v.array.shape)
+    with sol.global_vec_wo() as v:
+        v.array[:] = rand.random_sample(v.array.shape)
+    with PETSc.Log.Event(f"{cache} solve"):
+        stime = MPI.Wtime()
+        solver.solve(rhs, sol)
+        etime = MPI.Wtime()
+    Print(f"{cache} solve time: {etime - stime}")

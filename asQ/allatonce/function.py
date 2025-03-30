@@ -1,7 +1,7 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 from pyop2 import MixedDat
-from functools import reduce
+from functools import reduce, cached_property
 from operator import mul
 import contextlib
 from ufl.duals import is_primal, is_dual
@@ -45,7 +45,8 @@ def time_average(aaofunc, uout, uwrk, average='window'):
 
 class AllAtOnceFunctionBase(TimePartitionMixin):
     @profiler()
-    def __init__(self, ensemble, time_partition, function_space):
+    def __init__(self, ensemble, time_partition, function_space,
+                 full_function_space=None, full_dual_space=None):
         """
         A (co)function representing multiple timesteps of a time-dependent finite-element problem,
         i.e. the solution to an all-at-once system.
@@ -57,6 +58,9 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
             ensemble rank.
         :arg function_space: a Space for the a single timestep.
             Either `FunctionSpace` or `DualSpace` depending if the child is AAO(Co)Function.
+        :arg full_function_space: the MixedSpace for local slice of the timeseries.
+            If provided, avoids having to recreate it from the time partition and step space.
+            Either `FunctionSpace` or `DualSpace` depending if the child is AAO(Co)Function.
         """
         self._time_partition_setup(ensemble, time_partition)
 
@@ -64,10 +68,15 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         self.field_function_space = function_space
 
         # function space for the slice of the all-at-once system on this process
-        self.function_space = reduce(mul, (self.field_function_space
-                                           for _ in range(self.nlocal_timesteps)))
+        if full_function_space is None:
+            self.function_space = reduce(mul, (self.field_function_space
+                                               for _ in range(self.nlocal_timesteps)))
+        else:
+            self.function_space = full_function_space
 
         self.ncomponents = len(self.field_function_space.subspaces)
+
+        self._full_dual_space = full_dual_space
 
         # this will be renamed either self.function or self.cofunction
         self._fbuf = fd.Function(self.function_space)
@@ -166,9 +175,16 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         :arg kwargs: other arguments to be passed to the firedrake.riesz_map.
         '''
         DualType = AllAtOnceCofunction if type(self) is AllAtOnceFunction else AllAtOnceFunction
-        riesz = DualType(self.ensemble, self.time_partition, self.field_function_space.dual())
+        riesz = DualType(self.ensemble, self.time_partition,
+                         self.field_function_space.dual(),
+                         full_function_space=self.dual_space,
+                         full_dual_space=self.function_space)
         riesz._fbuf.assign(self._fbuf.riesz_representation(riesz_map=riesz_map, **kwargs))
         return riesz
+
+    @cached_property
+    def dual_space(self):
+        return self._full_dual_space or self.function_space.dual()
 
     @profiler()
     def bcast_field(self, step, u):
@@ -225,7 +241,9 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
             will be copied into the new AllAtOnceFunction.
         """
         new = type(self)(self.ensemble, self.time_partition,
-                         self.field_function_space)
+                         self.field_function_space,
+                         full_function_space=self.function_space,
+                         full_dual_space=self.dual_space)
         if copy_values:
             new.assign(self)
         return new
@@ -516,7 +534,8 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
 
 class AllAtOnceFunction(AllAtOnceFunctionBase):
     @profiler()
-    def __init__(self, ensemble, time_partition, function_space):
+    def __init__(self, ensemble, time_partition, function_space,
+                 full_function_space=None, full_dual_space=None):
         """
         A function representing multiple timesteps of a time-dependent finite-element problem,
         i.e. the solution to an all-at-once system.
@@ -530,14 +549,17 @@ class AllAtOnceFunction(AllAtOnceFunctionBase):
         """
         if not is_primal(function_space):
             raise TypeError("Cannot only make AllAtOnceFunction from a FunctionSpace")
-        super().__init__(ensemble, time_partition, function_space)
+        super().__init__(ensemble, time_partition, function_space,
+                         full_function_space=full_function_space,
+                         full_dual_space=full_dual_space)
         self.function = self._fbuf
         self.initial_condition = fd.Function(self.field_function_space)
 
 
 class AllAtOnceCofunction(AllAtOnceFunctionBase):
     @profiler()
-    def __init__(self, ensemble, time_partition, function_space):
+    def __init__(self, ensemble, time_partition, function_space,
+                 full_function_space=None, full_dual_space=None):
         """
         A Cofunction representing multiple timesteps of a time-dependent finite-element problem,
         i.e. the solution to an all-at-once system.
@@ -551,7 +573,9 @@ class AllAtOnceCofunction(AllAtOnceFunctionBase):
         """
         if not is_dual(function_space):
             raise TypeError("Can only make an AllAtOnceCofunction from a DualSpace")
-        super().__init__(ensemble, time_partition, function_space)
+        super().__init__(ensemble, time_partition, function_space,
+                         full_function_space=full_function_space,
+                         full_dual_space=full_dual_space)
         self.cofunction = self._fbuf
 
     @profiler()

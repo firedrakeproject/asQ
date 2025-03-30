@@ -67,11 +67,17 @@ class AllAtOncePCBase(TimePartitionMixin):
         self.appctx = jacobian.appctx
 
         # Input/Output wrapper Functions for all-at-once residual being acted on
-        self._x = AllAtOnceCofunction(self.ensemble, self.time_partition,
-                                      aaofunc.field_function_space.dual())
+        self._x = AllAtOnceCofunction(
+            self.ensemble, self.time_partition,
+            aaofunc.field_function_space.dual(),
+            full_function_space=aaofunc.dual_space,
+            full_dual_space=aaofunc.function_space)
 
-        self._y = AllAtOnceFunction(self.ensemble, self.time_partition,
-                                    aaofunc.field_function_space)
+        self._y = AllAtOnceFunction(
+            self.ensemble, self.time_partition,
+            aaofunc.field_function_space,
+            full_function_space=aaofunc.function_space,
+            full_dual_space=aaofunc.dual_space)
 
         self.initialized = final_initialize
 

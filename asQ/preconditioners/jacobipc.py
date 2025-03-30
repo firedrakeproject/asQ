@@ -279,9 +279,10 @@ class SliceJacobiPC(AllAtOncePCBase):
         # the slice jacobian is created around a slice
         # aaofunc that tracks the global aaofunc
         field_function_space = self.aaofunc.field_function_space
-        slice_func = AllAtOnceFunction(self.slice_ensemble,
-                                       slice_partition,
-                                       field_function_space)
+        slice_func = AllAtOnceFunction(
+            self.slice_ensemble, slice_partition, field_function_space,
+            full_function_space=self.aaofunc.function_space,
+            full_dual_space=self.aaofunc.dual_space)
         slice_func.zero()
         self.slice_func = slice_func
 
@@ -293,9 +294,11 @@ class SliceJacobiPC(AllAtOncePCBase):
         self.yslice = slice_func.copy()
 
         # this is the slice rhs
-        self.xslice = AllAtOnceCofunction(self.slice_ensemble,
-                                          slice_partition,
-                                          field_function_space.dual())
+        self.xslice = AllAtOnceCofunction(
+            self.slice_ensemble, slice_partition,
+            field_function_space.dual(),
+            full_function_space=self.aaofunc.dual_space,
+            full_dual_space=self.aaofunc.function_space)
 
         # # # slice aaoform - jacobian, # # #
 
