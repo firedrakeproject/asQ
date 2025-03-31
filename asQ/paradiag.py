@@ -80,9 +80,11 @@ class Paradiag(TimePartitionMixin):
                                          function_space)
         self.aaofunc.assign(ics)
 
-        self.aaoform = AllAtOnceForm(self.aaofunc, dt, theta,
-                                     form_mass, form_function,
-                                     bcs=bcs, alpha=function_alpha)
+        self.aaoform = AllAtOnceForm(
+            self.aaofunc, dt, theta,
+            form_mass, form_function,
+            bcs=bcs, alpha=function_alpha,
+            form_parameters=form_parameters)
 
         # all-at-once jacobian
         if jacobian_mass is None:
@@ -92,9 +94,11 @@ class Paradiag(TimePartitionMixin):
 
         self.jacobian_aaofunc = self.aaofunc.copy()
 
-        self.jacobian_form = AllAtOnceForm(self.jacobian_aaofunc, dt, theta,
-                                           jacobian_mass, jacobian_function,
-                                           bcs=bcs, alpha=jacobian_alpha)
+        self.jacobian_form = AllAtOnceForm(
+            self.jacobian_aaofunc, dt, theta,
+            jacobian_mass, jacobian_function,
+            bcs=bcs, alpha=jacobian_alpha,
+            form_parameters=form_parameters)
 
         # pass seperate forms to the preconditioner
         if pc_mass is not None:

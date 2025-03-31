@@ -449,9 +449,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
             Fim.zero()
             Fex.zero()
 
-            self.aaoform._tn1.assign(self.aaoform.time[n])
-
+            self.aaoform.singlestep_set_state(n)
             self._xn1.assign(self.x[n])
+
             self.singlestep_assemble_implicit(
                 tensor=Fim)
 
@@ -464,8 +464,12 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         if self.aaoform.use_halo:
             # repeat for the halo part of the matrix action
+
             for bc in self.aaoform.field_bcs:
                 bc.zero(self.x.uprev)
+
+            self.aaoform.singlestep_set_state(0)
+            self._xn1.assign(self.x[n])
 
             self._xn.assign(self.x.uprev)
             self.aaoform._tn1.assign(self.aaoform.time[0])
@@ -474,6 +478,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
             self.F[0].assign(self.F[0] + Fex)
 
+        # restore the values of the boundary condition nodes
         if len(self.aaoform.field_bcs) > 0:
             # just using Fprev as a buffer for the original values
             Fbuf = self.Fprev

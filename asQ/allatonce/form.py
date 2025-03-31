@@ -236,12 +236,7 @@ class AllAtOnceForm(TimePartitionMixin):
 
         elif self.construct_type == "single_step":
             for n in range(self.nlocal_timesteps):
-                for unsub, fsub in zip(self._un.subfunctions,
-                                       self._get_uns(n, split=False)):
-                    unsub.assign(fsub)
-                self._un1.assign(self.aaofunc[n])
-                self._tn1.assign(self.time[n])
-
+                self.singlestep_set_state(n)
                 self.singlestep_assemble(tensor=self.F[n])
 
         else:
@@ -289,10 +284,12 @@ class AllAtOnceForm(TimePartitionMixin):
         Constructs the UFL forms for each timesteps on the local slice.
         """
         tests = fd.TestFunctions(self.aaofunc.field_function_space)
-        return tuple(self._construct_step_form(fd.split(self.aaofunc[n]),
-                                               self._get_uns(n, split=True),
-                                               tests, self.time[n])
-                     for n in range(self.nlocal_timesteps))
+        return tuple(
+            self._construct_step_form(fd.split(self.aaofunc[n]),
+                                      self._get_uns(n, split=True,
+                                                    construct_type="stepwise"),
+                                      tests, self.time[n])
+            for n in range(self.nlocal_timesteps))
 
     @cached_property
     def stepwise_assembles(self):
@@ -325,6 +322,22 @@ class AllAtOnceForm(TimePartitionMixin):
             bcs=self.singlestep_bcs,
             form_compiler_parameters=fc_params
         ).assemble
+
+    def singlestep_set_state(self, n):
+        """
+        Update the Functions and time Constant used in the
+        singlestep forms to the values for step n.
+
+        This must be called before using the singlestep forms
+        to e.g. solve the n-th diagonal block or apply the
+        action of the sub-diagonal block in the n-th row.
+        """
+        for unsub, fsub in zip(self._un.subfunctions,
+                               self._get_uns(n, split=False,
+                                             construct_type="single_step")):
+            unsub.assign(fsub)
+        self._un1.assign(self.aaofunc[n])
+        self._tn1.assign(self.time[n])
 
     def _get_uns(self, n, split=False, construct_type=None):
         construct_type = construct_type or self.construct_type

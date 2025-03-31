@@ -1,8 +1,7 @@
-import firedrake as fd
 from firedrake.petsc import PETSc
 
 from asQ.profiling import profiler
-from asQ.common import get_option_from_list, get_deprecated_option
+from asQ.common import get_option_from_list
 from asQ.parallel_arrays import SharedArray
 
 from asQ.allatonce.mixin import TimePartitionMixin
@@ -67,13 +66,13 @@ class AllAtOncePCBase(TimePartitionMixin):
         self.appctx = jacobian.appctx
 
         # Input/Output wrapper Functions for all-at-once residual being acted on
-        self._x = AllAtOnceCofunction(
+        self.x = AllAtOnceCofunction(
             self.ensemble, self.time_partition,
             aaofunc.field_function_space.dual(),
             full_function_space=aaofunc.dual_space,
             full_dual_space=aaofunc.function_space)
 
-        self._y = AllAtOnceFunction(
+        self.y = AllAtOnceFunction(
             self.ensemble, self.time_partition,
             aaofunc.field_function_space,
             full_function_space=aaofunc.function_space,
@@ -99,13 +98,13 @@ class AllAtOncePCBase(TimePartitionMixin):
     def apply(self, pc, x, y):
 
         # copy petsc vec into AllAtOnceCofunction
-        with self._x.global_vec_wo() as v:
+        with self.x.global_vec_wo() as v:
             x.copy(v)
 
-        self.apply_impl(pc, self._x, self._y)
+        self.apply_impl(pc, self.x, self.y)
 
         # copy result into petsc vec
-        with self._y.global_vec_ro() as v:
+        with self.y.global_vec_ro() as v:
             v.copy(y)
 
         self._record_diagnostics()
@@ -127,15 +126,6 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
 
     PETSc options:
 
-    '{prefix}_linearisation': <'consistent', 'user'>
-        Which form to linearise when constructing the block Jacobians.
-        Default is 'consistent'.
-
-        'consistent': use the same form used in the AllAtOnceForm residual.
-        'user': use the alternative forms given in the appctx.
-            If this option is specified then the appctx must contain form_mass
-            and form_function entries with keys 'pc_form_mass' and 'pc_form_function'.
-
     '{prefix}_state': <'current', 'window', 'slice', 'linear', 'initial', 'reference', 'user'>
         Which state to linearise around when constructing the block Jacobians.
         Default is 'current'.
@@ -150,14 +140,6 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
         The solver options for the %d'th block, enumerated globally.
         Use 'aaojacobi_block' to set options for all blocks.
         Default is the Firedrake default options.
-
-    '{prefix}_dt': <float>
-        The timestep size to use in the preconditioning matrix.
-        Defaults to the timestep size used in the AllAtOnceJacobian.
-
-    '{prefix}_theta': <float>
-        The implicit theta method parameter to use in the preconditioning matrix.
-        Defaults to the implicit theta method parameter used in the AllAtOnceJacobian.
     """
 
     @profiler()
@@ -173,45 +155,14 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
             msg = f"AllAtOnceJacobian must be provided a reference state to use \'reference\' for {self.full_prefix}state."
             raise ValueError(msg)
 
-        # Problem parameter options
-        if self.deprecated_prefix is None:
-            self.dt = PETSc.Options().getReal(
-                f"{self.full_prefix}dt", default=self.aaoform.dt.values()[0])
-
-            self.theta = PETSc.Options().getReal(
-                f"{self.full_prefix}theta", default=self.aaoform.theta.values()[0])
-        else:
-            self.dt = get_deprecated_option(
-                PETSc.Options().getReal, self.full_prefix,
-                self.deprecated_prefix, "dt", default=self.aaoform.dt.values()[0])
-
-            self.theta = get_deprecated_option(
-                PETSc.Options().getReal, self.full_prefix,
-                self.deprecated_prefix, "theta", default=self.aaoform.theta.values()[0])
-
-        self.time = tuple(fd.Constant(0) for _ in range(self.nlocal_timesteps))
+        # time integration parameters
+        self.dt = self.aaoform.dt
+        self.theta = self.aaoform.theta
+        self.time = self.aaoform.time
 
         # which form to linearise around
-        valid_linearisations = ['consistent', 'user']
-
-        linearisation = get_option_from_list(
-            self.full_prefix, "linearisation", valid_linearisations,
-            default_index=0, deprecated_prefix=self.deprecated_prefix)
-
-        if linearisation == 'consistent':
-            form_mass = self.aaoform.form_mass
-            form_function = self.aaoform.form_function
-        elif linearisation == 'user':
-            try:
-                form_mass = self.appctx['pc_form_mass']
-                form_function = self.appctx['pc_form_function']
-            except KeyError as err:
-                err_msg = "appctx must contain 'pc_form_mass' and 'pc_form_function' if " \
-                          + "'linearisation' = 'user'"
-                raise type(err)(err_msg) from err
-
-        self.form_mass = form_mass
-        self.form_function = form_function
+        self.form_mass = self.aaoform.form_mass
+        self.form_function = self.aaoform.form_function
 
         self.block_iterations = SharedArray(self.time_partition,
                                             dtype=int,

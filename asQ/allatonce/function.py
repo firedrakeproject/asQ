@@ -1,8 +1,7 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 from pyop2 import MixedDat
-from functools import reduce, cached_property
-from operator import mul
+from functools import cached_property
 import contextlib
 from ufl.duals import is_primal, is_dual
 from asQ.profiling import profiler

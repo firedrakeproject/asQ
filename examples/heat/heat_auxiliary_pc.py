@@ -130,8 +130,7 @@ aaoform = asQ.AllAtOnceForm(
 # the preconditioner is built with the shifted diffusivity
 aaoform_pc = asQ.AllAtOnceForm(
     aaofunc, dt, args.theta,
-    form_mass, form_heat(pnu),
-    bcs=bcs,
+    form_mass, form_heat(pnu), bcs=bcs,
     form_parameters={"form_construct_type": args.form_type})
 
 
