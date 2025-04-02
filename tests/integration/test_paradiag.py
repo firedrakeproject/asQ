@@ -1,6 +1,7 @@
 import asQ
 import firedrake as fd
 import pytest
+from pytest_mpi.parallel_assert import parallel_assert
 from firedrake.petsc import PETSc
 from functools import reduce, partial
 from operator import mul
@@ -24,6 +25,8 @@ def test_Nitsche_BCs():
     nslices = fd.COMM_WORLD.size//nspatial_domains
 
     time_partition = [slice_length for _ in range(nslices)]
+    window_length = sum(time_partition)
+    nwindows = 2
 
     ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
     mesh = fd.UnitSquareMesh(
@@ -34,6 +37,10 @@ def test_Nitsche_BCs():
     n = fd.FacetNormal(mesh)
     V = fd.FunctionSpace(mesh, "CG", degree)
 
+    Vcoord = fd.FunctionSpace(mesh, "CG", degree + 2)
+    x = fd.Function(Vcoord).project(x)
+    y = fd.Function(Vcoord).project(y)
+
     w0 = fd.Function(V)
     w0.interpolate(fd.exp(0.5*x + y))
 
@@ -41,15 +48,23 @@ def test_Nitsche_BCs():
         return phi*q*fd.dx
 
     def form_function(q, phi, t):
-        return (fd.inner(fd.grad(q), fd.grad(phi))*fd.dx
-                - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds
-                - fd.inner(q-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(phi), n))*fd.ds
-                + 20*nx*fd.inner(q-fd.exp(0.5*x + y + 1.25*t), phi)*fd.ds)
+        # g = fd.exp(0.5*x + y + 1.25*t)
+        exy = fd.exp(0.5*x + y)  # stochastic cache
+        et = fd.exp(1.25*t)  # stocastic cache
+        f_et = fd.Function(Vcoord).project(et)  # stocastic cache
+        f_exy = fd.Function(Vcoord).project(exy)  # stocastic cache
+        g = f_exy*f_et
+        return (
+            fd.inner(fd.grad(q), fd.grad(phi))*fd.dx
+            - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds  # stochastic cache
+            - fd.inner(q - g, fd.inner(fd.grad(phi), n))*fd.ds  # stochastic cache
+            + fd.Constant(20*nx)*fd.inner(q - g, phi)*fd.ds)  # stochastic cache
 
     # Parameters for the diag
     solver_parameters_diag = {
         'snes_type': 'ksponly',
         'ksp_rtol': 1e-8,
+        'ksp_converged_rate': None,
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
         'pc_type': 'python',
@@ -67,7 +82,7 @@ def test_Nitsche_BCs():
                        dt=dt, theta=0.5,
                        time_partition=time_partition,
                        solver_parameters=solver_parameters_diag)
-    pdg.solve()
+    pdg.solve(nwindows=nwindows)
     q_exact = fd.Function(V)
     qp = fd.Function(V)
     errors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
@@ -75,7 +90,8 @@ def test_Nitsche_BCs():
     for step in range(pdg.ntimesteps):
         if pdg.aaoform.layout.is_local(step):
             local_step = pdg.aaofunc.transform_index(step, from_range='window')
-            t = pdg.aaoform.time[local_step]
+            ic_step = window_length*(nwindows - 1)
+            t = dt*(ic_step + step + 1)
             q_exact.interpolate(fd.exp(.5*x + y + 1.25*t))
             qp.assign(pdg.aaofunc[local_step])
 
@@ -84,111 +100,9 @@ def test_Nitsche_BCs():
     errors.synchronise()
 
     for step in range(pdg.ntimesteps):
-        assert (errors.dglobal[step] < (dx)**(3/2)), "Error from analytical solution should be close to discretisation error"
-
-
-@pytest.mark.parallel(nprocs=4)
-def test_Nitsche_heat_timeseries():
-    from utils.serial import ComparisonMiniapp
-
-    nwindows = 1
-    nslices = 2
-    slice_length = 2
-    dt = 0.5
-    theta = 0.5
-
-    time_partition = [slice_length for _ in range(nslices)]
-    ensemble = asQ.create_ensemble(time_partition)
-    nx = 10
-    mesh = fd.UnitSquareMesh(
-        nx, nx, comm=ensemble.comm,
-        distribution_parameters={'partitioner_type': 'simple'})
-
-    x, y = fd.SpatialCoordinate(mesh)
-    n = fd.FacetNormal(mesh)
-
-    W = fd.FunctionSpace(mesh, 'CG', 1)
-
-    # initial conditions
-    w_initial = fd.Function(W)
-    w_initial.interpolate(fd.exp(0.5*x + y))
-
-    # Heat equaion with Nitsch BCs.
-    def form_function(u, v, t):
-        return (fd.inner(fd.grad(u), fd.grad(v))*fd.dx
-                - fd.inner(v, fd.inner(fd.grad(u), n))*fd.ds
-                - fd.inner(u-fd.exp(0.5*x + y + 1.25*t), fd.inner(fd.grad(v), n))*fd.ds
-                + 20*nx*fd.inner(u-fd.exp(0.5*x + y + 1.25*t), v)*fd.ds)
-
-    def form_mass(u, v):
-        return u*v*fd.dx
-
-    block_sparameters = {
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-        'pc_factor_mat_solver_type': 'mumps'
-    }
-
-    tol = 1e-8
-    parallel_sparameters = {
-        'snes_type': 'ksponly',
-        'ksp_monitor': None,
-        'ksp_converged_rate': None,
-        'ksp_rtol': tol,
-        'mat_type': 'matfree',
-        'ksp_type': 'gmres',
-        'pc_type': 'python',
-        'pc_python_type': 'asQ.CirculantPC',
-        'circulant_block': block_sparameters
-    }
-
-    # solver parameters for serial method
-    serial_sparameters = {
-        'snes_type': 'ksponly',
-    }
-    serial_sparameters.update(block_sparameters)
-    if ensemble.ensemble_comm.rank == 0:
-        serial_sparameters['ksp_monitor'] = None
-        serial_sparameters['ksp_converged_rate'] = None
-
-    # solver parameters for parallel method
-
-    miniapp = ComparisonMiniapp(ensemble, time_partition,
-                                form_mass, form_function,
-                                w_initial, dt, theta,
-                                serial_sparameters,
-                                parallel_sparameters)
-
-    norm0 = fd.norm(w_initial)
-
-    def preproc(serial_app, paradiag, wndw):
-        PETSc.Sys.Print('')
-        PETSc.Sys.Print(f'### === --- Time window {wndw} --- === ###')
-        PETSc.Sys.Print('')
-        PETSc.Sys.Print('=== --- Parallel solve --- ===')
-        PETSc.Sys.Print('')
-
-    def parallel_postproc(pdg, wndw, rhs):
-        PETSc.Sys.Print('')
-        PETSc.Sys.Print('=== --- Serial solve --- ===')
-        PETSc.Sys.Print('')
-        return
-
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
-
-    errors = miniapp.solve(nwindows=nwindows,
-                           preproc=preproc,
-                           parallel_postproc=parallel_postproc)
-
-    PETSc.Sys.Print('')
-    PETSc.Sys.Print('### === --- Errors --- === ###')
-
-    for it, err in enumerate(errors):
-        PETSc.Sys.Print(f'Timestep {it} error: {err/norm0}')
-
-    for err in errors:
-        assert err/norm0 < tol, "Serial and parallel solutions should match to solver tolerance"
+        parallel_assert(
+            lambda: (errors.dglobal[step] < (dx)**(3/2)),
+            msg=f"Error at step {step} from analytical solution should be close to discretisation error")
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -234,8 +148,8 @@ def test_galewsky_timeseries():
     u_initial = w_initial.subfunctions[0]
     h_initial = w_initial.subfunctions[1]
 
-    u_initial.project(galewsky.velocity_expression(*x))
-    h_initial.project(galewsky.depth_expression(*x))
+    u_initial.assign(galewsky.velocity_function(*x, W.subspaces[0]))
+    h_initial.assign(galewsky.depth_function(*x, W.subspaces[1]))
 
     # shallow water equation forms
     def form_function(u, h, v, q, t):
@@ -445,8 +359,9 @@ def test_steady_swe_miniapp():
     w0 = fd.Function(miniapp.W)
     un = w0.subfunctions[0]
     hn = w0.subfunctions[1]
-    un.project(case2.velocity_expression(*x))
-    hn.project(case2.elevation_expression(*x))
+    fc_params = {'quadrature_degree': 4}
+    un.project(case2.velocity_expression(*x), form_compiler_parameters=fc_params)
+    hn.project(case2.elevation_expression(*x), form_compiler_parameters=fc_params)
 
     hmag = fd.norm(hn)
     umag = fd.norm(un)
@@ -659,3 +574,7 @@ def test_diagnostics():
 
     for i in range(pdg.ntimesteps):
         assert pdg.block_iterations.dglobal[i] == pdg.linear_iterations, "Direct block solve so block iterations should equal aao iterations"
+
+
+if __name__ == "__main__":
+    test_Nitsche_BCs()
