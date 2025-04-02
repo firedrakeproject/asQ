@@ -20,19 +20,6 @@ class JacobiGaussSeidelPCBase(AllAtOnceBlockPCBase):
     def initialize(self, pc, final_initialize=True):
         super().initialize(pc, final_initialize=False)
 
-        # Building the solvers for the diagonal blocks
-        self.block_solvers = []
-
-        # zero out bc dofs
-        self.block_bcs = tuple(
-            fd.DirichletBC(self.aaofunc.field_function_space,
-                           0*bc.function_arg,
-                           bc.sub_domain)
-            for bc in self.aaoform.field_bcs)
-
-        # user appctx for the blocks
-        block_appctx = self.appctx.get('block_appctx', {})
-
         # Block n has prefix 'aao<type>_block_{n}', with type\in(jacobi, gs),
         # but we want to be able to set default options for all blocks using
         # 'aao<type>_block'.
@@ -44,15 +31,27 @@ class JacobiGaussSeidelPCBase(AllAtOnceBlockPCBase):
         default_block_options = get_default_options(
             default_block_prefix, range(self.ntimesteps))
 
-        # building the block problem solvers
+        # user appctx for the blocks
+        block_appctx = self.appctx.get('block_appctx', {})
+
+        # Building the solvers for the diagonal blocks
+        self.block_solvers = []
         for n in range(self.nlocal_timesteps):
 
             # grab the form from the diagonal of the matrix
             if self.aaoform.construct_type == "single_step":
                 # respect how many forms we generate
                 A = self.jacobian.singlestep_form_implicit
+                block_bcs = self.aaoform.singlestep_bcs
             else:
                 A = self.jacobian.stepwise_forms_implicit[n]
+                block_bcs = self.aaoform.stepwise_bcs[n]
+
+            block_bcs = tuple(
+                fd.DirichletBC(
+                    self.aaofunc.field_function_space,
+                    0*bc.function_arg, bc.sub_domain)
+                for bc in block_bcs)
 
             # pass parameters into PC:
             appctx_block = {
@@ -60,7 +59,7 @@ class JacobiGaussSeidelPCBase(AllAtOnceBlockPCBase):
                 "theta": self.theta,
                 "tref": self.aaoform.time[n],
                 "uref": self.aaofunc[n],
-                "bcs": self.block_bcs,
+                "bcs": block_bcs,
                 "form_mass": self.form_mass,
                 "form_function": self.form_function,
             }
@@ -75,7 +74,7 @@ class JacobiGaussSeidelPCBase(AllAtOnceBlockPCBase):
             # input/output AllAtOnceCofunction/Function
             block_problem = fd.LinearVariationalProblem(
                 A, self.x[n], self.y[n],
-                bcs=self.block_bcs,
+                bcs=block_bcs,
                 constant_jacobian=True)
 
             block_solver = fd.LinearVariationalSolver(
@@ -180,6 +179,8 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
         # x and y are already the rhs and solution vectors of the blocks
         y.zero()
 
+        jacobian = self.jacobian
+
         # buffer to store gauss-seidel increment to the rhs
         # from the solution of the previous timestep
         xprev = fd.Cofunction(x.field_function_space)
@@ -195,18 +196,18 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
 
                 block_bcs = self.aaoform.singlestep_bcs
 
-                action_x = self.jacobian._xn
-                assemble = self.jacobian.singlestep_assemble_explicit
+                action_x = jacobian._xn
+                assemble = jacobian.singlestep_assemble_explicit
 
             else:
                 block_bcs = self.aaoform.stepwise_bcs[n]
 
                 if (n == 0) and self.aaoform.use_halo:
-                    action_x = self.jacobian.x.uprev
-                    assemble = self.jacobian.stepwise_assemble_prev
+                    action_x = jacobian.x.uprev
+                    assemble = jacobian.stepwise_assemble_prev
                 elif n > 0:
-                    action_x = self.jacobian.x[n-1]
-                    assemble = self.jacobian.stepwise_assembles_explicit[n-1]
+                    action_x = jacobian.x[n-1]
+                    assemble = jacobian.stepwise_assembles_explicit[n-1]
 
             # 1. zero out the boundary nodes
             for bc in block_bcs:

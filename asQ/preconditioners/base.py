@@ -49,10 +49,7 @@ class AllAtOncePCBase(TimePartitionMixin):
         # grab aao objects off petsc mat python context
         prefix = pc.getOptionsPrefix()
         self.full_prefix = prefix + self.prefix
-        if hasattr(self, "deprecated_prefix"):
-            self.deprecated_prefix = prefix + self.deprecated_prefix
-        else:
-            self.deprecated_prefix = None
+        self.pc_prefix = prefix + "pc_" + self.prefix
 
         jacobian = self.get_jacobian(pc)
         self.jacobian = jacobian
@@ -149,7 +146,7 @@ class AllAtOnceBlockPCBase(AllAtOncePCBase):
         # option for what state to linearise PC around
         self.jacobian_state = get_option_from_list(
             self.full_prefix, "state", self.valid_jacobian_states,
-            default_index=0, deprecated_prefix=self.deprecated_prefix)
+            default_index=0)
 
         if self.jacobian_state == 'reference' and self.jacobian.reference_state is None:
             msg = f"AllAtOnceJacobian must be provided a reference state to use \'reference\' for {self.full_prefix}state."
