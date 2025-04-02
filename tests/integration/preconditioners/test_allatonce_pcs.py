@@ -176,7 +176,7 @@ nstep2to16 = [pytest.param(n, id=f"slice{n}") for n in (2, 4, 8, 16)]
 @pytest.mark.parametrize("variable_coefficients", vcoeffs)
 def test_slicejacobipc_jacobi(nsteps, variable_coefficients):
     slice_length = 1
-    time_partition = [slice_length for _ in range(8)]
+    time_partition = [slice_length for _ in range(fd.COMM_WORLD.size)]
     ensemble = asQ.create_ensemble(time_partition)
 
     mesh = fd.UnitSquareMesh(
@@ -210,9 +210,9 @@ def test_slicejacobipc_jacobi(nsteps, variable_coefficients):
         'mat_type': 'matfree',
         'ksp_type': 'preonly',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.SliceJacobiPC',
-        'slice_jacobi_nsteps': nsteps,
-        'slice_jacobi_slice': {
+        'pc_python_type': 'asQ.IntervalJacobiPC',
+        'pc_ijacobi_interval_length': nsteps,
+        'ijacobi': {
             'pc_type': 'python',
             'pc_python_type': 'asQ.JacobiPC',
         }
@@ -244,7 +244,10 @@ def test_slicejacobipc_jacobi(nsteps, variable_coefficients):
         errvec = jvec - svec
         err = errvec.norm()
 
-    assert err < 1e-15, "SliceJacobiPC with JacobiPC should be exactly JacobiPC for any slice size"
+    parallel_assert(
+        lambda: err < 1e-15,
+        msg="IntervalJacobiPC with JacobiPC should be exactly JacobiPC for any slice size"
+    )
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -284,9 +287,9 @@ def test_slicejacobipc_circulant(variable_coefficients):
         'mat_type': 'matfree',
         'ksp_type': 'preonly',
         'pc_type': 'python',
-        'pc_python_type': 'asQ.SliceJacobiPC',
-        'slice_jacobi_nsteps': sum(time_partition),
-        'slice_jacobi_slice': {
+        'pc_python_type': 'asQ.IntervalJacobiPC',
+        'pc_ijacobi_interval_length': sum(time_partition),
+        'ijacobi': {
             'pc_type': 'python',
             'pc_python_type': 'asQ.CirculantPC',
         }
@@ -318,7 +321,7 @@ def test_slicejacobipc_circulant(variable_coefficients):
         errvec = cvec - svec
         err = errvec.norm()
 
-    assert err < 1e-15, "SliceJacobiPC with CirculantPC should be exactly CirculantPC if nstep=nt"
+    assert err < 1e-15, "IntervalJacobiPC with CirculantPC should be exactly CirculantPC if nstep=nt"
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -338,10 +341,9 @@ def test_slicejacobipc_slice(nsteps, variable_coefficients):
         'ksp_type': 'richardson',
         'ksp_rtol': 1e-14,
         'pc_type': 'python',
-        'pc_python_type': 'asQ.SliceJacobiPC',
-        'slice_jacobi_nsteps': nsteps,
-        'slice_jacobi_state': 'linear',
-        'slice_jacobi_slice': {
+        'pc_python_type': 'asQ.IntervalJacobiPC',
+        'pc_ijacobi_interval_length': nsteps,
+        'ijacobi': {
             'ksp_converged_rate': None,
             'ksp_type': 'richardson',
             'ksp_rtol': 1e-15,
@@ -354,10 +356,6 @@ def test_slicejacobipc_slice(nsteps, variable_coefficients):
             },
             'circulant_state': 'linear',
         },
-        **{f'slice_jacobi_slice_{i}_ksp_monitor': f':slice_{i}_monitor.log'
-           for i in range(nslices)},
-        **{f'slice_jacobi_slice_{i}_ksp_converged_rate': f':slice_{i}_rate.log'
-           for i in range(nslices)},
     }
 
     paradiag = make_paradiag(
@@ -368,4 +366,4 @@ def test_slicejacobipc_slice(nsteps, variable_coefficients):
     paradiag.solve(nwindows=1)
 
     niterations = paradiag.solver.snes.getLinearSolveIterations()
-    assert niterations == nslices, "SliceJacobiPC with exactly solved slices should solve exactly after nt iterations"
+    assert niterations == nslices, "IntervalJacobiPC with exactly solved slices should solve exactly after nt iterations"
