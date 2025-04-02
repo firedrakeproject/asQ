@@ -45,7 +45,9 @@ def time_average(aaofunc, uout, uwrk, average='window'):
 class AllAtOnceFunctionBase(TimePartitionMixin):
     @profiler()
     def __init__(self, ensemble, time_partition, function_space,
-                 full_function_space=None, full_dual_space=None):
+                 full_function_space=None,
+                 full_dual_space=None,
+                 val=None):
         """
         A (co)function representing multiple timesteps of a time-dependent finite-element problem,
         i.e. the solution to an all-at-once system.
@@ -67,19 +69,31 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
         self.field_function_space = function_space
 
         # function space for the slice of the all-at-once system on this process
-        if full_function_space is None:
+        if val is not None:
+            assert isinstance(val, type(self))
+            assert self.field_function_space == val.field_function_space
+            assert self.nlocal_timesteps == val.nlocal_timesteps
+            self.function_space = val.function_space
+        elif full_function_space is not None:
+            ncpts = len(self.field_function_space)
+            assert len(full_function_space) == self.nlocal_timesteps*ncpts
+            self.function_space = full_function_space
+        else:
             self.function_space = fd.MixedFunctionSpace([
                 self.field_function_space
                 for _ in range(self.nlocal_timesteps)])
-        else:
-            self.function_space = full_function_space
 
         self.ncomponents = len(self.field_function_space.subspaces)
 
-        self._full_dual_space = full_dual_space
+        if val is not None:
+            self._full_dual_space = val.dual_space
+        else:
+            self._full_dual_space = full_dual_space
 
         # this will be renamed either self.function or self.cofunction
-        self._fbuf = fd.Function(self.function_space)
+        fval = val._fbuf if val else None
+        self._fbuf = fd.Function(
+            self.function_space, val=fval)
 
         # Functions to view each timestep
         def field_function(i):
@@ -90,16 +104,62 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
                 dat = MixedDat((self._fbuf.subfunctions[j].dat
                                 for j in self._component_indices(i)))
 
-            return fd.Function(self.field_function_space,
-                               val=dat)
+            return fd.Function(self.field_function_space, val=dat)
 
         self._fields = tuple(field_function(i)
                              for i in range(self.nlocal_timesteps))
 
         # (co)functions containing the last step of the previous
         # and current slice for parallel communication
-        self.uprev = fd.Function(self.field_function_space)
-        self.unext = fd.Function(self.field_function_space)
+        if val is not None:
+            new_is_ic = self.time_rank == 0
+            val_is_ic = val.time_rank == 0
+
+            if new_is_ic and val_is_ic:
+                if self._needs_ic:
+                    ic_val = val.initial_condition
+                prev_val = val.uprev  # circulant halo
+
+            elif new_is_ic:  # and not val_is_ic
+                if self._needs_ic:
+                    ic_val = val.uprev
+                prev_val = None  # circulant halo
+
+            elif val_is_ic:  # and not new_is_ic
+                if self._needs_ic:
+                    prev_val = val.initial_condition
+                    ic_val = None
+                else:
+                    prev_val = None  # don't use circulant halo from val
+
+            else:  # not new_is_ic and not val_is_ic
+                if self._needs_ic:
+                    ic_val = val.initial_condition
+                prev_val = val.uprev
+
+            new_is_end = (val.time_rank == len(val.time_partition) - 1)
+            val_is_end = (self.time_rank == len(self.time_partition) - 1)
+
+            # unext on last rank is circulant halo
+            if new_is_end or val_is_end:
+                next_val = None
+            else:
+                next_val = val.unext
+
+        else:
+            if self._needs_ic:
+                ic_val = None
+            prev_val = None
+            next_val = None
+
+        if self._needs_ic:
+            self.initial_condition = fd.Function(
+                self.field_function_space, val=ic_val)
+
+        self.uprev = fd.Function(
+            self.field_function_space, val=prev_val)
+        self.unext = fd.Function(
+            self.field_function_space, val=next_val)
 
         self.nlocal_dofs = self.function_space.node_set.size
         self.nglobal_dofs = self.ntimesteps*self.field_function_space.dim()
@@ -533,9 +593,13 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
 
 
 class AllAtOnceFunction(AllAtOnceFunctionBase):
+    _needs_ic = True
+
     @profiler()
     def __init__(self, ensemble, time_partition, function_space,
-                 full_function_space=None, full_dual_space=None):
+                 full_function_space=None,
+                 full_dual_space=None,
+                 val=None):
         """
         A function representing multiple timesteps of a time-dependent finite-element problem,
         i.e. the solution to an all-at-once system.
@@ -551,15 +615,18 @@ class AllAtOnceFunction(AllAtOnceFunctionBase):
             raise TypeError("Cannot only make AllAtOnceFunction from a FunctionSpace")
         super().__init__(ensemble, time_partition, function_space,
                          full_function_space=full_function_space,
-                         full_dual_space=full_dual_space)
+                         full_dual_space=full_dual_space, val=val)
         self.function = self._fbuf
-        self.initial_condition = fd.Function(self.field_function_space)
 
 
 class AllAtOnceCofunction(AllAtOnceFunctionBase):
+    _needs_ic = False
+
     @profiler()
     def __init__(self, ensemble, time_partition, function_space,
-                 full_function_space=None, full_dual_space=None):
+                 full_function_space=None,
+                 full_dual_space=None,
+                 val=None):
         """
         A Cofunction representing multiple timesteps of a time-dependent finite-element problem,
         i.e. the solution to an all-at-once system.
@@ -575,7 +642,7 @@ class AllAtOnceCofunction(AllAtOnceFunctionBase):
             raise TypeError("Can only make an AllAtOnceCofunction from a DualSpace")
         super().__init__(ensemble, time_partition, function_space,
                          full_function_space=full_function_space,
-                         full_dual_space=full_dual_space)
+                         full_dual_space=full_dual_space, val=val)
         self.cofunction = self._fbuf
 
     @profiler()
