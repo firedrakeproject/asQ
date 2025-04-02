@@ -63,7 +63,9 @@ def velocity_expression(x, y, z):
 
 def velocity_function(x, y, z, V1, name="velocity"):
     v = fd.Function(V1, name=name)
-    return v.project(velocity_expression(x, y, z))
+    fc_params = {'quadrature_degree': V1.ufl_element().degree() + 2}
+    return v.project(velocity_expression(x, y, z),
+                     form_compiler_parameters=fc_params)
 
 
 def depth_integrand(theta):
@@ -112,7 +114,8 @@ def depth_perturbation(theta, lamda, V):
     latitude_profile = fd.exp(-((theta2 - theta)/beta)**2)
     longitude_profile = fd.exp(-(lamda/alpha)**2)
     pole_scaling = fd.cos(theta)
-    return fd.Function(V).interpolate(hhat*pole_scaling*longitude_profile*latitude_profile)
+    depth = hhat*pole_scaling*longitude_profile*latitude_profile
+    return fd.Function(V).interpolate(depth)
 
 
 def depth_expression(x, y, z):
@@ -139,4 +142,6 @@ def depth_expression(x, y, z):
 
 def depth_function(x, y, z, V2, name="depth"):
     eta = fd.Function(V2, name=name)
-    return eta.project(depth_expression(x, y, z))
+    fc_params = {'quadrature_degree': V2.ufl_element().degree() + 2}
+    return eta.project(depth_expression(x, y, z),
+                       form_compiler_parameters=fc_params)

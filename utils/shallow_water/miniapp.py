@@ -65,6 +65,8 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         self.velocity_index = 0
         self.depth_index = 1
 
+        degree = V1.ufl_element().degree()
+
         # nonlinear swe forms
 
         self.gravity = gravity
@@ -104,7 +106,9 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         u0 = w0.subfunctions[self.velocity_index]
         h0 = w0.subfunctions[self.depth_index]
 
-        u0.project(velocity_expression(*x), quadrature_degree=6)
+        u0.project(
+            velocity_expression(*x),
+            form_compiler_parameters={'quadrature_degree': degree+2})
         h0.interpolate(depth_expression(*x))
 
         if reference_state:
