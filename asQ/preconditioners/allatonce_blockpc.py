@@ -181,9 +181,9 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
 
         jacobian = self.jacobian
 
-        # buffer to store gauss-seidel increment to the rhs
-        # from the solution of the previous timestep
-        xprev = fd.Cofunction(x.field_function_space)
+        # buffer to store gauss-seidel increment to the rhs from the
+        # solution of the previous timestep: rhs = x_{n} - Ay_{n-1}
+        Ay_prev = fd.Cofunction(x.field_function_space)
 
         if self.time_rank > 0:
             self.ensemble.recv(
@@ -192,14 +192,13 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
 
         for n in range(self.nlocal_timesteps):
 
-            # Explicit action Ax=b of block sub-diagonal
-            # bcs,
+            # Explicit action Ay=b of block sub-diagonal
             explicit_action = jacobian.step_explicit_action(n)
 
             if any(o is None for o in explicit_action):
                 continue
 
-            block_bcs, x_action, assemble = explicit_action
+            block_bcs, yprev, assemble = explicit_action
 
             # 1. zero out the boundary nodes
             for bc in block_bcs:
@@ -209,9 +208,9 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
             #   - for first timestep on rank this is the halo.
             #   - for later timesteps this is the previous solution step.
             if (n > 0) or self.aaoform.use_halo:
-                x_action.assign(y.uprev if (n == 0) else y[n-1])
-                assemble(tensor=xprev)
-                x[n].assign(x[n] - xprev)
+                yprev.assign(y.uprev if (n == 0) else y[n-1])
+                assemble(tensor=Ay_prev)
+                x[n].assign(x[n] - Ay_prev)
 
             # 3. solve diagonal block for this timestep
             # Implicit solve Ax=b of block diagonal

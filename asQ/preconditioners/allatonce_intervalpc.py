@@ -1,4 +1,4 @@
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, flatten_parameters
 from asQ.profiling import profiler
 from asQ.ensemble import split_ensemble
 from asQ.allatonce import (
@@ -14,9 +14,9 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
     def initialize(self, pc, final_initialize=True):
         super().initialize(pc, final_initialize=False)
 
-        # # # slice ensemble # # #
+        # # # interval ensemble # # #
 
-        # slice here means the smaller local ensemble, not the
+        # interval here means the smaller local ensemble, not the
         # section of the timeseries on the local ensemble member.
 
         # all ensemble members must have the same number of timesteps
@@ -24,107 +24,108 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
             msg = f"{type(self).__name__} only implemented for balanced partitions yet"
             raise ValueError(msg)
 
-        # how many timesteps in each slice?
-        interval_length = PETSc.Options().getInt(
+        # how many timesteps in each interval?
+        self.interval_length = PETSc.Options().getInt(
             f"{self.pc_prefix}interval_length")
 
         # we need to work out how many members of the global ensemble
-        # needed to get `split_size` timesteps on each slice ensemble
-        slice_members = interval_length // self.time_partition[0]
-        nslices = self.ntimesteps // interval_length
+        # needed to get `interval_length` timesteps on each interval ensemble
+        interval_members = self.interval_length // self.time_partition[0]
+        self.nintervals = self.ntimesteps // self.interval_length
 
-        # create the ensemble for the local slice by splitting the global ensemble
-        self.slice_ensemble = split_ensemble(self.ensemble,
-                                             split_size=slice_members)
+        # create the ensemble for the local interval by splitting the global ensemble
+        self.interval_ensemble = split_ensemble(
+            self.ensemble, split_size=interval_members)
 
-        # which slice are we in?
-        self.slice_rank = self.ensemble.ensemble_comm.rank // slice_members
+        # which interval are we in?
+        self.interval_index = self.ensemble.ensemble_comm.rank // interval_members
 
-        # the slice partition matches the corresponding
-        # slice of the global partition.
+        # the interval partition matches the corresponding
+        # interval of the global partition.
         # only works for balanced partitions yet
         part = self.time_partition[0]
-        slice_partition = tuple(part for i in range(slice_members))
+        interval_partition = tuple(part for i in range(interval_members))
 
-        # # # slice aaofuncs - jacobian, yslice # # #
+        # # # interval aaofuncs - jacobian, yinterval # # #
 
-        # the slice jacobian is created around a slice
+        # the interval jacobian is created around a interval
         # aaofunc that views the global aaofunc via val.
         field_function_space = self.aaofunc.field_function_space
-        self.slice_func = AllAtOnceFunction(
-            self.slice_ensemble, slice_partition,
+        self.interval_func = AllAtOnceFunction(
+            self.interval_ensemble, interval_partition,
             field_function_space, val=self.aaofunc)
 
-        # the result is placed in here and then copied
-        # out to the global result
-        self.yslice = AllAtOnceFunction(
-            self.slice_ensemble, slice_partition,
+        self.interval_rank = self.interval_func.time_rank
+
+        # create a view of this interval of y so that
+        # the interval solution is written directly
+        # into the global solution buffer.
+        self.yinterval = AllAtOnceFunction(
+            self.interval_ensemble, interval_partition,
             field_function_space, val=self.y)
 
-        # this is the slice rhs
-        self.xslice = AllAtOnceCofunction(
-            self.slice_ensemble, slice_partition,
+        # create a view of this interval of x so that
+        # the interval rhs is accessed directly from
+        # the global solution buffer.
+        self.xinterval = AllAtOnceCofunction(
+            self.interval_ensemble, interval_partition,
             field_function_space.dual(), val=self.x)
 
-        # # # slice aaoform - jacobian, # # #
+        # # # interval aaoform - jacobian, # # #
 
         # here we abuse that aaoform.copy will create
         # the new form over the ensemble of the
-        # aaofunc kwarg not its own ensemble.
-        self.slice_form = self.aaoform.copy(aaofunc=self.slice_func)
+        # aaofunc kwarg and not its own ensemble.
+        self.interval_form = self.aaoform.copy(aaofunc=self.interval_func)
 
-        # # # slice parameters # # #
-        default_slice_prefix = self.full_prefix
-        default_slice_options = get_default_options(
-            default_slice_prefix, range(nslices))
+        # # # interval parameters # # #
+        default_interval_prefix = self.full_prefix
+        default_interval_options = get_default_options(
+            default_interval_prefix, range(self.nintervals))
 
-        slice_prefix = default_slice_prefix+str(self.slice_rank)
+        interval_prefix = default_interval_prefix+str(self.interval_index)
 
-        # default to treating the slice as a PC not a KSP.
-        # we can't just use dict.setdefault in case the
-        # the ksp_type is specificed with a nested dict.
-        has_default_ksp_type = (
-            'ksp_type' in default_slice_options
-            or ('ksp' in default_slice_options
-                and 'type' in default_slice_options['ksp']))
+        # default to treating the interval as a PC not a KSP.
+        default_interval_options = flatten_parameters(default_interval_options)
+        default_interval_options.setdefault("ksp_type", "preonly")
 
-        if not has_default_ksp_type:
-            default_slice_options['ksp_type'] = 'preonly'
+        self.interval_solver = LinearSolver(
+            self.interval_form, appctx=self.appctx,
+            options_prefix=interval_prefix,
+            solver_parameters=default_interval_options)
 
-        self.slice_solver = LinearSolver(
-            self.slice_form, appctx=self.appctx,
-            options_prefix=slice_prefix,
-            solver_parameters=default_slice_options)
+        self.interval_solver.ksp.incrementTabLevel(1, parent=pc)
+        self.interval_solver.ksp.pc.incrementTabLevel(1, parent=pc)
 
         self.initialized = final_initialize
 
     @profiler()
     def update(self, pc):
         """
-        Update the slice states.
+        Update the interval states.
         """
         # Update the timestep values.
-        # slice_func mostly views aaofunc data,
-        # except that slice_func circulant halos
+        # interval_func mostly views aaofunc data,
+        # except that interval_func circulant halos
         # do not necessarily coincide with aaofunc
         # circulant halos. This means we must ask
-        # slice_func to do the halo update.
-        self.slice_func.update_time_halos()
+        # interval_func to do the halo update.
+        self.interval_func.update_time_halos()
 
         # # # update the time values
         aaoform = self.aaoform
 
-        # slice initial time
-        if self.slice_rank == 0:
+        # interval initial time
+        if self.interval_index == 0:
             t0 = aaoform.t0
         else:
-            t0 = float(aaoform.time[0]) - float(aaoform.dt)
-            t0 = self.slice_ensemble.ensemble_comm.bcast(
+            t0 = float(aaoform.time[0] - aaoform.dt)
+            t0 = self.interval_ensemble.ensemble_comm.bcast(
                 t0, root=0)
-        self.slice_form.time_update(t0)
+        self.interval_form.time_update(t0)
 
-        # # # update the slice
-        self.slice_solver.jacobian.update()
+        # # # update the interval
+        self.interval_solver.jacobian.update()
 
         return
 
@@ -142,12 +143,26 @@ class IntervalJacobiPC(IntervalJacobiGaussSeidelPCBase):
     each block is the all-at-once system of an interval. Each block
     (interval) is (approximately) solved with its own KSP.
 
+    The current implementation is limited to interval boundaries that
+    coincide with slice boundaries i.e. each slice must belong entirely
+    in a single interval (but one interval can include several slices).
+
     PETSc options:
 
-    'pc_ijacobi_interval_length': <int>
-        The number of timesteps per interval. Must be an integer multiple
-        of the number of timesteps on each ensemble member i.e. all
-        timesteps on an ensemble member must belong to the same interval.
+    'pc_ijacobi_interval_type': <'regular', 'repeating'>
+        The method to calculate the intervals.
+        - 'regular': all intervals are the same length.
+        - 'repeating': interval lengths varying with a repeating pattern,
+            for example all odd numbered intervals have length 4 and
+            all even numbered intervals have length 8.
+
+    'pc_ijacobi_interval_length': <int,list[int]>
+        The number of timesteps per interval.
+        - If 'interval_type' is 'regular' then this should be a
+          single integer for the length of all intervals.
+        - If 'interval_type' is 'repeating' then this should be a
+          list of integers specifying the length of each interval
+          in the repeating pattern, e.g. '4,8' in the example above.
 
     'ijacobi_%d': <AllAtOnceSolver options>
         The solver options for the LinearSolver for the %d-th interval,
@@ -158,8 +173,8 @@ class IntervalJacobiPC(IntervalJacobiGaussSeidelPCBase):
 
     @profiler()
     def apply_impl(self, pc, x, y):
-        self.yslice.zero()
-        self.slice_solver.solve(self.xslice, self.yslice)
+        self.yinterval.zero()
+        self.interval_solver.solve(self.xinterval, self.yinterval)
 
 
 class IntervalGaussSeidelPC(IntervalJacobiGaussSeidelPCBase):
@@ -175,12 +190,26 @@ class IntervalGaussSeidelPC(IntervalJacobiGaussSeidelPCBase):
     where each diagonal block is the all-at-once system of an interval.
     Each block (interval) is (approximately) solved with its own KSP.
 
+    The current implementation is limited to interval boundaries that
+    coincide with slice boundaries i.e. each slice must belong entirely
+    in a single interval (but one interval can include several slices).
+
     PETSc options:
 
-    'pc_igs_interval_length': <int>
-        The number of timesteps per interval. Must be an integer multiple
-        of the number of timesteps on each ensemble member i.e. all
-        timesteps on an ensemble member must belong to the same interval.
+    'pc_igs_interval_type': <'regular', 'repeating'>
+        The method to calculate the intervals.
+        - 'regular': all intervals are the same length.
+        - 'repeating': interval lengths varying with a repeating pattern,
+            for example all odd numbered intervals have length 4 and
+            all even numbered intervals have length 8.
+
+    'pc_igs_interval_length': <int,list[int]>
+        The number of timesteps per interval.
+        - If 'interval_type' is 'regular' then this should be a
+          single integer for the length of all intervals.
+        - If 'interval_type' is 'repeating' then this should be a
+          list of integers specifying the length of each interval
+          in the repeating pattern, e.g. '4,8' in the example above.
 
     'igs_%d': <AllAtOnceSolver options>
         The solver options for the LinearSolver for the %d-th interval,
@@ -188,4 +217,38 @@ class IntervalGaussSeidelPC(IntervalJacobiGaussSeidelPCBase):
         Use 'igs_' to set default options for all intervals.
     """
     prefix = "igs_"
-    pass
+
+    @profiler()
+    def apply_impl(self, pc, x, y):
+        self.yinterval.zero()
+
+        first_interval = (self.interval_index == 0)
+        last_interval = (self.interval_index == self.nintervals - 1)
+
+        first_rank = (self.interval_rank == 0)
+        last_rank = (self.interval_rank == len(self.xinterval.time_partition) - 1)
+
+        # buffer to store gauss-seidel increment to the rhs from the
+        # solution of the previous timestep: rhs = x_{n} - Ay_{n-1}
+        Ay_prev = x.uprev.copy(deepcopy=True).zero()
+
+        if first_rank and not first_interval:
+            block_bcs, yprev, assemble = self.jacobian.step_explicit_action(0)
+
+            self.ensemble.recv(
+                yprev, source=self.time_rank-1,
+                tag=self.time_rank)
+
+            for bc in block_bcs:
+                bc.zero(yprev)
+
+            assemble(tensor=Ay_prev)
+            x[0].assign(x[0] - Ay_prev)
+
+        # solve slice
+        self.interval_solver.solve(self.xinterval, self.yinterval)
+
+        if last_rank and not last_interval:
+            self.ensemble.send(
+                self.yinterval[-1], dest=self.time_rank+1,
+                tag=self.time_rank+1)

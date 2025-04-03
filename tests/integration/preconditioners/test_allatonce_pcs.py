@@ -167,14 +167,14 @@ def test_circulantpc(alpha):
     )
 
 
-nstep1to8 = [pytest.param(n, id=f"slice{n}") for n in (1, 2, 4, 8)]
-nstep2to16 = [pytest.param(n, id=f"slice{n}") for n in (2, 4, 8, 16)]
+nstep1to8 = [pytest.param(n, id=f"interval{n}") for n in (1, 2, 4, 8)]
+nstep2to16 = [pytest.param(n, id=f"interval{n}") for n in (2, 4, 8, 16)]
 
 
 @pytest.mark.parallel(nprocs=8)
-@pytest.mark.parametrize("nsteps", nstep1to8)
+@pytest.mark.parametrize("interval_length", nstep1to8)
 @pytest.mark.parametrize("variable_coefficients", vcoeffs)
-def test_slicejacobipc_jacobi(nsteps, variable_coefficients):
+def test_intervaljacobipc_jacobi(interval_length, variable_coefficients):
     slice_length = 1
     time_partition = [slice_length for _ in range(fd.COMM_WORLD.size)]
     ensemble = asQ.create_ensemble(time_partition)
@@ -203,7 +203,7 @@ def test_slicejacobipc_jacobi(nsteps, variable_coefficients):
         'pc_python_type': 'asQ.JacobiPC',
     }
 
-    slice_parameters = {
+    interval_parameters = {
         'ksp_monitor': None,
         'ksp_converged_rate': None,
         'snes_type': 'ksponly',
@@ -211,7 +211,7 @@ def test_slicejacobipc_jacobi(nsteps, variable_coefficients):
         'ksp_type': 'preonly',
         'pc_type': 'python',
         'pc_python_type': 'asQ.IntervalJacobiPC',
-        'pc_ijacobi_interval_length': nsteps,
+        'pc_ijacobi_interval_length': interval_length,
         'ijacobi': {
             'pc_type': 'python',
             'pc_python_type': 'asQ.JacobiPC',
@@ -226,19 +226,19 @@ def test_slicejacobipc_jacobi(nsteps, variable_coefficients):
         time_partition=time_partition,
         solver_parameters=jacobi_parameters)
 
-    paradiag_slice = asQ.Paradiag(
+    paradiag_interval = asQ.Paradiag(
         ensemble=ensemble,
         form_mass=form_mass,
         form_function=form_function,
         ics=uinitial, dt=0.1, theta=0.5,
         time_partition=time_partition,
-        solver_parameters=slice_parameters)
+        solver_parameters=interval_parameters)
 
     paradiag_jacobi.solve(nwindows=1)
-    paradiag_slice.solve(nwindows=1)
+    paradiag_interval.solve(nwindows=1)
 
     jfunc = paradiag_jacobi.aaofunc
-    sfunc = paradiag_slice.aaofunc
+    sfunc = paradiag_interval.aaofunc
 
     with jfunc.global_vec_ro() as jvec, sfunc.global_vec_ro() as svec:
         errvec = jvec - svec
@@ -246,13 +246,13 @@ def test_slicejacobipc_jacobi(nsteps, variable_coefficients):
 
     parallel_assert(
         lambda: err < 1e-15,
-        msg="IntervalJacobiPC with JacobiPC should be exactly JacobiPC for any slice size"
+        msg="IntervalJacobiPC with JacobiPC should be exactly JacobiPC for any interval size"
     )
 
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize("variable_coefficients", vcoeffs)
-def test_slicejacobipc_circulant(variable_coefficients):
+def test_intervaljacobipc_circulant(variable_coefficients):
     slice_length = 2
     time_partition = [slice_length for _ in range(4)]
     ensemble = asQ.create_ensemble(time_partition)
@@ -280,7 +280,7 @@ def test_slicejacobipc_circulant(variable_coefficients):
         'pc_python_type': 'asQ.CirculantPC',
     }
 
-    slice_parameters = {
+    interval_parameters = {
         'ksp_monitor': None,
         'ksp_converged_rate': None,
         'snes_type': 'ksponly',
@@ -303,19 +303,19 @@ def test_slicejacobipc_circulant(variable_coefficients):
         time_partition=time_partition,
         solver_parameters=circulant_parameters)
 
-    paradiag_slice = asQ.Paradiag(
+    paradiag_interval = asQ.Paradiag(
         ensemble=ensemble,
         form_mass=form_mass,
         form_function=form_function,
         ics=uinitial, dt=0.1, theta=0.5,
         time_partition=time_partition,
-        solver_parameters=slice_parameters)
+        solver_parameters=interval_parameters)
 
     paradiag_circulant.solve(nwindows=1)
-    paradiag_slice.solve(nwindows=1)
+    paradiag_interval.solve(nwindows=1)
 
     cfunc = paradiag_circulant.aaofunc
-    sfunc = paradiag_slice.aaofunc
+    sfunc = paradiag_interval.aaofunc
 
     with cfunc.global_vec_ro() as cvec, sfunc.global_vec_ro() as svec:
         errvec = cvec - svec
@@ -325,12 +325,13 @@ def test_slicejacobipc_circulant(variable_coefficients):
 
 
 @pytest.mark.parallel(nprocs=8)
-@pytest.mark.parametrize("nsteps", nstep2to16)
+@pytest.mark.parametrize("interval_length", nstep2to16)
 @pytest.mark.parametrize("variable_coefficients", vcoeffs)
-def test_slicejacobipc_slice(nsteps, variable_coefficients):
+@pytest.mark.parametrize("form_parameters", form_params)
+def test_intervaljacobipc(interval_length, variable_coefficients, form_parameters):
     slice_length = 2
-    time_partition = [slice_length for _ in range(8)]
-    nslices = sum(time_partition)//nsteps
+    time_partition = [slice_length for _ in range(fd.COMM_WORLD.size)]
+    nintervals = sum(time_partition)//interval_length
 
     solver_parameters = {
         # 'ksp_monitor': ':ksp_monitor.log',
@@ -342,28 +343,66 @@ def test_slicejacobipc_slice(nsteps, variable_coefficients):
         'ksp_rtol': 1e-14,
         'pc_type': 'python',
         'pc_python_type': 'asQ.IntervalJacobiPC',
-        'pc_ijacobi_interval_length': nsteps,
+        'pc_ijacobi_interval_length': interval_length,
         'ijacobi': {
-            'ksp_converged_rate': None,
-            'ksp_type': 'richardson',
-            'ksp_rtol': 1e-15,
+            'ksp_type': 'preonly',
             'pc_type': 'python',
-            'pc_python_type': 'asQ.CirculantPC',
-            'circulant_alpha': 1e-6,
-            'circulant_block': {
+            'pc_python_type': 'asQ.GaussSeidelPC',
+            'aaogs_block': {
                 'ksp_type': 'preonly',
                 'pc_type': 'lu',
             },
-            'circulant_state': 'linear',
         },
     }
 
     paradiag = make_paradiag(
         time_partition,
         solver_parameters,
-        variable_coefficients)
+        variable_coefficients,
+        form_parameters=form_parameters)
 
     paradiag.solve(nwindows=1)
 
     niterations = paradiag.solver.snes.getLinearSolveIterations()
-    assert niterations == nslices, "IntervalJacobiPC with exactly solved slices should solve exactly after nt iterations"
+    assert niterations == nintervals, "IntervalJacobiPC with exact interval solves should solve exactly after nt iterations"
+
+
+@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parametrize("interval_length", nstep2to16)
+@pytest.mark.parametrize("variable_coefficients", vcoeffs)
+@pytest.mark.parametrize("form_parameters", form_params)
+def test_intervalgaussseidelpc(interval_length, variable_coefficients, form_parameters):
+    slice_length = 2
+    time_partition = [slice_length for _ in range(fd.COMM_WORLD.size)]
+
+    solver_parameters = {
+        'snes_type': 'ksponly',
+        # 'ksp_monitor': None,
+        # 'ksp_converged_rate': None,
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'ksp_rtol': 1e-14,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.IntervalGaussSeidelPC',
+        'pc_igs_interval_length': interval_length,
+        'igs': {
+            'ksp_type': 'richardson',
+            'pc_type': 'python',
+            'pc_python_type': 'asQ.GaussSeidelPC',
+            'aaogs_block': {
+                'ksp_type': 'preonly',
+                'pc_type': 'lu',
+            },
+        },
+    }
+
+    paradiag = make_paradiag(
+        time_partition,
+        solver_parameters,
+        variable_coefficients,
+        form_parameters=form_parameters)
+
+    paradiag.solve(nwindows=1)
+
+    niterations = paradiag.solver.snes.getLinearSolveIterations()
+    assert niterations == 1, f"IntervalGaussSeidelPC with exact interval solves should solve exactly after 1 iteration not {niterations}"
