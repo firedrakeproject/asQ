@@ -279,6 +279,29 @@ class AllAtOnceJacobian(TimePartitionMixin):
             form_compiler_parameters=fc_params
         ).assemble
 
+    def step_explicit_action(self, n, construct_type=None):
+        if construct_type is None:
+            construct_type = self.aaoform.construct_type
+
+        if construct_type == "single_step":
+            self.aaoform.singlestep_set_state(n)
+            bcs = self.aaoform.singlestep_bcs
+            x = self._xn
+            assemble = self.singlestep_assemble_explicit
+        else:
+            bcs = self.aaoform.stepwise_bcs[n]
+            if (n == 0) and self.aaoform.use_halo:
+                x = self.x.uprev
+                assemble = self.stepwise_assemble_prev
+            elif n > 0:
+                x = self.x[n-1]
+                assemble = self.stepwise_assembles_explicit[n-1]
+            else:
+                bcs = None
+                x = None
+                assemble = None
+        return bcs, x, assemble
+
     @profiler()
     def mult(self, A, x, y):
         """

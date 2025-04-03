@@ -191,23 +191,15 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
                 tag=self.time_rank)
 
         for n in range(self.nlocal_timesteps):
-            if self.aaoform.construct_type == "single_step":
-                self.aaoform.singlestep_set_state(n)
 
-                block_bcs = self.aaoform.singlestep_bcs
+            # Explicit action Ax=b of block sub-diagonal
+            # bcs,
+            explicit_action = jacobian.step_explicit_action(n)
 
-                action_x = jacobian._xn
-                assemble = jacobian.singlestep_assemble_explicit
+            if any(o is None for o in explicit_action):
+                continue
 
-            else:
-                block_bcs = self.aaoform.stepwise_bcs[n]
-
-                if (n == 0) and self.aaoform.use_halo:
-                    action_x = jacobian.x.uprev
-                    assemble = jacobian.stepwise_assemble_prev
-                elif n > 0:
-                    action_x = jacobian.x[n-1]
-                    assemble = jacobian.stepwise_assembles_explicit[n-1]
+            block_bcs, x_action, assemble = explicit_action
 
             # 1. zero out the boundary nodes
             for bc in block_bcs:
@@ -217,11 +209,12 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
             #   - for first timestep on rank this is the halo.
             #   - for later timesteps this is the previous solution step.
             if (n > 0) or self.aaoform.use_halo:
-                action_x.assign(y.uprev if (n == 0) else y[n-1])
+                x_action.assign(y.uprev if (n == 0) else y[n-1])
                 assemble(tensor=xprev)
                 x[n].assign(x[n] - xprev)
 
             # 3. solve diagonal block for this timestep
+            # Implicit solve Ax=b of block diagonal
             self.block_solvers[n].solve()
 
         # nslices not ntimesteps

@@ -1,4 +1,4 @@
-from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
+from firedrake.petsc import PETSc, OptionsManager
 
 from asQ.profiling import profiler
 from asQ.allatonce import (AllAtOnceCofunction, AllAtOnceFunction,
@@ -80,9 +80,8 @@ class AllAtOnceSolver(TimePartitionMixin):
             self.post_jacobian_callback = post_jacobian_callback
 
         # solver options
-        self.solver_parameters = solver_parameters
-        self.flat_solver_parameters = flatten_parameters(solver_parameters)
-        self.options = OptionsManager(self.flat_solver_parameters, options_prefix)
+        self.options = OptionsManager(solver_parameters, options_prefix)
+        self.solver_parameters = self.options.parameters
         options_prefix = self.options.options_prefix
 
         # snes
@@ -171,9 +170,8 @@ class LinearSolver(TimePartitionMixin):
         options_prefix = options_prefix if options_prefix is not None else ""
 
         # manage options from both dict and command line
-        self.solver_parameters = solver_parameters if solver_parameters is not None else {}
-        self.flat_solver_parameters = flatten_parameters(self.solver_parameters)
-        self.options = OptionsManager(self.flat_solver_parameters, options_prefix)
+        self.options = OptionsManager(solver_parameters, options_prefix)
+        self.solver_parameters = self.options.parameters
         options_prefix = self.options.options_prefix
 
         # the solver
