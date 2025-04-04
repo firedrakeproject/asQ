@@ -12,7 +12,7 @@ form_params = [
     pytest.param(None, id="no_form_params"),
     *[pytest.param({"form_construct_type": ftype},
                    id=ftype.replace("-", "_"))
-      for ftype in ("monolithic", "stepwise", "single_step")]]
+      for ftype in ("monolithic", "stepwise")]]
 
 
 @pytest.mark.parallel(nprocs=[1, 4])

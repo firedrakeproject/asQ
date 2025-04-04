@@ -245,14 +245,11 @@ class IntervalGaussSeidelPC(IntervalJacobiGaussSeidelPCBase):
         Ay_prev = x.uprev.copy(deepcopy=True).zero()
 
         if first_rank and not first_interval:
-            block_bcs, yprev, assemble = self.jacobian.step_explicit_action(0)
+            yprev, assemble = self.jacobian.step_explicit_action(0)
 
             self.ensemble.recv(
                 yprev, source=self.time_rank-1,
                 tag=self.time_rank)
-
-            for bc in block_bcs:
-                bc.zero(yprev)
 
             assemble(tensor=Ay_prev)
             x[0].assign(x[0] - Ay_prev)

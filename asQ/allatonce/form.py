@@ -2,7 +2,7 @@ import firedrake as fd
 from firedrake.assemble import get_assembler
 
 from asQ.profiling import profiler
-from asQ.allatonce.function import AllAtOnceCofunction, AllAtOnceFunction
+from asQ.allatonce.function import AllAtOnceCofunction
 from asQ.allatonce.mixin import TimePartitionMixin
 
 from functools import cached_property
@@ -38,10 +38,9 @@ class AllAtOnceForm(TimePartitionMixin):
         :arg alpha: float, circulant matrix parameter. if None then no circulant approximation used.
         :arg form_parameters: dict, parameters for constructing the UFL form for the local slice.
             Possible entries:
-            - 'form_construct_type': <'monolithic', 'stepwise', 'single_step'>
+            - 'form_construct_type': <'monolithic', 'stepwise'>
                 - 'monolithic': construct a single UFL form for all timesteps in the slice.
                 - 'stepwise': construct a separate UFL form for each timestep in the slice.
-                - 'single_step': construct one UFL form for a single step, and use to evaluate all steps.
             - 'form_compiler_parameters': a dictionary to pass through to the assembly.
         """
         self._time_partition_setup(aaofunc.ensemble, aaofunc.time_partition)
@@ -71,11 +70,12 @@ class AllAtOnceForm(TimePartitionMixin):
             "form_construct_type",
             self.default_form_construct_type)
 
-        construction_types = ("monolithic", "stepwise", "single_step")
+        construction_types = ["monolithic", "stepwise"]
         if self.construct_type not in construction_types:
+            construction_options = " or ".join(construction_types)
             raise ValueError(
-                "'form_construct_type' for AllAtOnceForm must be one of "
-                " ".join(construction_types))
+                "'form_construct_type' for AllAtOnceForm must be one"
+                f" of {construction_options}, not {self.construct_type}")
 
         if self.construct_type == "monolithic":
             self.form = self.monolithic_form
@@ -83,9 +83,6 @@ class AllAtOnceForm(TimePartitionMixin):
         elif self.construct_type == "stepwise":
             self.form = self.stepwise_forms
             self.bcs = self.stepwise_bcs
-        elif self.construct_type == "single_step":
-            self.form = self.singlestep_form
-            self.bcs = self.singlestep_bcs
 
         self.apply_bcs(aaofunc)
 
@@ -149,10 +146,6 @@ class AllAtOnceForm(TimePartitionMixin):
         return tuple(self.field_bcs
                      for _ in range(self.nlocal_timesteps))
 
-    @cached_property
-    def singlestep_bcs(self):
-        return self.field_bcs
-
     def apply_bcs(self, u, t=None):
         if self.construct_type == "monolithic":
             for bc in self.monolithic_bcs:
@@ -162,18 +155,6 @@ class AllAtOnceForm(TimePartitionMixin):
             for i in range(u.nlocal_timesteps):
                 for bc in self.stepwise_bcs[i]:
                     bc.apply(u[i])
-
-        elif self.construct_type == "single_step":
-            if isinstance(u, AllAtOnceFunction):
-                for i in range(u.nlocal_timesteps):
-                    self._tn1.assign(self.time[i])
-                    for bc in self.singlestep_bcs:
-                        bc.apply(u[i])
-            elif isinstance(u, fd.Function):
-                if t is not None:
-                    self._tn1.assign(t)
-                for bc in self.singlestep_bcs:
-                    bc.apply(u)
 
     @profiler()
     def copy(self, aaofunc=None):
@@ -233,11 +214,6 @@ class AllAtOnceForm(TimePartitionMixin):
         elif self.construct_type == "stepwise":
             for n in range(self.nlocal_timesteps):
                 self.stepwise_assembles[n](tensor=self.F[n])
-
-        elif self.construct_type == "single_step":
-            for n in range(self.nlocal_timesteps):
-                self.singlestep_set_state(n)
-                self.singlestep_assemble(tensor=self.F[n])
 
         else:
             raise ValueError(
@@ -302,42 +278,6 @@ class AllAtOnceForm(TimePartitionMixin):
                 form_compiler_parameters=fc_params
             ).assemble
             for n in range(self.nlocal_timesteps))
-
-    @cached_property
-    def singlestep_form(self):
-        self._un1 = fd.Function(self.field_function_space)
-        self._un = fd.Function(self.field_function_space)
-        self._tn1 = fd.Constant(self.t0)
-        return self._construct_step_form(
-            fd.split(self._un1), fd.split(self._un),
-            fd.TestFunctions(self.aaofunc.field_function_space),
-            self._tn1)
-
-    @cached_property
-    def singlestep_assemble(self):
-        fc_params = self.form_parameters.get(
-            "form_compiler_parameters", None)
-        return get_assembler(
-            self.singlestep_form,
-            bcs=self.singlestep_bcs,
-            form_compiler_parameters=fc_params
-        ).assemble
-
-    def singlestep_set_state(self, n):
-        """
-        Update the Functions and time Constant used in the
-        singlestep forms to the values for step n.
-
-        This must be called before using the singlestep forms
-        to e.g. solve the n-th diagonal block or apply the
-        action of the sub-diagonal block in the n-th row.
-        """
-        for unsub, fsub in zip(self._un.subfunctions,
-                               self._get_uns(n, split=False,
-                                             construct_type="single_step")):
-            unsub.assign(fsub)
-        self._un1.assign(self.aaofunc[n])
-        self._tn1.assign(self.time[n])
 
     def _get_uns(self, n, split=False, construct_type=None):
         construct_type = construct_type or self.construct_type

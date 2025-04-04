@@ -39,13 +39,8 @@ class JacobiGaussSeidelPCBase(AllAtOnceBlockPCBase):
         for n in range(self.nlocal_timesteps):
 
             # grab the form from the diagonal of the matrix
-            if self.aaoform.construct_type == "single_step":
-                # respect how many forms we generate
-                A = self.jacobian.singlestep_form_implicit
-                block_bcs = self.aaoform.singlestep_bcs
-            else:
-                A = self.jacobian.stepwise_forms_implicit[n]
-                block_bcs = self.aaoform.stepwise_bcs[n]
+            A = self.jacobian.stepwise_implicit_form[n]
+            block_bcs = self.aaoform.stepwise_bcs[n]
 
             block_bcs = tuple(
                 fd.DirichletBC(
@@ -141,8 +136,6 @@ class JacobiPC(JacobiGaussSeidelPCBase):
         # x and y are already the rhs and solution vectors of the blocks
         y.zero()
         for n in range(self.nlocal_timesteps):
-            if self.aaoform.construct_type == "single_step":
-                self.aaoform.singlestep_set_state(n)
             self.block_solvers[n].solve()
 
 
@@ -203,8 +196,8 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
             # Explicit action Ay=b of block sub-diagonal
             explicit_action = jacobian.step_explicit_action(n)
 
-            if not any(o is None for o in explicit_action):
-                block_bcs, yn, assemble = explicit_action
+            if explicit_action is not None:
+                yn, assemble = explicit_action
 
                 # 1. action of A0 on the latest value of previous timestep.
                 #   - for first timestep on rank this is the halo.

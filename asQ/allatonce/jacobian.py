@@ -60,8 +60,8 @@ class AllAtOnceJacobian(TimePartitionMixin):
         self._xn1 = fd.Function(self.x.field_function_space)
 
         # output residual, and contribution from timestep at end of previous slice
-        self.F = aaoform.F.copy(copy_values=False)
-        self.Fprev = aaoform.F.copy(copy_values=False)
+        self.y = aaoform.F.duplicate()
+        self.yprev = aaoform.F.duplicate()
 
         # working buffers for calculating time average when needed
         self.ureduce = fd.Function(aaofunc.field_function_space)
@@ -163,144 +163,88 @@ class AllAtOnceJacobian(TimePartitionMixin):
         ).assemble
 
     @cached_property
-    def stepwise_forms_implicit(self):
+    def stepwise_implicit_form(self):
         return tuple(
             fd.derivative(self.aaoform.stepwise_forms[n],
                           self.aaoform.aaofunc[n])
             for n in range(self.nlocal_timesteps))
 
     @cached_property
-    def stepwise_actions_implicit(self):
+    def stepwise_implicit_action(self):
         return tuple(
-            fd.action(self.stepwise_forms_implicit[n],
+            fd.action(self.stepwise_implicit_form[n],
                       self.x[n])
             for n in range(self.nlocal_timesteps))
 
     @cached_property
-    def stepwise_assembles_implicit(self):
+    def stepwise_implicit_assemble(self):
         fc_params = self.aaoform.form_parameters.get(
             "form_compiler_parameters", None)
         return tuple(
             get_assembler(
-                self.stepwise_actions_implicit[n],
+                self.stepwise_implicit_action[n],
                 bcs=self.aaoform.stepwise_bcs[n],
                 form_compiler_parameters=fc_params
             ).assemble
             for n in range(self.nlocal_timesteps))
 
     @cached_property
-    def stepwise_forms_explicit(self):
+    def stepwise_explicit_form(self):
         return tuple(
             fd.derivative(self.aaoform.stepwise_forms[n],
                           self.aaoform.aaofunc[n-1])
             for n in range(1, self.nlocal_timesteps))
 
     @cached_property
-    def stepwise_actions_explicit(self):
+    def stepwise_explicit_action(self):
         return tuple(
-            fd.action(self.stepwise_forms_explicit[n],
+            fd.action(self.stepwise_explicit_form[n],
                       self.x[n])
             for n in range(self.nlocal_timesteps-1))
 
     @cached_property
-    def stepwise_assembles_explicit(self):
+    def stepwise_explicit_assemble(self):
         fc_params = self.aaoform.form_parameters.get(
             "form_compiler_parameters", None)
         return tuple(
             get_assembler(
-                self.stepwise_actions_explicit[n],
+                self.stepwise_explicit_action[n],
                 bcs=self.aaoform.stepwise_bcs[n],
                 form_compiler_parameters=fc_params
             ).assemble
             for n in range(self.nlocal_timesteps-1))
 
     @cached_property
-    def stepwise_form_prev(self):
+    def stepwise_prev_form(self):
         return fd.derivative(
             self.aaoform.stepwise_forms[0],
             self.aaoform.aaofunc.uprev)
 
     @cached_property
-    def stepwise_action_prev(self):
-        return fd.action(self.stepwise_form_prev,
+    def stepwise_prev_action(self):
+        return fd.action(self.stepwise_prev_form,
                          self.x.uprev)
 
     @cached_property
-    def stepwise_assemble_prev(self):
+    def stepwise_prev_assemble(self):
         fc_params = self.aaoform.form_parameters.get(
             "form_compiler_parameters", None)
         return get_assembler(
-            self.stepwise_action_prev,
+            self.stepwise_prev_action,
             bcs=self.aaoform.stepwise_bcs[0],
             form_compiler_parameters=fc_params
         ).assemble
 
-    @cached_property
-    def singlestep_form_implicit(self):
-        return fd.derivative(
-            self.aaoform.singlestep_form,
-            self.aaoform._un1)
-
-    @cached_property
-    def singlestep_action_implicit(self):
-        return fd.action(
-            self.singlestep_form_implicit,
-            self._xn1)
-
-    @cached_property
-    def singlestep_assemble_implicit(self):
-        fc_params = self.aaoform.form_parameters.get(
-            "form_compiler_parameters", None)
-        return get_assembler(
-            self.singlestep_action_implicit,
-            bcs=self.aaoform.singlestep_bcs,
-            form_compiler_parameters=fc_params
-        ).assemble
-
-    @cached_property
-    def singlestep_form_explicit(self):
-        return fd.derivative(
-            self.aaoform.singlestep_form,
-            self.aaoform._un)
-
-    @cached_property
-    def singlestep_action_explicit(self):
-        return fd.action(
-            self.singlestep_form_explicit,
-            self._xn)
-
-    @cached_property
-    def singlestep_assemble_explicit(self):
-        fc_params = self.aaoform.form_parameters.get(
-            "form_compiler_parameters", None)
-        return get_assembler(
-            self.singlestep_action_explicit,
-            bcs=self.aaoform.singlestep_bcs,
-            form_compiler_parameters=fc_params
-        ).assemble
-
-    def step_explicit_action(self, n, construct_type=None):
-        if construct_type is None:
-            construct_type = self.aaoform.construct_type
-
-        if construct_type == "single_step":
-            self.aaoform.singlestep_set_state(n)
-            bcs = self.aaoform.singlestep_bcs
-            x = self._xn
-            assemble = self.singlestep_assemble_explicit
+    def step_explicit_action(self, n):
+        if (n == 0) and self.aaoform.use_halo:
+            x = self.x.uprev
+            assemble = self.stepwise_prev_assemble
+        elif n > 0:
+            x = self.x[n-1]
+            assemble = self.stepwise_explicit_assemble[n-1]
         else:
-            bcs = self.aaoform.stepwise_bcs[n]
-            if (n == 0) and self.aaoform.use_halo:
-                x = self.x.uprev
-                assemble = self.stepwise_assemble_prev
-            elif n > 0:
-                x = self.x[n-1]
-                assemble = self.stepwise_assembles_explicit[n-1]
-            else:
-                bcs = None
-                x = None
-                assemble = None
-        return bcs, x, assemble
+            return None
+        return x, assemble
 
     @profiler()
     def mult(self, A, x, y):
@@ -314,19 +258,15 @@ class AllAtOnceJacobian(TimePartitionMixin):
             self._mult_monolithic(A, x, y)
         elif self.aaoform.construct_type == "stepwise":
             self._mult_stepwise(A, x, y)
-        elif self.aaoform.construct_type == "single_step":
-            self._mult_singlestep(A, x, y)
 
     @profiler()
     def _mult_monolithic(self, A, x, y):
         """
-        Apply the action of the matrix to a PETSc Vec.
+        Apply the action of the matrix to an AllAtOnceFunction.
 
-        :arg x: a PETSc Vec to apply the action on.
-        :arg y: a PETSc Vec for the result.
+        :arg x: an AllAtOnceFunction to apply the action on.
+        :arg y: an AllAtOnceCofunction Vec for the result.
         """
-        # we could use nonblocking here and overlap comms with assembling form
-        self.x.assign(x, update_halos=True, blocking=True)
 
         # We use the same strategy as the implicit matrix context in firedrake
         # for dealing with the boundary nodes. From the comments in that file:
@@ -340,47 +280,49 @@ class AllAtOnceJacobian(TimePartitionMixin):
         # is the block corresponding only to (non-fixed) internal dofs
         # and A_bb=I is the identity block on the (fixed) boundary dofs.
 
+        with self.x.global_vec_wo() as v:
+            x.copy(v)
+
         # Zero the boundary nodes on the input so that A_ib = A_01 = 0
         for bc in self.aaoform.monolithic_bcs:
             bc.zero(self.x.function)
+        self.x.update_time_halos()
 
         # assembly stage
         self.monolithic_assemble(
-            tensor=self.F.cofunction)
+            tensor=self.y.cofunction)
 
         if self.aaoform.use_halo:
             # repeat for the halo part of the matrix action
-            for bc in self.aaoform.field_bcs:
-                bc.zero(self.x.uprev)
+            # for bc in self.aaoform.field_bcs:
+            #     bc.zero(x.uprev)
 
             self.monolithic_assemble_prev(
-                tensor=self.Fprev.cofunction)
-            self.F.cofunction += self.Fprev.cofunction
+                tensor=self.yprev.cofunction)
+            self.y.cofunction += self.yprev.cofunction
 
         if len(self.aaoform.field_bcs) > 0:
-            # just using Fprev as a buffer for the original values
-            Fbuf = self.Fprev
-            with Fbuf.global_vec_wo() as fvec:
-                x.copy(fvec)
+            # just using yprev as a buffer for the original values
+            ybuf = self.yprev
+            with ybuf.global_vec_wo() as yv:
+                x.copy(yv)
 
             # Set the output boundary nodes to the input boundary nodes.
             # This is equivalent to setting [A_bi, A_bb] = [0 I]
             for bc in self.aaoform.monolithic_bcs:
-                bc.set(self.F.cofunction, Fbuf.cofunction)
+                bc.set(self.y.cofunction, ybuf.cofunction)
 
-        with self.F.global_vec_ro() as v:
+        with self.y.global_vec_ro() as v:
             v.copy(y)
 
     @profiler()
     def _mult_stepwise(self, A, x, y):
         """
-        Apply the action of the matrix to a PETSc Vec.
+        Apply the action of the matrix to an AllAtOnceFunction.
 
-        :arg x: a PETSc Vec to apply the action on.
-        :arg y: a PETSc Vec for the result.
+        :arg x: an AllAtOnceFunction to apply the action on.
+        :arg y: an AllAtOnceCofunction Vec for the result.
         """
-        # we could use nonblocking here and overlap comms with assembling form
-        self.x.assign(x, update_halos=True, blocking=True)
 
         # We use the same strategy as the implicit matrix context in firedrake
         # for dealing with the boundary nodes. From the comments in that file:
@@ -393,128 +335,45 @@ class AllAtOnceJacobian(TimePartitionMixin):
         # This has the effect of applying [ A_ii 0 ; 0 A_bb ] where A_ii
         # is the block corresponding only to (non-fixed) internal dofs
         # and A_bb=I is the identity block on the (fixed) boundary dofs.
+
+        with self.x.global_vec_wo() as v:
+            x.copy(v)
 
         # Zero the boundary nodes on the input so that A_ib = A_01 = 0
         for n in range(self.nlocal_timesteps):
             for bc in self.aaoform.stepwise_bcs[n]:
                 bc.zero(self.x[n])
+        self.x.update_time_halos()
 
-        Fim = fd.Cofunction(self.F.field_function_space)
-        Fex = fd.Cofunction(self.F.field_function_space)
+        Fim = fd.Cofunction(self.y.field_function_space)
+        Fex = fd.Cofunction(self.y.field_function_space)
 
         for n in range(self.nlocal_timesteps):
             Fim.zero()
             Fex.zero()
 
-            self.stepwise_assembles_implicit[n](tensor=Fim)
+            explicit_action = self.step_explicit_action(n)
+            if explicit_action is not None:
+                _, explicit_assemble = explicit_action
+                explicit_assemble(tensor=Fex)
 
-            if n > 0:
-                self.stepwise_assembles_explicit[n-1](tensor=Fex)
+            self.stepwise_implicit_assemble[n](tensor=Fim)
 
-            self.F[n].assign(Fim + Fex)
-
-        if self.aaoform.use_halo:
-            # repeat for the halo part of the matrix action
-            for bc in self.aaoform.field_bcs:
-                bc.zero(self.x.uprev)
-
-            self.stepwise_assemble_prev(tensor=Fex)
-
-            self.F[0].assign(self.F[0] + Fex)
+            self.y[n].assign(Fim + Fex)
 
         if len(self.aaoform.field_bcs) > 0:
-            # just using Fprev as a buffer for the original values
-            Fbuf = self.Fprev
-            with Fbuf.global_vec_wo() as fvec:
-                x.copy(fvec)
+            # just using yprev as a buffer for the original values
+            ybuf = self.yprev
+            with ybuf.global_vec_wo() as yv:
+                x.copy(yv)
 
             # Set the output boundary nodes to the input boundary nodes.
             # This is equivalent to setting [A_bi, A_bb] = [0 I]
             for n in range(self.nlocal_timesteps):
                 for bc in self.aaoform.stepwise_bcs[n]:
-                    bc.set(self.F[n], Fbuf[n])
+                    bc.set(self.y[n], ybuf[n])
 
-        with self.F.global_vec_ro() as v:
-            v.copy(y)
-
-    @profiler()
-    def _mult_singlestep(self, A, x, y):
-        """
-        Apply the action of the matrix to a PETSc Vec.
-
-        :arg x: a PETSc Vec to apply the action on.
-        :arg y: a PETSc Vec for the result.
-        """
-        # we could use nonblocking here and overlap comms with assembling form
-        self.x.assign(x, update_halos=True, blocking=True)
-
-        # We use the same strategy as the implicit matrix context in firedrake
-        # for dealing with the boundary nodes. From the comments in that file:
-
-        # The matrix has an identity block corresponding to the Dirichlet
-        # boundary conditions.
-        # Our algorithm in this case is to save the BC values, zero them
-        # out before computing the action so that they don't pollute
-        # anything, and then set the values into the result.
-        # This has the effect of applying [ A_ii 0 ; 0 A_bb ] where A_ii
-        # is the block corresponding only to (non-fixed) internal dofs
-        # and A_bb=I is the identity block on the (fixed) boundary dofs.
-
-        # Zero the boundary nodes on the input so that A_ib = A_01 = 0
-        for n in range(self.nlocal_timesteps):
-            for bc in self.aaoform.singlestep_bcs:
-                bc.zero(self.x[n])
-
-        Fim = fd.Cofunction(self.F.field_function_space)
-        Fex = fd.Cofunction(self.F.field_function_space)
-
-        for n in range(self.nlocal_timesteps):
-            Fim.zero()
-            Fex.zero()
-
-            self.aaoform.singlestep_set_state(n)
-            self._xn1.assign(self.x[n])
-
-            self.singlestep_assemble_implicit(
-                tensor=Fim)
-
-            if n > 0:
-                self._xn.assign(self.x[n-1])
-                self.singlestep_assemble_explicit(
-                    tensor=Fex)
-
-            self.F[n].assign(Fim + Fex)
-
-        if self.aaoform.use_halo:
-            # repeat for the halo part of the matrix action
-
-            for bc in self.aaoform.field_bcs:
-                bc.zero(self.x.uprev)
-
-            self.aaoform.singlestep_set_state(0)
-            self._xn1.assign(self.x[n])
-
-            self._xn.assign(self.x.uprev)
-            self.aaoform._tn1.assign(self.aaoform.time[0])
-            self.singlestep_assemble_explicit(
-                tensor=Fex)
-
-            self.F[0].assign(self.F[0] + Fex)
-
-        # restore the values of the boundary condition nodes
-        if len(self.aaoform.field_bcs) > 0:
-            # just using Fprev as a buffer for the original values
-            Fbuf = self.Fprev
-            with Fbuf.global_vec_wo() as fvec:
-                x.copy(fvec)
-
-            # Set the output boundary nodes to the input boundary nodes.
-            # This is equivalent to setting [A_bi, A_bb] = [0 I]
-            for n in range(self.nlocal_timesteps):
-                for bc in self.aaoform.singlestep_bcs:
-                    bc.set(self.F[n], Fbuf[n])
-
-        with self.F.global_vec_ro() as v:
+        with self.y.global_vec_ro() as v:
             v.copy(y)
 
     @profiler()

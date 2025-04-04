@@ -50,7 +50,7 @@ form_params = [
     pytest.param(None, id="no_form_params"),
     *[pytest.param({"form_construct_type": ftype},
                    id=ftype.replace("-", "_"))
-      for ftype in ("monolithic", "stepwise", "single_step")]]
+      for ftype in ("monolithic", "stepwise")]]
 
 nts = [pytest.param(n, id=f"nt{n}") for n in (4, 8, 16)]
 
@@ -410,7 +410,7 @@ def test_intervalgaussseidelpc(interval_length, variable_coefficients, form_para
 
 
 if __name__ == "__main__":
-    test_intervaljacobipc(
+    test_intervalgaussseidelpc(
         interval_length=2,
         variable_coefficients=False,
         form_parameters=None)
