@@ -1,6 +1,7 @@
 from firedrake.petsc import PETSc, flatten_parameters
+from pyop2.mpi import MPI
 from asQ.profiling import profiler
-from asQ.ensemble import split_ensemble
+from asQ.ensemble import split_ensemble, slice_ensemble
 from asQ.allatonce import (
     LinearSolver, AllAtOnceFunction, AllAtOnceCofunction)
 from asQ.preconditioners.base import (
@@ -14,42 +15,36 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
     def initialize(self, pc, final_initialize=True):
         super().initialize(pc, final_initialize=False)
 
-        # # # interval ensemble # # #
+        # grab the interval types and lengths
+        option_interval_type = f"{self.pc_prefix}interval_type"
+        self.interval_type = PETSc.Options().getString(
+            option_interval_type, default="regular")
 
-        # interval here means the smaller local ensemble, not the
-        # section of the timeseries on the local ensemble member.
-
-        # all ensemble members must have the same number of timesteps
-        if len(set(self.time_partition)) != 1:
-            msg = f"{type(self).__name__} only implemented for balanced partitions yet"
-            raise ValueError(msg)
-
-        # how many timesteps in each interval?
-        self.interval_length = PETSc.Options().getInt(
-            f"{self.pc_prefix}interval_length")
-
-        if (self.interval_length % self.time_partition[0]) != 0:
+        valid_interval_types = ("regular", "repeating")
+        if self.interval_type not in valid_interval_types:
+            type_options = " or ".join(valid_interval_types)
             raise ValueError(
-                f"Interval length {self.interval_length} must be a"
-                f"  multiple of the slice length {self.time_partition[0]}")
+                f"{option_interval_type} option for {type(self).__name__}"
+                f" must be one of {type_options}, not {self.interval_type}.")
 
-        # we need to work out how many members of the global ensemble
-        # needed to get `interval_length` timesteps on each interval ensemble
-        interval_nmembers = self.interval_length // self.time_partition[0]
-        self.nintervals = self.ntimesteps // self.interval_length
+        option_interval_length = f"{self.pc_prefix}interval_length"
+        interval_lengths = PETSc.Options().getIntArray(
+            option_interval_length)
 
-        # create the ensemble for the local interval by splitting the global ensemble
-        self.interval_ensemble = split_ensemble(
-            self.ensemble, split_size=interval_nmembers)
+        # do we have compatible interval types and lengths?
+        if self.interval_type == "regular":
+            if len(interval_lengths) != 1:
+                raise ValueError(
+                    f"Must provide {type(self).__name__} exactly one argument to"
+                    f" f{option_interval_length} if interval_type is 'regular'.")
+        else:
+            if len(interval_lengths) == 0:
+                raise ValueError(
+                    f"Must provide {type(self).__name__} the interval"
+                    f" lengths in the {option_interval_length} argument.")
 
-        # which interval are we in?
-        self.interval_index = self.ensemble.ensemble_comm.rank // interval_nmembers
-
-        # the interval partition matches the corresponding
-        # interval of the global partition.
-        # only works for balanced partitions yet
-        part = self.time_partition[0]
-        interval_partition = tuple(part for i in range(interval_nmembers))
+        # set up the interval partition
+        self.init_ensembles(pc, interval_lengths)
 
         # # # interval aaofuncs - jacobian, yinterval # # #
 
@@ -57,7 +52,7 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
         # aaofunc that views the global aaofunc via val.
         field_function_space = self.aaofunc.field_function_space
         self.interval_func = AllAtOnceFunction(
-            self.interval_ensemble, interval_partition,
+            self.interval_ensemble, self.interval_partition,
             field_function_space, val=self.aaofunc)
 
         self.interval_rank = self.interval_func.time_rank
@@ -66,14 +61,14 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
         # the interval solution is written directly
         # into the global solution buffer.
         self.yinterval = AllAtOnceFunction(
-            self.interval_ensemble, interval_partition,
+            self.interval_ensemble, self.interval_partition,
             field_function_space, val=self.y)
 
         # create a view of this interval of x so that
         # the interval rhs is accessed directly from
         # the global solution buffer.
         self.xinterval = AllAtOnceCofunction(
-            self.interval_ensemble, interval_partition,
+            self.interval_ensemble, self.interval_partition,
             field_function_space.dual(), val=self.x)
 
         # # # interval aaoform - jacobian, # # #
@@ -103,6 +98,89 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
         self.interval_solver.ksp.pc.incrementTabLevel(1, parent=pc)
 
         self.initialized = final_initialize
+
+    def init_ensembles(self, pc, interval_lengths):
+        """
+        Initialise the time partitions and ensembles for each interval.
+        """
+
+        # how many intervals per repetition?
+        intervals_per_repeat = len(interval_lengths)
+
+        # how long is each repetition?
+        repeat_len = sum(interval_lengths)
+
+        if (self.ntimesteps % repeat_len) != 0:
+            raise ValueError(
+                f"Total length of repeating interval lengths {interval_lengths}"
+                f" for {type(self).__name__} must be an exact divisor of the"
+                f" total number of timesteps {self.ntimesteps}")
+
+        # how many of the repetitions do we have?
+        nrepeats = self.ntimesteps // repeat_len
+
+        self.nintervals = nrepeats*intervals_per_repeat
+
+        interval_initialised = False
+
+        # for i in nintervals:
+        for n in range(nrepeats):
+
+            # first timestep of this repetition
+            r0 = n*repeat_len
+
+            for i in range(intervals_per_repeat):
+                interval_index = n*intervals_per_repeat + i
+
+                # first timestep of this repetition
+                j0 = r0 + sum(interval_lengths[:i])
+
+                ilen = interval_lengths[i]
+
+                # what timesteps are in this interval?
+                interval_timesteps = [
+                    int(j0 + j) for j in range(ilen)]
+
+                # are any of my timesteps in this interval?
+                local_timesteps = [
+                    self.layout.offset + j
+                    for j in range(self.nlocal_timesteps)]
+
+                matching_timesteps = [
+                    j in interval_timesteps
+                    for j in local_timesteps]
+
+                if any(matching_timesteps):
+                    if not all(matching_timesteps):
+                        raise ValueError(
+                            "All or no timesteps of each slice must be in an interval")
+                    belongs_to_interval = True
+                else:
+                    belongs_to_interval = False
+
+                interval_ranks = set(
+                    self.layout.rank_of(j)
+                    for j in interval_timesteps)
+
+                # create interval_ensemble
+                maybe_ensemble = slice_ensemble(
+                    self.ensemble, interval_ranks)
+
+                if belongs_to_interval:
+                    assert not interval_initialised
+
+                    interval_ensemble = maybe_ensemble
+                    assert interval_ensemble != MPI.COMM_NULL
+
+                    self.interval_ensemble = interval_ensemble
+                    self.interval_index = interval_index
+
+                    # gather interval_time_partition
+                    self.interval_partition = \
+                        interval_ensemble.ensemble_comm.allgather(
+                            self.nlocal_timesteps)
+
+                    interval_initialised = True
 
     @profiler()
     def update(self, pc):

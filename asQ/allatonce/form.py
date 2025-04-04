@@ -146,7 +146,7 @@ class AllAtOnceForm(TimePartitionMixin):
         return tuple(self.field_bcs
                      for _ in range(self.nlocal_timesteps))
 
-    def apply_bcs(self, u, t=None):
+    def apply_bcs(self, u):
         if self.construct_type == "monolithic":
             for bc in self.monolithic_bcs:
                 bc.apply(u.function)
@@ -155,6 +155,16 @@ class AllAtOnceForm(TimePartitionMixin):
             for i in range(u.nlocal_timesteps):
                 for bc in self.stepwise_bcs[i]:
                     bc.apply(u[i])
+
+    def zero_bcs(self, u):
+        if self.construct_type == "monolithic":
+            for bc in self.monolithic_bcs:
+                bc.zero(u._fbuf)
+
+        elif self.construct_type == "stepwise":
+            for i in range(u.nlocal_timesteps):
+                for bc in self.stepwise_bcs[i]:
+                    bc.zero(u[i])
 
     @profiler()
     def copy(self, aaofunc=None):
@@ -174,7 +184,7 @@ class AllAtOnceForm(TimePartitionMixin):
                              form_parameters=self.form_parameters)
 
     @profiler()
-    def assemble(self, func=None, tensor=None):
+    def assemble(self, func=None, tensor=None, rhs=None):
         """
         Evaluates the form.
 
@@ -218,6 +228,14 @@ class AllAtOnceForm(TimePartitionMixin):
         else:
             raise ValueError(
                 f"Unrecognised form_construct_type {self.construct_type}")
+
+        if rhs:
+            if not isinstance(rhs, AllAtOnceCofunction):
+                raise TypeError(
+                    "rhs argument of AllAtOnceForm.assemble must be an"
+                    f" AllAtOnceCofunction not a {type(rhs).__name__}")
+            for n in range(self.nlocal_timesteps):
+                self.F[n].assign(self.F[n] - rhs[n])
 
         if tensor:
             tensor.assign(self.F)

@@ -77,7 +77,7 @@ class AllAtOncePCBase(TimePartitionMixin):
 
         self.initialized = final_initialize
 
-    def get_jacobian(self, pc, *args, **kwargs):
+    def get_jacobian(self, pc):
         _, P = pc.getOperators()
         jacobian = P.getPythonContext()
         return jacobian

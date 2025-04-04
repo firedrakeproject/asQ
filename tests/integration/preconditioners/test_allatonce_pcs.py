@@ -368,6 +368,54 @@ def test_intervaljacobipc(interval_length, variable_coefficients, form_parameter
     assert niterations == nintervals, "IntervalJacobiPC with exact interval solves should solve exactly after ninterval iterations"
 
 
+repetitions = [
+    pytest.param(reps, id="repeat_"+",".join(map(str, reps)))
+    for reps in ((8,), (1, 3), (2, 1, 1))
+]
+
+
+@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parametrize("repeats", repetitions)
+def test_intervaljacobipc_repeating(repeats):
+    slice_length = 1
+    time_partition = [slice_length for _ in range(fd.COMM_WORLD.size)]
+    nintervals = len(repeats)*sum(time_partition)//sum(repeats)
+
+    solver_parameters = {
+        'ksp_monitor': None,
+        'ksp_converged_rate': None,
+        'snes_type': 'ksponly',
+        'mat_type': 'matfree',
+        'ksp_type': 'richardson',
+        'ksp_rtol': 1e-14,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.IntervalJacobiPC',
+        'pc_ijacobi_interval_type': 'repeating',
+        'pc_ijacobi_interval_length': ','.join(map(str, repeats)),
+        'ijacobi': {
+            'ksp_monitor': None,
+            'ksp_converged_rate': None,
+            'ksp_type': 'richardson',
+            'ksp_rtol': 1e-15,
+            'pc_type': 'python',
+            'pc_python_type': 'asQ.GaussSeidelPC',
+            'aaogs_block': {
+                'ksp_type': 'preonly',
+                'pc_type': 'lu',
+            },
+        },
+    }
+
+    paradiag = make_paradiag(
+        time_partition,
+        solver_parameters)
+
+    paradiag.solve(nwindows=1)
+    niterations = paradiag.solver.snes.getLinearSolveIterations()
+
+    assert niterations == nintervals, "IntervalJacobiPC with exact interval solves should solve exactly after ninterval iterations"
+
+
 @pytest.mark.parallel(nprocs=8)
 @pytest.mark.parametrize("interval_length", nstep2to16)
 @pytest.mark.parametrize("variable_coefficients", vcoeffs)
@@ -409,8 +457,46 @@ def test_intervalgaussseidelpc(interval_length, variable_coefficients, form_para
     assert niterations == 1, f"IntervalGaussSeidelPC with exact interval solves should solve exactly after 1 iteration not {niterations}"
 
 
+@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parametrize("repeats", repetitions)
+def test_intervalgaussseidelpc_repeating(repeats):
+    slice_length = 1
+    time_partition = [slice_length for _ in range(fd.COMM_WORLD.size)]
+
+    solver_parameters = {
+        'snes_type': 'ksponly',
+        # 'ksp_monitor': None,
+        # 'ksp_converged_rate': None,
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'ksp_rtol': 1e-14,
+        'pc_type': 'python',
+        'pc_python_type': 'asQ.IntervalGaussSeidelPC',
+        'pc_igs_interval_type': 'repeating',
+        'pc_igs_interval_length': ','.join(map(str, repeats)),
+        'igs': {
+            'ksp_type': 'richardson',
+            'pc_type': 'python',
+            'pc_python_type': 'asQ.GaussSeidelPC',
+            'aaogs_block': {
+                'ksp_type': 'preonly',
+                'pc_type': 'lu',
+            },
+        },
+    }
+
+    paradiag = make_paradiag(
+        time_partition,
+        solver_parameters)
+
+    paradiag.solve(nwindows=1)
+
+    niterations = paradiag.solver.snes.getLinearSolveIterations()
+    assert niterations == 1, f"IntervalGaussSeidelPC with exact interval solves should solve exactly after 1 iteration not {niterations}"
+
+
 if __name__ == "__main__":
-    test_intervalgaussseidelpc(
-        interval_length=2,
+    test_intervaljacobipc(
+        interval_length=6,
         variable_coefficients=False,
         form_parameters=None)

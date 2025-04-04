@@ -12,16 +12,15 @@ class AuxiliaryOperatorPC(AllAtOncePCBase):
     def initialize(self, pc, final_initialize=True):
         super().initialize(pc, final_initialize=False)
 
+        # Default to acting like a PC
+        default_params = {'ksp_type': 'preonly'}
+
         self.solver = LinearSolver(
             self.aaoform, appctx=self.appctx,
+            solver_parameters=default_params,
             options_prefix=self.full_prefix)
 
         self.initialized = final_initialize
-
-    @profiler()
-    def get_jacobian(self, pc):
-        return NotImplementedError(
-            f"AuxiliaryOperatorPC child class {type(self)} must implement get_jacobian method")
 
     @profiler()
     def apply_impl(self, pc, x, y):

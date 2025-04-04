@@ -67,8 +67,8 @@ def split_ensemble(ensemble, split_size, **kwargs):
 
 
 def slice_ensemble(ensemble, split_ranks, **kwargs):
-    # should we end up in this split?
     rank = ensemble.ensemble_comm.rank
+    # should we end up in this split?
     color = 1 if rank in split_ranks else MPI.UNDEFINED
 
     # create split_ensemble.global_comm

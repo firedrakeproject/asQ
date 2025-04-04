@@ -66,6 +66,8 @@ class DistributedDataLayout1D(object):
         if rtype not in ['l', 'g']:
             raise ValueError(f"rtype {rtype} must be either 'l' or 'g'")
 
+        i = int(i)
+
         # validate
         sizes = {'l': self.local_size, 'g': self.global_size}
         in_range(i, sizes[itype], throws=True)
