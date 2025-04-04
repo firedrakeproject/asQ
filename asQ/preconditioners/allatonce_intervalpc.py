@@ -28,23 +28,28 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
         self.interval_length = PETSc.Options().getInt(
             f"{self.pc_prefix}interval_length")
 
+        if (self.interval_length % self.time_partition[0]) != 0:
+            raise ValueError(
+                f"Interval length {self.interval_length} must be a"
+                f"  multiple of the slice length {self.time_partition[0]}")
+
         # we need to work out how many members of the global ensemble
         # needed to get `interval_length` timesteps on each interval ensemble
-        interval_members = self.interval_length // self.time_partition[0]
+        interval_nmembers = self.interval_length // self.time_partition[0]
         self.nintervals = self.ntimesteps // self.interval_length
 
         # create the ensemble for the local interval by splitting the global ensemble
         self.interval_ensemble = split_ensemble(
-            self.ensemble, split_size=interval_members)
+            self.ensemble, split_size=interval_nmembers)
 
         # which interval are we in?
-        self.interval_index = self.ensemble.ensemble_comm.rank // interval_members
+        self.interval_index = self.ensemble.ensemble_comm.rank // interval_nmembers
 
         # the interval partition matches the corresponding
         # interval of the global partition.
         # only works for balanced partitions yet
         part = self.time_partition[0]
-        interval_partition = tuple(part for i in range(interval_members))
+        interval_partition = tuple(part for i in range(interval_nmembers))
 
         # # # interval aaofuncs - jacobian, yinterval # # #
 
@@ -217,6 +222,13 @@ class IntervalGaussSeidelPC(IntervalJacobiGaussSeidelPCBase):
         Use 'igs_' to set default options for all intervals.
     """
     prefix = "igs_"
+
+    def initialize(self, pc, final_initialize=True):
+        super().initialize(pc, final_initialize=False)
+        if self.jacobian.aaoform.alpha is not None:
+            raise ValueError(
+                "Cannot apply Gauss-Seidel iterations to a circulant form")
+        self.initialized = final_initialize
 
     @profiler()
     def apply_impl(self, pc, x, y):

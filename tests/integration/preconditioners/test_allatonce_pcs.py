@@ -4,6 +4,8 @@ import pytest
 from functools import partial
 from pytest_mpi.parallel_assert import parallel_assert
 
+Print = fd.PETSc.Sys.Print
+
 
 def form_mass(u, v):
     return u*v*fd.dx
@@ -21,7 +23,7 @@ def make_paradiag(time_partition, parameters,
                   form_parameters=None):
     ensemble = asQ.create_ensemble(time_partition)
     mesh = fd.UnitSquareMesh(
-        nx=8, ny=8, comm=ensemble.comm,
+        nx=4, ny=4, comm=ensemble.comm,
         distribution_parameters={'partitioner_type': 'simple'})
 
     x, y = fd.SpatialCoordinate(mesh)
@@ -194,8 +196,8 @@ def test_intervaljacobipc_jacobi(interval_length, variable_coefficients):
         variable_coefficients=variable_coefficients)
 
     jacobi_parameters = {
-        'ksp_monitor': None,
-        'ksp_converged_rate': None,
+        'ksp_monitor_short': None,
+        'ksp_converged_reason': None,
         'snes_type': 'ksponly',
         'mat_type': 'matfree',
         'ksp_type': 'preonly',
@@ -205,17 +207,14 @@ def test_intervaljacobipc_jacobi(interval_length, variable_coefficients):
 
     interval_parameters = {
         'ksp_monitor': None,
-        'ksp_converged_rate': None,
+        'ksp_converged_reason': None,
         'snes_type': 'ksponly',
         'mat_type': 'matfree',
         'ksp_type': 'preonly',
         'pc_type': 'python',
         'pc_python_type': 'asQ.IntervalJacobiPC',
         'pc_ijacobi_interval_length': interval_length,
-        'ijacobi': {
-            'pc_type': 'python',
-            'pc_python_type': 'asQ.JacobiPC',
-        }
+        'ijacobi': jacobi_parameters
     }
 
     paradiag_jacobi = asQ.Paradiag(
@@ -334,7 +333,6 @@ def test_intervaljacobipc(interval_length, variable_coefficients, form_parameter
     nintervals = sum(time_partition)//interval_length
 
     solver_parameters = {
-        # 'ksp_monitor': ':ksp_monitor.log',
         'ksp_monitor': None,
         'ksp_converged_rate': None,
         'snes_type': 'ksponly',
@@ -345,7 +343,10 @@ def test_intervaljacobipc(interval_length, variable_coefficients, form_parameter
         'pc_python_type': 'asQ.IntervalJacobiPC',
         'pc_ijacobi_interval_length': interval_length,
         'ijacobi': {
-            'ksp_type': 'preonly',
+            'ksp_monitor': None,
+            'ksp_converged_rate': None,
+            'ksp_type': 'richardson',
+            'ksp_rtol': 1e-15,
             'pc_type': 'python',
             'pc_python_type': 'asQ.GaussSeidelPC',
             'aaogs_block': {
@@ -362,9 +363,9 @@ def test_intervaljacobipc(interval_length, variable_coefficients, form_parameter
         form_parameters=form_parameters)
 
     paradiag.solve(nwindows=1)
-
     niterations = paradiag.solver.snes.getLinearSolveIterations()
-    assert niterations == nintervals, "IntervalJacobiPC with exact interval solves should solve exactly after nt iterations"
+
+    assert niterations == nintervals, "IntervalJacobiPC with exact interval solves should solve exactly after ninterval iterations"
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -406,3 +407,10 @@ def test_intervalgaussseidelpc(interval_length, variable_coefficients, form_para
 
     niterations = paradiag.solver.snes.getLinearSolveIterations()
     assert niterations == 1, f"IntervalGaussSeidelPC with exact interval solves should solve exactly after 1 iteration not {niterations}"
+
+
+if __name__ == "__main__":
+    test_intervaljacobipc(
+        interval_length=2,
+        variable_coefficients=False,
+        form_parameters=None)

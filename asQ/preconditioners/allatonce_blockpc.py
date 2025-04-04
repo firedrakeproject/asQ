@@ -174,6 +174,13 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
     """
     prefix = "aaogs_"
 
+    def initialize(self, pc, final_initialize=True):
+        super().initialize(pc, final_initialize=False)
+        if self.jacobian.aaoform.alpha is not None:
+            raise ValueError(
+                "Cannot apply Gauss-Seidel iterations to a circulant form")
+        self.initialized = final_initialize
+
     @profiler()
     def apply_impl(self, pc, x, y):
         # x and y are already the rhs and solution vectors of the blocks
@@ -184,10 +191,11 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
         # buffer to store gauss-seidel increment to the rhs from the
         # solution of the previous timestep: rhs = x_{n} - Ay_{n-1}
         Ay_prev = fd.Cofunction(x.field_function_space)
+        yprev = y.uprev.copy(deepcopy=True).zero()
 
         if self.time_rank > 0:
             self.ensemble.recv(
-                y.uprev, source=self.time_rank-1,
+                yprev, source=self.time_rank-1,
                 tag=self.time_rank)
 
         for n in range(self.nlocal_timesteps):
@@ -195,22 +203,20 @@ class GaussSeidelPC(JacobiGaussSeidelPCBase):
             # Explicit action Ay=b of block sub-diagonal
             explicit_action = jacobian.step_explicit_action(n)
 
-            if any(o is None for o in explicit_action):
-                continue
+            if not any(o is None for o in explicit_action):
+                block_bcs, yn, assemble = explicit_action
 
-            block_bcs, yprev, assemble = explicit_action
-
-            # 1. zero out the boundary nodes
-            for bc in block_bcs:
-                bc.zero(x[n])
-
-            # 2. action of A0 on the latest value of previous timestep.
-            #   - for first timestep on rank this is the halo.
-            #   - for later timesteps this is the previous solution step.
-            if (n > 0) or self.aaoform.use_halo:
-                yprev.assign(y.uprev if (n == 0) else y[n-1])
+                # 1. action of A0 on the latest value of previous timestep.
+                #   - for first timestep on rank this is the halo.
+                #   - for later timesteps this is the previous solution step.
+                # if (n > 0) or self.aaoform.use_halo:
+                yn.assign(yprev if (n == 0) else y[n-1])
                 assemble(tensor=Ay_prev)
                 x[n].assign(x[n] - Ay_prev)
+
+            # 2. zero out the boundary nodes
+            for bc in self.aaoform.stepwise_bcs[n]:
+                bc.zero(x[n])
 
             # 3. solve diagonal block for this timestep
             # Implicit solve Ax=b of block diagonal

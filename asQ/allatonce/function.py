@@ -111,55 +111,10 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
 
         # (co)functions containing the last step of the previous
         # and current slice for parallel communication
-        if val is not None:
-            new_is_ic = self.time_rank == 0
-            val_is_ic = val.time_rank == 0
-
-            if new_is_ic and val_is_ic:
-                if self._needs_ic:
-                    ic_val = val.initial_condition
-                prev_val = val.uprev  # circulant halo
-
-            elif new_is_ic:  # and not val_is_ic
-                if self._needs_ic:
-                    ic_val = val.uprev
-                prev_val = None  # circulant halo
-
-            elif val_is_ic:  # and not new_is_ic
-                if self._needs_ic:
-                    prev_val = val.initial_condition
-                    ic_val = None
-                else:
-                    prev_val = None  # don't use circulant halo from val
-
-            else:  # not new_is_ic and not val_is_ic
-                if self._needs_ic:
-                    ic_val = val.initial_condition
-                prev_val = val.uprev
-
-            new_is_end = (val.time_rank == len(val.time_partition) - 1)
-            val_is_end = (self.time_rank == len(self.time_partition) - 1)
-
-            # unext on last rank is circulant halo
-            if new_is_end or val_is_end:
-                next_val = None
-            else:
-                next_val = val.unext
-
-        else:
-            if self._needs_ic:
-                ic_val = None
-            prev_val = None
-            next_val = None
-
         if self._needs_ic:
-            self.initial_condition = fd.Function(
-                self.field_function_space, val=ic_val)
-
-        self.uprev = fd.Function(
-            self.field_function_space, val=prev_val)
-        self.unext = fd.Function(
-            self.field_function_space, val=next_val)
+            self.initial_condition = fd.Function(self.field_function_space)
+        self.uprev = fd.Function(self.field_function_space)
+        self.unext = fd.Function(self.field_function_space)
 
         self.nlocal_dofs = self.function_space.node_set.size
         self.nglobal_dofs = self.ntimesteps*self.field_function_space.dim()
@@ -293,9 +248,9 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
                         frecv=self.uprev, source=src, recvtag=src)
 
     @profiler()
-    def copy(self, copy_values=True):
+    def duplicate(self):
         """
-        Return a deep copy of the AllAtOnceFunction.
+        Return an AllAtOnceFunction with the partition and space, optionally with new values.
 
         :arg copy_values: If true, the values of the current AllAtOnceFunction
             will be copied into the new AllAtOnceFunction.
@@ -304,9 +259,21 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
                          self.field_function_space,
                          full_function_space=self.function_space,
                          full_dual_space=self.dual_space)
-        if copy_values:
-            new.assign(self)
         return new
+
+    @profiler()
+    def copy(self, copy_values=True, result=None):
+        """
+        Return a deep copy of the AllAtOnceFunction.
+
+        :arg copy_values: If true, the values of the current AllAtOnceFunction
+            will be copied into the new AllAtOnceFunction.
+        """
+        if result is None:
+            result = self.duplicate()
+        if copy_values:
+            result.assign(self)
+        return result
 
     @profiler()
     def assign(self, src, update_halos=True, blocking=True):
