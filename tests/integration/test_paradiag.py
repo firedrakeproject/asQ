@@ -48,12 +48,7 @@ def test_Nitsche_BCs():
         return phi*q*fd.dx
 
     def form_function(q, phi, t):
-        # g = fd.exp(0.5*x + y + 1.25*t)
-        exy = fd.exp(0.5*x + y)  # stochastic cache
-        et = fd.exp(1.25*t)  # stocastic cache
-        f_et = fd.Function(Vcoord).project(et)  # stocastic cache
-        f_exy = fd.Function(Vcoord).project(exy)  # stocastic cache
-        g = f_exy*f_et
+        g = fd.exp(0.5*x + y + 1.25*t)  # stochastic cache
         return (
             fd.inner(fd.grad(q), fd.grad(phi))*fd.dx
             - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds  # stochastic cache

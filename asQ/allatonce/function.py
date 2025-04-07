@@ -47,7 +47,7 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
     def __init__(self, ensemble, time_partition, function_space,
                  full_function_space=None,
                  full_dual_space=None,
-                 val=None):
+                 val=None, fval=None):
         """
         A (co)function representing multiple timesteps of a time-dependent finite-element problem,
         i.e. the solution to an all-at-once system.
@@ -70,6 +70,7 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
 
         # function space for the slice of the all-at-once system on this process
         if val is not None:
+            assert fval is None
             assert isinstance(val, type(self))
             assert self.field_function_space == val.field_function_space
             assert self.nlocal_timesteps == val.nlocal_timesteps
@@ -83,6 +84,9 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
                 self.field_function_space
                 for _ in range(self.nlocal_timesteps)])
 
+        if fval is not None:
+            assert fval.function_space() == self.function_space
+
         self.ncomponents = len(self.field_function_space.subspaces)
 
         if val is not None:
@@ -91,7 +95,8 @@ class AllAtOnceFunctionBase(TimePartitionMixin):
             self._full_dual_space = full_dual_space
 
         # this will be renamed either self.function or self.cofunction
-        fval = val._fbuf if val else None
+        if val is not None:
+            fval = val._fbuf
         self._fbuf = fd.Function(
             self.function_space, val=fval)
 
@@ -564,9 +569,8 @@ class AllAtOnceFunction(AllAtOnceFunctionBase):
 
     @profiler()
     def __init__(self, ensemble, time_partition, function_space,
-                 full_function_space=None,
-                 full_dual_space=None,
-                 val=None):
+                 full_function_space=None, full_dual_space=None,
+                 val=None, fval=None):
         """
         A function representing multiple timesteps of a time-dependent finite-element problem,
         i.e. the solution to an all-at-once system.
@@ -582,7 +586,8 @@ class AllAtOnceFunction(AllAtOnceFunctionBase):
             raise TypeError("Cannot only make AllAtOnceFunction from a FunctionSpace")
         super().__init__(ensemble, time_partition, function_space,
                          full_function_space=full_function_space,
-                         full_dual_space=full_dual_space, val=val)
+                         full_dual_space=full_dual_space,
+                         val=val, fval=fval)
         self.function = self._fbuf
 
 
@@ -591,9 +596,8 @@ class AllAtOnceCofunction(AllAtOnceFunctionBase):
 
     @profiler()
     def __init__(self, ensemble, time_partition, function_space,
-                 full_function_space=None,
-                 full_dual_space=None,
-                 val=None):
+                 full_function_space=None, full_dual_space=None,
+                 val=None, fval=None):
         """
         A Cofunction representing multiple timesteps of a time-dependent finite-element problem,
         i.e. the solution to an all-at-once system.
@@ -609,7 +613,8 @@ class AllAtOnceCofunction(AllAtOnceFunctionBase):
             raise TypeError("Can only make an AllAtOnceCofunction from a DualSpace")
         super().__init__(ensemble, time_partition, function_space,
                          full_function_space=full_function_space,
-                         full_dual_space=full_dual_space, val=val)
+                         full_dual_space=full_dual_space,
+                         val=val, fval=fval)
         self.cofunction = self._fbuf
 
     @profiler()

@@ -496,7 +496,6 @@ def test_intervalgaussseidelpc_repeating(repeats):
 
 
 if __name__ == "__main__":
-    test_intervaljacobipc(
-        interval_length=6,
-        variable_coefficients=False,
-        form_parameters=None)
+    test_intervaljacobipc_jacobi(
+        interval_length=1,
+        variable_coefficients=False)

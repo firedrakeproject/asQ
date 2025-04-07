@@ -1,13 +1,37 @@
 from firedrake.petsc import PETSc, flatten_parameters
+from firedrake import MixedFunctionSpace, Function
 from pyop2.mpi import MPI
+from pyop2 import MixedDat
 from asQ.profiling import profiler
-from asQ.ensemble import split_ensemble, slice_ensemble
+from asQ.ensemble import slice_ensemble
 from asQ.allatonce import (
     LinearSolver, AllAtOnceFunction, AllAtOnceCofunction)
 from asQ.preconditioners.base import (
     AllAtOncePCBase, get_default_options)
 
 __all__ = ("IntervalJacobiPC", "IntervalGaussSeidelPC")
+
+
+def slice_aaofunc_fbuf(aaofunc, idxs):
+    idxs = [
+        aaofunc.transform_index(
+            i, from_range='window', to_range='slice')
+        for i in idxs]
+    V = MixedFunctionSpace([aaofunc.field_function_space
+                            for _ in range(len(idxs))])
+    dat = MixedDat((sub.dat
+                    for idx in idxs
+                    for sub in aaofunc[idx].subfunctions))
+    return Function(V, val=dat)
+    # return Function(
+    #     MixedFunctionSpace(
+    #         [aaofunc.field_function_space
+    #          for _ in range(len(idxs))]),
+    #     val=MixedDat(
+    #         (sub.dat
+    #          for idx in idxs
+    #          for sub in aaofunc[idx].subfunctions))
+    # )
 
 
 class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
@@ -51,51 +75,80 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
         # the interval jacobian is created around a interval
         # aaofunc that views the global aaofunc via val.
         field_function_space = self.aaofunc.field_function_space
-        self.interval_func = AllAtOnceFunction(
-            self.interval_ensemble, self.interval_partition,
-            field_function_space, val=self.aaofunc)
 
-        self.interval_rank = self.interval_func.time_rank
+        self.interval_funcs = []
+        self.interval_ranks = []
+        self.interval_forms = []
+        self.interval_solvers = []
+        self.yintervals = []
+        self.xintervals = []
 
-        # create a view of this interval of y so that
-        # the interval solution is written directly
-        # into the global solution buffer.
-        self.yinterval = AllAtOnceFunction(
-            self.interval_ensemble, self.interval_partition,
-            field_function_space, val=self.y)
+        for (interval_index,
+             interval_ensemble,
+             interval_partition,
+             interval_timesteps) in zip(self.interval_indices,
+                                        self.interval_ensembles,
+                                        self.interval_partitions,
+                                        self.interval_local_timesteps):
 
-        # create a view of this interval of x so that
-        # the interval rhs is accessed directly from
-        # the global solution buffer.
-        self.xinterval = AllAtOnceCofunction(
-            self.interval_ensemble, self.interval_partition,
-            field_function_space.dual(), val=self.x)
+            fbuf = slice_aaofunc_fbuf(self.aaofunc, interval_timesteps)
+            interval_func = AllAtOnceFunction(
+                interval_ensemble, interval_partition,
+                field_function_space, fval=fbuf,
+                full_function_space=fbuf.function_space())
 
-        # # # interval aaoform - jacobian, # # #
+            interval_rank = interval_func.time_rank
 
-        # here we abuse that aaoform.copy will create
-        # the new form over the ensemble of the
-        # aaofunc kwarg and not its own ensemble.
-        self.interval_form = self.aaoform.copy(aaofunc=self.interval_func)
+            # create a view of this interval of y so that
+            # the interval solution is written directly
+            # into the global solution buffer.
+            ybuf = slice_aaofunc_fbuf(self.y, interval_timesteps)
+            yinterval = AllAtOnceFunction(
+                interval_ensemble, interval_partition,
+                field_function_space, fval=ybuf,
+                full_function_space=ybuf.function_space())
 
-        # # # interval parameters # # #
-        default_interval_prefix = self.full_prefix
-        default_interval_options = get_default_options(
-            default_interval_prefix, range(self.nintervals))
+            # create a view of this interval of x so that
+            # the interval rhs is accessed directly from
+            # the global solution buffer.
+            xbuf = slice_aaofunc_fbuf(self.x, interval_timesteps)
+            xinterval = AllAtOnceCofunction(
+                interval_ensemble, interval_partition,
+                field_function_space.dual(), fval=xbuf,
+                full_function_space=xbuf.function_space())
 
-        interval_prefix = default_interval_prefix+str(self.interval_index)
+            # # # interval aaoform - jacobian, # # #
 
-        # default to treating the interval as a PC not a KSP.
-        default_interval_options = flatten_parameters(default_interval_options)
-        default_interval_options.setdefault("ksp_type", "preonly")
+            # here we abuse that aaoform.copy will create
+            # the new form over the ensemble of the
+            # aaofunc kwarg and not its own ensemble.
+            interval_form = self.aaoform.copy(aaofunc=interval_func)
 
-        self.interval_solver = LinearSolver(
-            self.interval_form, appctx=self.appctx,
-            options_prefix=interval_prefix,
-            solver_parameters=default_interval_options)
+            # # # interval parameters # # #
+            default_interval_prefix = self.full_prefix
+            default_interval_options = get_default_options(
+                default_interval_prefix, range(self.nintervals))
 
-        self.interval_solver.ksp.incrementTabLevel(1, parent=pc)
-        self.interval_solver.ksp.pc.incrementTabLevel(1, parent=pc)
+            interval_prefix = default_interval_prefix+str(interval_index)
+
+            # default to treating the interval as a PC not a KSP.
+            default_interval_options = flatten_parameters(default_interval_options)
+            default_interval_options.setdefault("ksp_type", "preonly")
+
+            interval_solver = LinearSolver(
+                interval_form, appctx=self.appctx,
+                options_prefix=interval_prefix,
+                solver_parameters=default_interval_options)
+
+            interval_solver.ksp.incrementTabLevel(1, parent=pc)
+            interval_solver.ksp.pc.incrementTabLevel(1, parent=pc)
+
+            self.interval_funcs.append(interval_func)
+            self.interval_ranks.append(interval_rank)
+            self.interval_forms.append(interval_form)
+            self.interval_solvers.append(interval_solver)
+            self.xintervals.append(xinterval)
+            self.yintervals.append(yinterval)
 
         self.initialized = final_initialize
 
@@ -121,9 +174,17 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
 
         self.nintervals = nrepeats*intervals_per_repeat
 
-        interval_initialised = False
+        self.interval_ensembles = []
+        self.interval_indices = []
+        self.interval_timesteps = []
+        self.interval_local_timesteps = []
+        self.interval_partitions = []
 
-        # for i in nintervals:
+        # timesteps on the local slice
+        local_timesteps = [
+            self.layout.offset + j
+            for j in range(self.nlocal_timesteps)]
+
         for n in range(nrepeats):
 
             # first timestep of this repetition
@@ -141,22 +202,13 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
                 interval_timesteps = [
                     int(j0 + j) for j in range(ilen)]
 
-                # are any of my timesteps in this interval?
-                local_timesteps = [
-                    self.layout.offset + j
-                    for j in range(self.nlocal_timesteps)]
+                # are any timesteps on this slice in this interval?
+                interval_local_timesteps = [
+                    j for j in local_timesteps
+                    if j in interval_timesteps
+                ]
 
-                matching_timesteps = [
-                    j in interval_timesteps
-                    for j in local_timesteps]
-
-                if any(matching_timesteps):
-                    if not all(matching_timesteps):
-                        raise ValueError(
-                            "All or no timesteps of each slice must be in an interval")
-                    belongs_to_interval = True
-                else:
-                    belongs_to_interval = False
+                belongs_to_interval = (len(interval_local_timesteps) > 0)
 
                 interval_ranks = set(
                     self.layout.rank_of(j)
@@ -167,50 +219,72 @@ class IntervalJacobiGaussSeidelPCBase(AllAtOncePCBase):
                     self.ensemble, interval_ranks)
 
                 if belongs_to_interval:
-                    assert not interval_initialised
-
                     interval_ensemble = maybe_ensemble
                     assert interval_ensemble != MPI.COMM_NULL
 
-                    self.interval_ensemble = interval_ensemble
-                    self.interval_index = interval_index
+                    self.interval_ensembles.append(interval_ensemble)
+                    self.interval_indices.append(interval_index)
+                    self.interval_timesteps.append(interval_timesteps)
+                    self.interval_local_timesteps.append(interval_local_timesteps)
 
                     # gather interval_time_partition
-                    self.interval_partition = \
+                    self.interval_partitions.append(
                         interval_ensemble.ensemble_comm.allgather(
-                            self.nlocal_timesteps)
+                            len(interval_local_timesteps)))
 
-                    interval_initialised = True
+        self.nlocal_intervals = len(self.interval_ensembles)
+
+        # make sure all local timesteps are in one interval each
+        for j in local_timesteps:
+            participating_intervals = len([
+                i for i, interval in enumerate(self.interval_local_timesteps)
+                if j in interval])
+            if participating_intervals != 1:
+                raise ValueError(
+                    "All timesteps on all ranks must participate in exactly"
+                    f" one interval, not {participating_intervals}")
+
+        # # transform local_timesteps to local index range
+        # for isteps in self.interval_local_timesteps:
+        #     for j in range(len(isteps)):
+        #         isteps[j] = self.aaofunc.transform_index(
+        #             isteps[j], from_range='window', to_range='slice')
 
     @profiler()
     def update(self, pc):
         """
         Update the interval states.
         """
+        aaoform = self.aaoform
         # Update the timestep values.
         # interval_func mostly views aaofunc data,
         # except that interval_func circulant halos
         # do not necessarily coincide with aaofunc
         # circulant halos. This means we must ask
         # interval_func to do the halo update.
-        self.interval_func.update_time_halos()
+        for isteps, iensemble, ifunc, iform, isolver in zip(self.interval_local_timesteps,
+                                                            self.interval_ensembles,
+                                                            self.interval_funcs,
+                                                            self.interval_forms,
+                                                            self.interval_solvers):
+            # update values
+            ifunc.update_time_halos()
 
-        # # # update the time values
-        aaoform = self.aaoform
+            # # # update the time values
 
-        # interval initial time
-        if self.interval_index == 0:
-            t0 = aaoform.t0
-        else:
-            t0 = float(aaoform.time[0] - aaoform.dt)
-            t0 = self.interval_ensemble.ensemble_comm.bcast(
-                t0, root=0)
-        self.interval_form.time_update(t0)
+            # interval initial time
+            if ifunc.time_rank == 0:
+                i0 = aaoform.aaofunc.transform_index(
+                    isteps[0], from_range='window', to_range='slice')
+                t0 = float(aaoform.time[i0] - aaoform.dt)
+            else:
+                t0 = None
 
-        # # # update the interval
-        self.interval_solver.jacobian.update()
+            t0 = iensemble.ensemble_comm.bcast(t0, root=0)
+            iform.time_update(t0)
 
-        return
+            # # # update the interval
+            isolver.jacobian.update()
 
 
 class IntervalJacobiPC(IntervalJacobiGaussSeidelPCBase):
@@ -256,8 +330,11 @@ class IntervalJacobiPC(IntervalJacobiGaussSeidelPCBase):
 
     @profiler()
     def apply_impl(self, pc, x, y):
-        self.yinterval.zero()
-        self.interval_solver.solve(self.xinterval, self.yinterval)
+        y.zero()
+        for isolver, ix, iy in zip(self.interval_solvers,
+                                   self.xintervals,
+                                   self.yintervals):
+            isolver.solve(ix, iy)
 
 
 class IntervalGaussSeidelPC(IntervalJacobiGaussSeidelPCBase):
@@ -309,14 +386,14 @@ class IntervalGaussSeidelPC(IntervalJacobiGaussSeidelPCBase):
         self.initialized = final_initialize
 
     @profiler()
-    def apply_impl(self, pc, x, y):
-        self.yinterval.zero()
+    def apply_impl_single(self, pc, x, y):
+        y.zero()
 
-        first_interval = (self.interval_index == 0)
-        last_interval = (self.interval_index == self.nintervals - 1)
+        first_interval = (self.interval_indices[0] == 0)
+        last_interval = (self.interval_indices[0] == self.nintervals - 1)
 
-        first_rank = (self.interval_rank == 0)
-        last_rank = (self.interval_rank == len(self.xinterval.time_partition) - 1)
+        first_rank = (self.interval_ranks[0] == 0)
+        last_rank = (self.interval_ranks[0] == len(self.xintervals[0].time_partition) - 1)
 
         # buffer to store gauss-seidel increment to the rhs from the
         # solution of the previous timestep: rhs = x_{n} - Ay_{n-1}
@@ -333,9 +410,67 @@ class IntervalGaussSeidelPC(IntervalJacobiGaussSeidelPCBase):
             x[0].assign(x[0] - Ay_prev)
 
         # solve slice
-        self.interval_solver.solve(self.xinterval, self.yinterval)
+        self.interval_solvers[0].solve(self.xintervals[0], self.yintervals[0])
 
         if last_rank and not last_interval:
             self.ensemble.send(
-                self.yinterval[-1], dest=self.time_rank+1,
+                self.yintervals[0][-1], dest=self.time_rank+1,
+                tag=self.time_rank+1)
+
+    @profiler()
+    def apply_impl(self, pc, x, y):
+        y.zero()
+
+        # buffer to store gauss-seidel increment to the rhs from the
+        # solution of the previous timestep: rhs = x_{n} - Ay_{n-1}
+        Ay_prev = x.uprev.copy(deepcopy=True).zero()
+        yprev = y.uprev.copy(deepcopy=True).zero()
+
+        # do we receive a halo?
+        #   - not first global rank
+        #   - first rank of first local interval
+        grank = self.time_rank
+        irank0 = self.interval_ranks[0]
+        if (grank != 0) and (irank0 == 0):
+            self.ensemble.recv(
+                yprev,
+                source=self.time_rank-1,
+                tag=self.time_rank)
+
+        # loop over local intervals
+        for i, (isolver, ix, iy, irank, isteps) in enumerate(zip(self.interval_solvers,
+                                                                 self.xintervals,
+                                                                 self.yintervals,
+                                                                 self.interval_ranks,
+                                                                 self.interval_local_timesteps)):
+
+            # do we need an increment from the last timestep?
+            if (irank == 0) and not (grank == 0 and i == 0):
+                # what step are we incrementing?
+                n = self.aaofunc.transform_index(
+                    isteps[0], from_range='window', to_range='slice')
+
+                yn, assemble = self.jacobian.step_explicit_action(n)
+
+                yn.assign(yprev if (n == 0) else y[n-1])
+                assemble(tensor=Ay_prev)
+                x[n].assign(x[n] - Ay_prev)
+
+                for bc in self.aaoform.stepwise_bcs[n]:
+                    bc.zero(x[n])
+
+            # solve slice
+            isolver.solve(ix, iy)
+
+        # do we send a halo?
+        #   - not last global rank
+        #   - last rank of last local interval
+        gsize = self.ensemble.ensemble_comm.size
+        ilast_rank = self.interval_ranks[-1]
+        ilast_size = self.interval_ensembles[-1].ensemble_comm.size
+
+        if (grank != gsize - 1) and (ilast_rank == ilast_size - 1):
+            self.ensemble.send(
+                self.yintervals[-1][-1],
+                dest=self.time_rank+1,
                 tag=self.time_rank+1)
