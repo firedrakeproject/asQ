@@ -20,6 +20,9 @@ class AuxiliaryOperatorPC(AllAtOncePCBase):
             solver_parameters=default_params,
             options_prefix=self.full_prefix)
 
+        self.solver.ksp.incrementTabLevel(1, parent=pc)
+        self.solver.ksp.pc.incrementTabLevel(1, parent=pc)
+
         self.initialized = final_initialize
 
     @profiler()
