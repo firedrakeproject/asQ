@@ -47,7 +47,7 @@ class AllAtOncePCBase(TimePartitionMixin):
             raise ValueError("Expecting PC type python")
 
         # grab aao objects off petsc mat python context
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         self.full_prefix = prefix + self.prefix
         self.pc_prefix = prefix + "pc_" + self.prefix
 
