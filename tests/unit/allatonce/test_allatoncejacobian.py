@@ -291,7 +291,3 @@ def test_mixed_heat_jacobian(bc_option):
             yparallel = y[step].subfunctions[cpt]
             for pdat, sdat in zip(yparallel.dat, yserial.dat):
                 assert np.allclose(pdat.data, sdat.data), f"Timestep {step}, component {cpt}, of AllAtOnceJacobian action doesn't match component of monolithic residual calculated locally"
-
-
-if __name__ == '__main__':
-    pass

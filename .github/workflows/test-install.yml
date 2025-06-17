@@ -1,0 +1,166 @@
+name: Install and test asQ
+
+on:
+  # Run on pushes to master
+  push:
+    branches:
+      - master
+  # And all pull requests
+  pull_request:
+  schedule:
+    # Scheduled run over at 0217 UTC Sunday to detect any upstream breaks.
+    # * is a special character in YAML so you have to quote this string
+    - cron:  '17 2 * * 0'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+concurrency:
+  # Cancels jobs running if new commits are pushed
+  group: >
+    ${{ github.workflow }}-
+    ${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: "Build and test asQ"
+    # Use Firedrake's Linux runners
+    runs-on: [self-hosted, Linux]
+    # Use the firedrake container without asQ installed - we want to run the repo version.
+    container:
+      image: firedrakeproject/firedrake-vanilla-default:latest
+    env:
+      # Sometimes we want to determine if tests are running on CI
+      ASQ_CI_TESTS: 1
+      # Tell pyop2 to complain if SPMD assumptions are broken
+      PYOP2_SPMD_STRICT: 1
+      # Make sure tests with >8 processes are not silently skipped
+      PYTEST_MPI_MAX_NPROCS: 8
+      # Common arguments for pytest. TODO: Is pytest coverage possible firedrake-run-split-tests?
+      PYTEST_ARGS: --durations=50 --timeout=500 --timeout-method=thread -o faulthandler_timeout=600 --verbose asQ-repo/tests/
+      # venv activation script
+      ACTIVATE: venv-asQ/bin/activate
+    steps:
+      - name: Fix HOME
+        # For unknown reasons GitHub actions overwrite HOME to /github/home
+        # which will break everything unless fixed
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/home/firedrake" >> "$GITHUB_ENV"
+
+      - name: Pre-cleanup
+      # TODO: Why do we need to do this?
+        run: |
+          : # Wipe everything away in the current directory
+          find . -delete
+          firedrake-clean
+
+      - uses: actions/checkout@v4
+        with:
+          # Download asQ into a subdirectory not called 'asQ' to make sure
+          # that the package installs correctly. Otherwise 'import asQ' may
+          # work even if the installation failed because it is a subdirectory.
+          path: asQ-repo
+
+      - name: Create virtual environment
+        # pass '--system-site-packages' so Firedrake can be found
+        run: python3 -m venv --system-site-packages venv-asQ
+
+      - name: Install asQ
+        id: install
+        run: |
+          . $ACTIVATE
+          python --version
+          pip --version
+          pip install ./asQ-repo
+          pip list
+          python -m pytest --version
+          # TODO: firedrake-status doesn't work without $VIRTUAL_ENV/src. Is it obsolete now? 
+          # firedrake-status
+
+      - name: Lint
+        run: |
+          . $ACTIVATE
+          python -m pip install flake8
+          cd ./asQ-repo
+          flake8 .
+
+      - name: Run tests (nprocs = 1)
+        # Run even if earlier tests failed
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . $ACTIVATE
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 -n 12 --dist worksteal "$PYTEST_ARGS"
+        timeout-minutes: 20
+
+      - name: Run tests (nprocs = 2)
+        # Run even if earlier tests failed
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . $ACTIVATE
+          firedrake-run-split-tests 2 6 "$PYTEST_ARGS"
+        timeout-minutes: 20
+
+      - name: Run tests (nprocs = 3)
+        # Run even if earlier tests failed
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . $ACTIVATE
+          firedrake-run-split-tests 3 4 "$PYTEST_ARGS"
+        timeout-minutes: 20
+
+      - name: Run tests (nprocs = 4)
+        # Run even if earlier tests failed
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . $ACTIVATE
+          firedrake-run-split-tests 4 3 "$PYTEST_ARGS"
+        timeout-minutes: 20
+
+      - name: Run tests (nprocs = 5)
+        # Run even if earlier tests failed
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . $ACTIVATE
+          firedrake-run-split-tests 5 2 "$PYTEST_ARGS"
+        timeout-minutes: 20
+
+      - name: Run tests (nprocs = 6)
+        # Run even if earlier tests failed
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . $ACTIVATE
+          firedrake-run-split-tests 6 2 "$PYTEST_ARGS"
+        timeout-minutes: 20
+
+      - name: Run tests (nprocs = 7)
+        # Run even if earlier tests failed
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . $ACTIVATE
+          firedrake-run-split-tests 7 1 "$PYTEST_ARGS"
+        timeout-minutes: 20
+
+      - name: Run tests (nprocs = 8)
+        # Run even if earlier tests failed
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . $ACTIVATE
+          firedrake-run-split-tests 8 1 "$PYTEST_ARGS"
+        timeout-minutes: 20
+
+      - name: Upload pytest log files
+        uses: actions/upload-artifact@v4
+        if: success() || steps.install.conclusion == 'success'
+        with:
+          name: pytest-logs
+          path: pytest_*.log
+          retention-days: 5
+
+      - name: Post-cleanup
+        if: always()
+        run: |
+          find . -delete
+          firedrake-clean
