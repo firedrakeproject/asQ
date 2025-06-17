@@ -114,7 +114,6 @@ def test_time_dependent_bcs():
         distribution_parameters={'partitioner_type': 'simple'})
 
     x, y = fd.SpatialCoordinate(mesh)
-    n = fd.FacetNormal(mesh)
     V = fd.FunctionSpace(mesh, "CG", degree)
 
     def uexact(t):
@@ -124,10 +123,7 @@ def test_time_dependent_bcs():
         return phi*q*fd.dx
 
     def form_function(q, phi, t):
-        return (fd.inner(fd.grad(q), fd.grad(phi))*fd.dx
-                - fd.inner(phi, fd.inner(fd.grad(q), n))*fd.ds
-                - fd.inner(q-uexact(t), fd.inner(fd.grad(phi), n))*fd.ds
-                + 20*nx*fd.inner(q-uexact(t), phi)*fd.ds)
+        return fd.inner(fd.grad(q), fd.grad(phi))*fd.dx
 
     def form_bcs(V, q, t):
         return [fd.DirichletBC(V, uexact(t), "on_boundary")]
@@ -138,21 +134,22 @@ def test_time_dependent_bcs():
         'ksp_rtol': 1e-8,
         'mat_type': 'matfree',
         'ksp_type': 'gmres',
-        'pc_type': 'python',
-        'pc_python_type': 'asQ.CirculantPC',
-        'circulant_block': {
-            'ksp_type': 'preonly',
-            'pc_type': 'lu',
-            'pc_factor_mat_solver_type': 'mumps'
-        },
+        'pc_type': 'none',
+        # 'pc_type': 'python',
+        # 'pc_python_type': 'asQ.CirculantPC',
+        # 'circulant_block': {
+        #     'ksp_type': 'preonly',
+        #     'pc_type': 'lu',
+        #     'pc_factor_mat_solver_type': 'mumps'
+        # },
     }
 
     w0 = fd.Function(V).interpolate(uexact(0))
 
     pdg = asQ.Paradiag(ensemble=ensemble,
                        form_function=form_function,
-                       form_mass=form_mass, ics=w0,
-                       dt=dt, theta=0.5,
+                       form_mass=form_mass, bcs=[form_bcs],
+                       dt=dt, theta=0.5, ics=w0,
                        time_partition=time_partition,
                        solver_parameters=solver_parameters_diag)
     pdg.solve()

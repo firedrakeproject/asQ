@@ -141,7 +141,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         :arg X: a PETSc Vec to apply the action on.
         :arg Y: a PETSc Vec for the result.
         """
-        # we could use nonblocking here and overlap comms with assembling form
+        # Delay updating the halos until after we enforce the bcs
         self.x.assign(X, update_halos=True, blocking=True)
 
         # We use the same strategy as the implicit matrix context in firedrake
@@ -159,6 +159,7 @@ class AllAtOnceJacobian(TimePartitionMixin):
         # Zero the boundary nodes on the input so that A_ib = A_01 = 0
         for bc in self.bcs:
             bc.zero(self.x.function)
+        self.x.update_time_halos()
 
         # assembly stage
         fd.assemble(self.action, bcs=self.bcs,
@@ -166,8 +167,6 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         if self._useprev:
             # repeat for the halo part of the matrix action
-            for bc in self.field_bcs:
-                bc.zero(self.x.uprev)
             fd.assemble(self.action_prev, bcs=self.bcs,
                         tensor=self.Fprev)
             self.F.cofunction += self.Fprev

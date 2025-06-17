@@ -100,11 +100,11 @@ class AllAtOnceForm(TimePartitionMixin):
 
         for bc in field_bcs:
 
-            if isinstance(bc, Callable):
+            if callable(bc):
                 for step in range(aaofunc.nlocal_timesteps):
                     Vs = [aaofunc.function_space.sub(i)
                           for i in aaofunc._component_indices(step)]
-                    us = aaofunc[step]
+                    us = aaofunc[step].subfunctions
                     t = self.time[step]
                     bcs_step = bc(*Vs, *us, t)
                     bcs_all.extend(bcs_step)
@@ -156,7 +156,7 @@ class AllAtOnceForm(TimePartitionMixin):
 
         # Set the current state
         if func is not None:
-            self.aaofunc.assign(func, update_halos=False)
+            self.aaofunc.assign(func, update_halos=False, blocking=True)
 
         # Assembly stage
         # The residual on the DirichletBC nodes is set to zero,
