@@ -6,10 +6,6 @@ from functools import reduce
 from operator import mul
 
 
-def assemble(form, *args, **kwargs):
-    return fd.assemble(form, *args, **kwargs).riesz_representation(riesz_map='l2')
-
-
 bc_options = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
 
