@@ -104,7 +104,11 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         u0 = w0.subfunctions[self.velocity_index]
         h0 = w0.subfunctions[self.depth_index]
 
-        u0.project(velocity_expression(*x), quadrature_degree=6)
+        # limit the projection degree to a 2*V.degree+2 in
+        # case we get a non-polynomial expression (e.g. Galewsky)
+        u0.project(
+            velocity_expression(*x),
+            form_compiler_parameters={"quadrature_degree": 6})
         h0.interpolate(depth_expression(*x))
 
         if reference_state:

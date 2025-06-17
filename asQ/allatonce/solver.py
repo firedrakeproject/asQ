@@ -1,4 +1,5 @@
-from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
+from firedrake.petsc import PETSc
+from petsctools import OptionsManager, flatten_parameters
 
 from asQ.profiling import profiler
 from asQ.allatonce import (AllAtOnceCofunction, AllAtOnceFunction,
