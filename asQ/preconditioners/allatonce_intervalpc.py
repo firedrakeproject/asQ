@@ -1,5 +1,6 @@
-from firedrake.petsc import PETSc, flatten_parameters
+from firedrake.petsc import PETSc
 from firedrake import MixedFunctionSpace, Function
+from petsctools import flatten_parameters
 from pyop2.mpi import MPI
 from pyop2 import MixedDat
 from asQ.profiling import profiler

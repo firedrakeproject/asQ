@@ -379,9 +379,10 @@ def test_steady_swe_miniapp():
 
 bc_opts = ["no_bcs", "homogeneous_bcs", "inhomogeneous_bcs"]
 
-extruded_mixed = [pytest.param(False, id="standard_mesh"),
-                  pytest.param(True, id="extruded_mesh",
-                               marks=pytest.mark.xfail(reason="fd.split for TensorProductElements in unmixed spaces broken by ufl PR#122."))]
+extruded_mixed = [
+    pytest.param(False, id="standard_mesh"),
+    pytest.param(True, id="extruded_mesh"),
+]
 
 cpx_types = [pytest.param('vector', id="vector_cpx"),
              pytest.param('mixed', id="mixed_cpx")]
