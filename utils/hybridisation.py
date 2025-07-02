@@ -103,7 +103,7 @@ def _break_function_space(V, appctx=None):
         raise ValueError(msg)
 
     # hybridisable space - broken HDiv and Trace
-    Vs = V.subfunctions
+    Vs = V.subspaces
 
     Vu = Vs[iu]
 
@@ -204,7 +204,7 @@ class HybridisedSCPC(fd.PCBase):
 
         # the trace bit
         n = fd.FacetNormal(self.mesh)
-        ncpts = len(V.subfunctions)
+        ncpts = len(V.subspaces)
 
         def form_trace(*args):
             trls = args[:ncpts+1]

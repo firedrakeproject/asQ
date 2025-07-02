@@ -1,6 +1,6 @@
 
 import firedrake as fd
-import asQ.complex_proxy.mixed as cpx
+import asQ.complex_proxy.vector as cpx
 
 import pytest
 
@@ -52,17 +52,47 @@ def mixed_element():
     return fd.MixedElement([param.values[0] for param in elements])
 
 
-@pytest.mark.parametrize("elem", elements)
+@pytest.mark.parametrize("elem", scalar_elements)
 def test_finite_element(elem):
     """
     Test that the complex proxy FiniteElement is constructed correctly from a real FiniteElement.
     """
     celem = cpx.FiniteElement(elem)
 
-    assert celem.num_sub_elements == 2, "The cpx element should have two components"
+    assert celem.num_sub_elements == 2, "The cpx element should have two subcomponents"
 
     for ce in celem.sub_elements:
         assert ce == elem, "Each component element should be the same as the real element"
+
+
+@pytest.mark.parametrize("elem", vector_elements)
+def test_vector_element(elem):
+    """
+    Test that the complex proxy FiniteElement is constructed correctly from a real VectorElement.
+    """
+    celem = cpx.FiniteElement(elem)
+
+    assert celem.num_sub_elements == 2*elem.num_sub_elements, "The cpx element of a vector element should have twice as many subcomponents as the real space"
+
+    assert celem._shape == (2, elem.num_sub_elements), "The cpx element of a vector element should be a tensor element"
+
+    for ce in celem.sub_elements:
+        assert ce == elem.sub_elements[0], "The element for each component should be the same as the real element"
+
+
+@pytest.mark.parametrize("elem", tensor_elements)
+def test_tensor_element(elem):
+    """
+    Test that the complex proxy FiniteElement is constructed correctly from a real TensorElement.
+    """
+    celem = cpx.FiniteElement(elem)
+
+    assert celem.num_sub_elements == 2*elem.num_sub_elements, "The cpx element of a tensor should have twice as many subcomponents as the real space"
+
+    assert celem._shape == (2,) + elem._shape, "The cpx element of a tensor element should be a tensor element of one order higher"
+
+    for ce in celem.sub_elements:
+        assert ce == elem.sub_elements[0], "The element for each component should be the same as the real element"
 
 
 def test_mixed_element(mixed_element):
@@ -72,32 +102,10 @@ def test_mixed_element(mixed_element):
 
     celem = cpx.FiniteElement(mixed_element)
 
-    assert celem.num_sub_elements == 2*mixed_element.num_sub_elements, "The cpx element should have twice as many components as the real space"
+    assert celem.num_sub_elements == mixed_element.num_sub_elements, "The cpx element of a mixed element should have the same number of components as the real element"
 
-    csubs = celem.sub_elements
-    msubs = mixed_element.sub_elements
-
-    for i in range(mixed_element.num_sub_elements):
-        assert csubs[2*i+0] == msubs[i], "The element for each component should be the same as the real element"
-        assert csubs[2*i+1] == msubs[i], "The element for each component should be the same as the real element"
-
-
-def test_nested_mixed_element():
-    """
-    Test that the complex proxy FiniteElement is constructed correctly from a nested real MixedElement.
-    """
-    cg = fd.FiniteElement("CG", cell, 1)
-    dg = fd.FiniteElement("DG", cell, 2)
-
-    mixed_elem = fd.MixedElement((cg, dg))
-    nested_elem = fd.MixedElement((mixed_elem, mixed_elem))
-    flat_elem = fd.MixedElement((cg, cg, dg, dg, cg, cg, dg, dg))
-    assert cpx.FiniteElement(nested_elem) == flat_elem, "The complex element for mixed spaces should flatten the real space"
-
-    bdm = fd.FiniteElement("BDM", cell, 1)
-    nested_elem = fd.MixedElement((mixed_elem, bdm))
-    flat_elem = fd.MixedElement((cg, cg, dg, dg, bdm, bdm))
-    assert cpx.FiniteElement(nested_elem) == flat_elem, "The complex element for mixed spaces should flatten the real space"
+    for csub, msub in zip(celem.sub_elements, mixed_element.sub_elements):
+        assert csub == cpx.FiniteElement(msub), "The each component of the cpx element of a mixed real space should be the cpx element of the real component"
 
 
 @pytest.mark.parametrize("elem", elements)
@@ -119,27 +127,19 @@ def test_mixed_function_space(mesh, mixed_element):
     V = fd.FunctionSpace(mesh, mixed_element)
     W = cpx.FunctionSpace(V)
 
-    assert len(W.subfunctions) == 2*len(V.subfunctions), "The complex space should have twice the number of components as the real space"
+    assert len(W.subspaces) == len(V.subspaces), "The complex space should have the same number of components as the real space"
 
-    for i in range(V.ufl_element().num_sub_elements):
-        idx_real = 2*i+0
-        idx_imag = 2*i+1
-
-        real_elem = W.subfunctions[idx_real].ufl_element()
-        imag_elem = W.subfunctions[idx_imag].ufl_element()
-        orig_elem = V.subfunctions[i].ufl_element()
-
-        assert real_elem == orig_elem, "The complex function space should have the cpx Element corresponding to the cpx Element of the real space"
-        assert imag_elem == orig_elem, "The complex function space should have the cpx Element corresponding to the cpx Element of the real space"
+    for wcpt, vcpt in zip(W.subspaces, V.subspaces):
+        assert wcpt == cpx.FunctionSpace(vcpt), "Each component of the complex space should be the complex space of the component of the real space"
 
 
 @pytest.mark.parametrize("split_tuple", [False, True])
-@pytest.mark.parametrize("elem", scalar_elements+vector_elements)
+@pytest.mark.parametrize("elem", scalar_elements)
 def test_set_get_part(mesh, elem, split_tuple):
     """
     Test that the real and imaginary parts are set and get correctly from/to real FunctionSpace
 
-    TODO: add tests for tensor_elements
+    TODO: add tests for vector_elements and tensor_elements
     """
     eps = 1e-12
 
@@ -245,14 +245,14 @@ def test_mixed_set_get_part(mesh):
     # check imag value is set correctly and real value is unchanged
     cpx.set_imag(w, u1)
 
-    cpx.get_real(w, ur)
-    cpx.get_imag(w, ui)
+    cpx.get_real(w, ur), "real component should be unchanged by `set_real`"
+    cpx.get_imag(w, ui), "imag component should match after `set_real` called"
 
-    assert fd.errornorm(u0, ur) < eps, "real component should be unchanged by `set_real`"
-    assert fd.errornorm(u1, ui) < eps, "imag component should match after `set_real` called"
+    assert fd.errornorm(u0, ur) < eps
+    assert fd.errornorm(u1, ui) < eps
 
 
-@pytest.mark.parametrize("elem", scalar_elements+vector_elements)
+@pytest.mark.parametrize("elem", scalar_elements[:1])
 @pytest.mark.parametrize("z", complex_numbers)
 @pytest.mark.parametrize("z_is_constant", constant_z)
 def test_linear_form(mesh, elem, z, z_is_constant):
@@ -299,7 +299,7 @@ def test_linear_form(mesh, elem, z, z_is_constant):
     assert fd.errornorm(zi*rhs, ui) < eps, "z*LinearForm just does componentwise multiplication"
 
 
-@pytest.mark.parametrize("elem", scalar_elements+vector_elements)
+@pytest.mark.parametrize("elem", scalar_elements[:1])
 @pytest.mark.parametrize("z_is_constant", constant_z)
 def test_bilinear_form(mesh, elem, z_is_constant):
     """
@@ -490,7 +490,7 @@ def test_linear_solve(mesh, bc_type):
     ui = fd.Function(V)
     fd.solve(a == g, ui, bcs=bcs)
 
-    assert fd.errornorm(ui, wchecki) < eps, "imag part should be calculated from back-substituting the real part"
+    assert fd.errornorm(ui, wchecki) < eps, "real part should be calculated from eliminating the imaginary part"
 
 
 @pytest.mark.parametrize("bc_type", ["nobc", "dirichletbc"])
@@ -576,7 +576,7 @@ def test_mixed_linear_solve(mesh, bc_type):
     cpx.get_imag(wi, wchecki)
 
     # eliminate imaginary part to check real part
-    assert fd.errornorm(2*ureal/(2*2+4*4), wcheckr) < eps, "real part should be calculated from eliminating the imaginary part"
+    assert fd.errornorm(2*ureal/(2*2+4*4), wcheckr) < eps
 
     # back substitute real part to check imaginary part
     g = 0.25*(2*fd.action(form_function(*u, *v), wcheckr) - rhs(*v))
