@@ -32,7 +32,7 @@ def mesh(comm, ncolumns, nlayers,
 
 
 def initial_conditions(mesh, W, Vv, gas):
-    V1, V2, Vt = W.subfunctions
+    V1, V2, Vt = W.subspaces
     Un = fd.Function(W)
     x, z = fd.SpatialCoordinate(mesh)
 

@@ -62,7 +62,7 @@ x = fd.SpatialCoordinate(mesh)
 
 # Mixed function space for velocity and depth
 W = swe.default_function_space(mesh, degree=args.degree)
-V1, V2 = W.subfunctions[:]
+V1, V2 = W.subspaces[:]
 
 # initial conditions
 w0 = fd.Function(W)

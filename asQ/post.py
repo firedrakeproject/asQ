@@ -37,7 +37,7 @@ def write_timesteps(pdg,
     # functions for writing to file
     functions = []
     for cpt in range(pdg.ncpts):
-        V = pdg.W.subfunctions[cpt]
+        V = pdg.W.subspaces[cpt]
         if len(function_names) != 0:
             functions.append(fd.Function(V, name=function_names[cpt]))
         else:
@@ -108,7 +108,7 @@ def write_timeseries(pdg,
     # functions for writing to file
     functions = []
     for cpt in range(pdg.ncpts):
-        V = pdg.W.subfunctions[cpt]
+        V = pdg.W.subspaces[cpt]
         if len(function_names) != 0:
             functions.append(fd.Function(V, name=function_names[cpt]))
         else:

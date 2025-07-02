@@ -90,7 +90,7 @@ def Tsurf(hydrostatic=False):
 
 def initial_conditions(mesh, W, Vv, gas, hydrostatic=False):
     x, z = fd.SpatialCoordinate(mesh)
-    V2 = W.subfunctions[1]
+    V2 = W.subspaces[1]
     Un = fd.Function(W)
     up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 

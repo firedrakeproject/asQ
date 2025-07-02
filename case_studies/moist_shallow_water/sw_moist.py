@@ -67,7 +67,7 @@ x, y, z = fd.SpatialCoordinate(mesh)
 outward_normals = fd.CellNormal(mesh)
 
 Vdry = swe.default_function_space(mesh, degree=args.degree)
-V1, V2 = Vdry.subfunctions
+V1, V2 = Vdry.subspaces
 V0 = fd.FunctionSpace(mesh, "CG", args.degree+2)
 W = fd.MixedFunctionSpace((V1, V2, V2, V2, V2, V2))
 # velocity, depth, temperature, vapour, cloud, rain
