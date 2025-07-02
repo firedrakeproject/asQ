@@ -1,5 +1,9 @@
 from firedrake.petsc import PETSc
-from petsctools import OptionsManager, flatten_parameters
+# TODO: remove this check once petsctools is included in firedrake release
+try:  # Firedrake master
+    from petsctools import OptionsManager, flatten_parameters
+except ImportError:  # Firedrake release
+    from firedrake.petsc import OptionsManager, flatten_parameters
 
 from asQ.profiling import profiler
 from asQ.allatonce import (AllAtOnceCofunction, AllAtOnceFunction,
