@@ -29,7 +29,7 @@ jobs:
     runs-on: [self-hosted, Linux]
     # Use the firedrake container without asQ installed - we want to run the repo version.
     container:
-      image: firedrakeproject/firedrake-vanilla-default:2025.4.1
+      image: firedrakeproject/firedrake-vanilla-default:latest
     env:
       # Sometimes we want to determine if tests are running on CI
       ASQ_CI_TESTS: 1
