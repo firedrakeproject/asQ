@@ -28,7 +28,7 @@ class ApproxHybridPC(fd.PCBase):
         V = appctx['uref'].function_space()
 
         # input and output functions
-        _, Vh = V.subfunctions
+        _, Vh = V.subspaces
         self.xfstar = fd.Cofunction(Vh.dual())
         self.xf = fd.Function(Vh)  # result of riesz map of the above
 
@@ -102,7 +102,7 @@ def read_checkpoint(checkpoint_name, funcname, index, ref_level=0):
                                             coords_degree=1)
 
         V = fd.FunctionSpace(mesh_new, u.function_space().ufl_element())
-        Vu, Vh = V.subfunctions
+        Vu, Vh = V.subspaces
 
         unew = fd.Function(V)
         coriolis_new = fd.Function(Vh)

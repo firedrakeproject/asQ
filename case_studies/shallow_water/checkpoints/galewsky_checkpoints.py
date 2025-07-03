@@ -62,7 +62,7 @@ dt = args.dt*units.hour
 
 # shallow water equation function spaces (velocity and depth)
 W = swe.default_function_space(mesh, degree=args.degree)
-Vu, Vh = W.subfunctions
+Vu, Vh = W.subspaces
 
 # parameters
 g = earth.Gravity

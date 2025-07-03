@@ -45,19 +45,19 @@ def function_space(mesh, horizontal_degree=1, vertical_degree=1,
 
 
 def velocity_function_space(mesh, horizontal_degree=1, vertical_degree=1):
-    return function_space(mesh, horizontal_degree, vertical_degree).subfunctions[0]
+    return function_space(mesh, horizontal_degree, vertical_degree).subspaces[0]
 
 
 def pressure_function_space(mesh, horizontal_degree=1, vertical_degree=1):
-    return function_space(mesh, horizontal_degree, vertical_degree).subfunctions[1]
+    return function_space(mesh, horizontal_degree, vertical_degree).subspaces[1]
 
 
 def density_function_space(mesh, horizontal_degree=1, vertical_degree=1):
-    return function_space(mesh, horizontal_degree, vertical_degree).subfunctions[1]
+    return function_space(mesh, horizontal_degree, vertical_degree).subspaces[1]
 
 
 def temperature_function_space(mesh, horizontal_degree=1, vertical_degree=1):
-    return function_space(mesh, horizontal_degree, vertical_degree).subfunctions[2]
+    return function_space(mesh, horizontal_degree, vertical_degree).subspaces[2]
 
 
 def hydrostatic_rho(Vv, V2, mesh, thetan, rhon, pi_boundary,

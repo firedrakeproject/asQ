@@ -44,7 +44,7 @@ gas = euler.StandardAtmosphere(N=0.01)
 W, Vv = euler.function_space(mesh, horizontal_degree=args.degree,
                              vertical_degree=args.degree,
                              vertical_velocity_space=True)
-V1, V2, Vt = W.subfunctions  # velocity, density, temperature
+V1, V2, Vt = W.subspaces  # velocity, density, temperature
 
 PETSc.Sys.Print(f"DoFs: {W.dim()}")
 PETSc.Sys.Print(f"DoFs/core: {W.dim()/comm.size}")
