@@ -13,8 +13,12 @@ from utils.mg import ManifoldTransferManager  # noqa: F401
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_Nitsche_BCs():
-    # test the linear equation u_t - Delta u = 0, with u_ex = exp(0.5*x + y + 1.25*t) and weakly imposing Dirichlet BCs
+def test_nitsche_bcs():
+    """
+    Test the linear equation u_t - Delta u = 0,
+    with u_ex = exp(0.5*x + y + 1.25*t)
+    and weakly imposed Dirichlet BCs.
+    """
     nspatial_domains = 2
     degree = 1
     nx = 10
@@ -88,7 +92,88 @@ def test_Nitsche_BCs():
 
 
 @pytest.mark.parallel(nprocs=4)
-def test_Nitsche_heat_timeseries():
+def test_time_dependent_bcs():
+    """
+    Test the linear equation u_t - Delta u = 0,
+    with u_ex = exp(0.5*x + y + 1.25*t)
+    and strongly imposed Dirichlet BCs.
+    """
+    nspatial_domains = 2
+    degree = 1
+    nx = 10
+    h = 1/nx
+    dt = h
+    slice_length = 2
+    nslices = fd.COMM_WORLD.size//nspatial_domains
+
+    time_partition = [slice_length for _ in range(nslices)]
+
+    ensemble = fd.Ensemble(fd.COMM_WORLD, nspatial_domains)
+    mesh = fd.UnitSquareMesh(
+        nx, nx, quadrilateral=False, comm=ensemble.comm,
+        distribution_parameters={'partitioner_type': 'simple'})
+
+    x, y = fd.SpatialCoordinate(mesh)
+    V = fd.FunctionSpace(mesh, "CG", degree)
+
+    def uexact(t):
+        return fd.exp(0.5*x + y + 1.25*t)
+
+    def form_mass(q, phi):
+        return phi*q*fd.dx
+
+    def form_function(q, phi, t):
+        return fd.inner(fd.grad(q), fd.grad(phi))*fd.dx
+
+    def form_bcs(V, q, t):
+        return [fd.DirichletBC(V, uexact(t), "on_boundary")]
+
+    # Parameters for the diag
+    solver_parameters_diag = {
+        'snes_type': 'ksponly',
+        'ksp_rtol': 1e-8,
+        'mat_type': 'matfree',
+        'ksp_type': 'gmres',
+        'pc_type': 'none',
+        # 'pc_type': 'python',
+        # 'pc_python_type': 'asQ.CirculantPC',
+        # 'circulant_block': {
+        #     'ksp_type': 'preonly',
+        #     'pc_type': 'lu',
+        #     'pc_factor_mat_solver_type': 'mumps'
+        # },
+    }
+
+    w0 = fd.Function(V).interpolate(uexact(0))
+
+    pdg = asQ.Paradiag(ensemble=ensemble,
+                       form_function=form_function,
+                       form_mass=form_mass, bcs=[form_bcs],
+                       dt=dt, theta=0.5, ics=w0,
+                       time_partition=time_partition,
+                       solver_parameters=solver_parameters_diag)
+    pdg.solve()
+    q_exact = fd.Function(V)
+    qp = fd.Function(V)
+    errors = asQ.SharedArray(time_partition, comm=ensemble.ensemble_comm)
+
+    for step in range(pdg.ntimesteps):
+        if pdg.aaoform.layout.is_local(step):
+            local_step = pdg.aaofunc.transform_index(step, from_range='window')
+            t = pdg.aaoform.time[local_step]
+            q_exact.interpolate(uexact(t))
+            qp.assign(pdg.aaofunc[local_step])
+
+            errors.dlocal[local_step] = fd.errornorm(qp, q_exact)
+
+    errors.synchronise()
+
+    for step in range(pdg.ntimesteps):
+        assert (errors.dglobal[step] < h**(3/2)), "Error from analytical solution should be close to discretisation error"
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_nitsche_heat_timeseries():
     from utils.serial import ComparisonMiniapp
 
     nwindows = 1
