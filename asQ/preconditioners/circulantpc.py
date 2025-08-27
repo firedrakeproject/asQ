@@ -385,7 +385,7 @@ class CirculantPC(AllAtOnceBlockPCBase):
         if self.first_solve and self.ensemble.ensemble_comm.rank == 0:
             self.ensemble.global_comm.Barrier()
 
-        if first_solve:
+        if self.first_solve:
             self.ensemble.global_comm.Barrier()
 
         self.first_solve = False
