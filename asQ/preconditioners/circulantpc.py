@@ -265,6 +265,8 @@ class CirculantPC(AllAtOnceBlockPCBase):
 
             self.block_solvers.append(block_solver)
 
+        self.first_solve = True
+
         self.initialized = True
 
     @profiler()
@@ -360,6 +362,9 @@ class CirculantPC(AllAtOnceBlockPCBase):
 
         # Do the block solves
 
+        if self.first_solve and self.ensemble.ensemble_comm.rank > 0:
+            self.ensemble.global_comm.Barrier()
+
         with PETSc.Log.Event("asQ.diag_preconditioner.CirculantPC.apply.block_solves"):
             for i in range(self.nlocal_timesteps):
                 # copy the data into solver input
@@ -376,6 +381,11 @@ class CirculantPC(AllAtOnceBlockPCBase):
                 # copy the data from solver output
                 cpx.get_real(self.block_sol, self.xfr[i])
                 cpx.get_imag(self.block_sol, self.xfi[i])
+
+        if self.first_solve and self.ensemble.ensemble_comm.rank == 0:
+            self.ensemble.global_comm.Barrier()
+
+        self.first_solve = False
 
         ######################
         # Undiagonalise - Copy, transfer, IFFT, transfer, scale, copy
