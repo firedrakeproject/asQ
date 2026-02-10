@@ -1,5 +1,6 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
+from petsctools import PCBase
 
 from asQ.profiling import profiler
 from asQ.common import get_option_from_list, get_deprecated_option
@@ -20,7 +21,7 @@ def get_default_options(default_prefix, custom_suffixes, options=PETSc.Options()
     return default_options
 
 
-class AllAtOncePCBase(TimePartitionMixin):
+class AllAtOncePCBase(PCBase, TimePartitionMixin):
     """
     Base class for preconditioners for the all-at-once system.
 
@@ -29,18 +30,8 @@ class AllAtOncePCBase(TimePartitionMixin):
         - define prefix member
     """
 
-    @profiler()
-    def __init__(self):
-        r"""A preconditioner for all-at-once systems.
-        """
-        self.initialized = False
-
-    @profiler()
-    def setUp(self, pc):
-        """Setup method called by PETSc."""
-        if not self.initialized:
-            self.initialize(pc)
-        self.update(pc)
+    needs_python_amat = True
+    needs_python_pmat = True
 
     @profiler()
     def initialize(self, pc, final_initialize=True):

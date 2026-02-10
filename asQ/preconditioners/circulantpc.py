@@ -265,6 +265,8 @@ class CirculantPC(AllAtOnceBlockPCBase):
 
             self.block_solvers.append(block_solver)
 
+        self.update(pc)
+
         self.initialized = True
 
     @profiler()
