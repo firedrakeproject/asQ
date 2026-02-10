@@ -1,4 +1,5 @@
-from petsctools import OptionsManager, flatten_parameters
+from petsctools import (
+    attach_options, set_from_options, get_options, inserted_options)
 from firedrake.petsc import PETSc
 
 from asQ.profiling import profiler
@@ -12,9 +13,9 @@ __all__ = ['AllAtOnceSolver', 'LinearSolver']
 class AllAtOnceSolver(TimePartitionMixin):
     @profiler()
     def __init__(self, aaoform, aaofunc,
-                 solver_parameters={},
-                 appctx={},
-                 options_prefix="",
+                 solver_parameters=None,
+                 appctx=None,
+                 options_prefix=None,
                  jacobian_form=None,
                  jacobian_reference_state=None,
                  pre_function_callback=None,
@@ -52,7 +53,7 @@ class AllAtOnceSolver(TimePartitionMixin):
         self.aaofunc = aaofunc
         self.aaoform = aaoform
 
-        self.appctx = appctx
+        self.appctx = appctx or {}
 
         self.jacobian_form = aaoform.copy() if jacobian_form is None else jacobian_form
 
@@ -80,16 +81,14 @@ class AllAtOnceSolver(TimePartitionMixin):
         else:
             self.post_jacobian_callback = post_jacobian_callback
 
-        # solver options
-        self.solver_parameters = solver_parameters
-        self.flat_solver_parameters = flatten_parameters(solver_parameters)
-        self.options = OptionsManager(self.flat_solver_parameters, options_prefix)
-        options_prefix = self.options.options_prefix
 
-        # snes
+        # the nonlinear solver
         self.snes = PETSc.SNES().create(comm=self.ensemble.global_comm)
 
-        self.snes.setOptionsPrefix(options_prefix)
+        attach_options(self.snes, parameters=solver_parameters,
+                       options_prefix=options_prefix,
+                       default_prefix='asq')
+        options_prefix = get_options(self.snes).options_prefix
 
         def assemble_function(snes, X, F):
             self.pre_function_callback(self, X)
@@ -98,15 +97,14 @@ class AllAtOnceSolver(TimePartitionMixin):
                 fvec.copy(F)
             self.post_function_callback(self, X, F)
 
-        self._F = aaoform.F._vec.duplicate()
-        self.snes.setFunction(assemble_function, self._F)
+        self.snes.setFunction(assemble_function)
 
         # Jacobian
-        with self.options.inserted_options():
+        with inserted_options(self.snes):
             self.jacobian = AllAtOnceJacobian(self.jacobian_form,
                                               reference_state=jacobian_reference_state,
                                               options_prefix=options_prefix,
-                                              appctx=appctx)
+                                              appctx=self.appctx)
 
         self.jacobian_mat = self.jacobian.petsc_mat()
 
@@ -122,7 +120,7 @@ class AllAtOnceSolver(TimePartitionMixin):
                               P=self.jacobian_mat)
 
         # complete the snes setup
-        self.options.set_from_options(self.snes)
+        set_from_options(self.snes)
 
     @profiler()
     def solve(self, rhs=None):
@@ -131,23 +129,24 @@ class AllAtOnceSolver(TimePartitionMixin):
 
         :arg rhs: optional constant part of the system.
         """
-        with self.aaofunc.global_vec() as gvec, self.options.inserted_options():
-            if rhs is None:
-                self.snes.solve(None, gvec)
-            else:
-                if not isinstance(rhs, AllAtOnceCofunction):
-                    msg = f"Right hand side of all-at-once problem must be AllAtOnceCofunction not {type(rhs)}."
-                    raise TypeError(msg)
-                with rhs.global_vec_ro() as rvec:
-                    self.snes.solve(rvec, gvec)
+        with inserted_options(self.snes):
+            with self.aaofunc.global_vec() as gvec:
+                if rhs is None:
+                    self.snes.solve(None, gvec)
+                else:
+                    if not isinstance(rhs, AllAtOnceCofunction):
+                        msg = f"Right hand side of all-at-once problem must be AllAtOnceCofunction not {type(rhs)}."
+                        raise TypeError(msg)
+                    with rhs.global_vec_ro() as rvec:
+                        self.snes.solve(rvec, gvec)
 
 
 class LinearSolver(TimePartitionMixin):
     @profiler()
     def __init__(self, aaoform,
-                 solver_parameters={},
-                 appctx={},
-                 options_prefix=""):
+                 solver_parameters=None,
+                 appctx=None,
+                 options_prefix=None):
         """
         Solve a linear system where the matrix is an all-at-once Jacobian.
 
@@ -167,29 +166,27 @@ class LinearSolver(TimePartitionMixin):
         self._time_partition_setup(aaoform.ensemble, aaoform.time_partition)
 
         self.aaoform = aaoform
-        self.appctx = appctx
+        self.appctx = appctx or {}
+
+        # the linear solver
+        self.ksp = PETSc.KSP().create(comm=self.ensemble.global_comm)
 
         # manage options from both dict and command line
-        self.solver_parameters = solver_parameters
-        self.flat_solver_parameters = flatten_parameters(solver_parameters)
-        self.options = OptionsManager(self.flat_solver_parameters, options_prefix)
-        options_prefix = self.options.options_prefix
-
-        # the solver
-        self.ksp = PETSc.KSP().create(comm=self.ensemble.global_comm)
-        self.ksp.setOptionsPrefix(options_prefix)
+        attach_options(self.ksp, parameters=solver_parameters,
+                       options_prefix=options_prefix,
+                       default_prefix='asq')
+        options_prefix = get_options(self.ksp).options_prefix
 
         # create the all-at-once jacobian
-        with self.options.inserted_options():
-            self.jacobian = AllAtOnceJacobian(aaoform, appctx=appctx,
+        with inserted_options(self.ksp):
+            self.jacobian = AllAtOnceJacobian(aaoform, appctx=self.appctx,
                                               options_prefix=options_prefix)
 
         # create petsc matrix
-        self.jacobian_mat = self.jacobian.petsc_mat()
+        self.ksp.setOperators(self.jacobian.petsc_mat())
 
         # finish setting up the ksp
-        self.ksp.setOperators(self.jacobian_mat)
-        self.options.set_from_options(self.ksp)
+        set_from_options(self.ksp)
 
     @profiler()
     def solve(self, b, x):
@@ -208,5 +205,5 @@ class LinearSolver(TimePartitionMixin):
             raise TypeError(msg)
 
         with x.global_vec() as xvec, b.global_vec_ro() as bvec:
-            with self.options.inserted_options():
+            with inserted_options(self.ksp):
                 self.ksp.solve(bvec, xvec)
