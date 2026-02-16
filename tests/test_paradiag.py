@@ -156,8 +156,8 @@ def test_Nitsche_heat_timeseries():
     miniapp = ComparisonMiniapp(ensemble, time_partition,
                                 form_mass, form_function,
                                 w_initial, dt, theta,
-                                serial_sparameters,
-                                parallel_sparameters)
+                                serial_parameters=serial_sparameters,
+                                parallel_parameters=parallel_sparameters)
 
     norm0 = fd.norm(w_initial)
 
@@ -339,8 +339,8 @@ def test_galewsky_timeseries():
     miniapp = ComparisonMiniapp(ensemble, time_partition,
                                 form_mass, form_function,
                                 w_initial, dt, theta,
-                                serial_sparameters,
-                                parallel_sparameters)
+                                serial_parameters=serial_sparameters,
+                                parallel_parameters=parallel_sparameters)
 
     norm0 = fd.norm(w_initial)
 
@@ -434,7 +434,7 @@ def test_steady_swe_miniapp():
         create_mesh=create_mesh,
         dt=dt, theta=theta,
         time_partition=time_partition,
-        paradiag_sparameters=solver_parameters_diag,
+        solver_parameters=solver_parameters_diag,
         record_diagnostics={'cfl': True, 'file': False})
 
     miniapp.solve()

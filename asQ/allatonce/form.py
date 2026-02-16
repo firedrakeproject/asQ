@@ -14,7 +14,7 @@ class AllAtOnceForm(TimePartitionMixin):
     def __init__(self,
                  aaofunc, dt, theta,
                  form_mass, form_function,
-                 bcs=[], alpha=None):
+                 bcs=None, alpha=None):
         """
         The all-at-once form representing the implicit theta-method (trapezium rule version)
         over multiple timesteps of a time-dependent finite-element problem.
@@ -52,7 +52,7 @@ class AllAtOnceForm(TimePartitionMixin):
         self.alpha = None if alpha is None else fd.Constant(alpha)
 
         # should this make a copy of bcs instead of taking a reference?
-        self.field_bcs = bcs
+        self.field_bcs = bcs or []
         self.bcs = self._set_bcs(self.field_bcs)
 
         for bc in self.bcs:

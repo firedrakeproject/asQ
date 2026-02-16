@@ -81,7 +81,6 @@ class AllAtOnceSolver(TimePartitionMixin):
         else:
             self.post_jacobian_callback = post_jacobian_callback
 
-
         # the nonlinear solver
         self.snes = PETSc.SNES().create(comm=self.ensemble.global_comm)
 
@@ -121,6 +120,14 @@ class AllAtOnceSolver(TimePartitionMixin):
 
         # complete the snes setup
         set_from_options(self.snes)
+
+    @property
+    def solver_parameters(self):
+        return get_options(self.snes).parameters
+
+    @property
+    def options_prefix(self):
+        return get_options(self.snes).options_prefix
 
     @profiler()
     def solve(self, rhs=None):
@@ -187,6 +194,14 @@ class LinearSolver(TimePartitionMixin):
 
         # finish setting up the ksp
         set_from_options(self.ksp)
+
+    @property
+    def solver_parameters(self):
+        return get_options(self.snes).parameters
+
+    @property
+    def options_prefix(self):
+        return get_options(self.snes).options_prefix
 
     @profiler()
     def solve(self, b, x):

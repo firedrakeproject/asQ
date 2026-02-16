@@ -1,4 +1,4 @@
-
+from os import makedirs
 import firedrake as fd
 
 from pyop2.mpi import MPI
@@ -348,6 +348,7 @@ def write_paradiag_metrics(pdg, directory=""):
     is_root = (pdg.ensemble.global_comm.rank == 0)
 
     if is_root:
+        makedirs(directory, exist_ok=True)
         # write solver parameters
         write_solver_parameters(pdg.solver.solver_parameters, directory)
 

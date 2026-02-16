@@ -1,5 +1,4 @@
 from firedrake.petsc import PETSc
-from warnings import warn
 
 
 def get_option_from_list(prefix, option_name, option_list,

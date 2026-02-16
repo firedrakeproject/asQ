@@ -16,10 +16,11 @@ class ShallowWaterMiniApp(TimePartitionMixin):
                  depth_expression,
                  dt, theta,
                  time_partition,
-                 paradiag_sparameters,
+                 solver_parameters,
+                 options_prefix=None,
                  create_mesh=swe.create_mg_globe_mesh,
                  coriolis_expression=swe.earth_coriolis_expression,
-                 appctx={},
+                 appctx=None,
                  reference_depth=0,
                  reference_state=False,
                  linear=False,
@@ -41,7 +42,7 @@ class ShallowWaterMiniApp(TimePartitionMixin):
         :arg dt: timestep size.
         :arg theta: parameter for the implicit theta-method integrator
         :arg time_partition: a list with how many timesteps are on each of the ensemble time-ranks.
-            arg :paradiag_sparameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
+        arg :solver_parameters: a dictionary of PETSc solver parameters for the solution of the all-at-once system
         :arg appctx: a dictionary of extra values required for the preconditioner.
         :arg reference_depth: constant used to calculate elevation
         :arg reference_state: Whether to create a reference state for the AllAtOnceSystem
@@ -125,7 +126,8 @@ class ShallowWaterMiniApp(TimePartitionMixin):
             time_partition=time_partition,
             appctx=appctx,
             reference_state=reference_state,
-            solver_parameters=paradiag_sparameters,
+            options_prefix=options_prefix,
+            solver_parameters=solver_parameters,
             pre_function_callback=pre_function_callback,
             post_function_callback=post_function_callback,
             pre_jacobian_callback=pre_jacobian_callback,

@@ -1,7 +1,6 @@
 import firedrake as fd
 from firedrake.petsc import PETSc
 
-from warnings import warn
 import numpy as np
 from scipy.fft import fft, ifft
 

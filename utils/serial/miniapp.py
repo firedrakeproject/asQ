@@ -1,3 +1,4 @@
+import itertools
 import firedrake as fd
 
 import numpy as np
@@ -6,13 +7,10 @@ import asQ
 
 
 class SerialMiniApp(object):
-    def __init__(self,
-                 dt, theta,
-                 w_initial,
-                 form_mass,
-                 form_function,
-                 solver_parameters,
-                 bcs=[], appctx={}):
+    _count = itertools.count()
+
+    def __init__(self, dt, theta, w_initial, form_mass, form_function, bcs=None,
+                 options_prefix=None, solver_parameters=None, appctx={}):
         '''
         A miniapp to integrate a finite element form forward in time using the implicit theta method
 
@@ -21,7 +19,9 @@ class SerialMiniApp(object):
         :arg w_initial: initial conditions
         :arg form_mass: a function that returns a linear form on w_initial.function_space() providing the mass operator M for the ODE M*w_t + f(w) = 0
         :arg form_function: a function that returns a linear form on w_initial.function_space() providing f(w) for the ODE M*w_t + f(w) = 0
+        :arg bcs: boundary conditions
         :arg solver_parameters: options dictionary for nonlinear solver
+        :arg options_prefix: options prefix for nonlinear solver
         '''
         self.dt = dt
         self.time = fd.Constant(dt)
@@ -32,19 +32,21 @@ class SerialMiniApp(object):
         self.form_mass = form_mass
         self.form_function = form_function
 
-        self.solver_parameters = solver_parameters
-
         self.bcs = bcs
+
+        # mismatch in firedrake 2025.10.2 and petsctools version
+        # means that the default prefix for NLVS is "petsctools_%d"
+        # rather than "firedrake_%d", so we manually make a count.
+        options_prefix = options_prefix or f"asq_serial_{next(self._count)}"
 
         # current and next timesteps
         self.w0 = fd.Function(self.function_space).assign(self.initial_condition)
         self.w1 = fd.Function(self.function_space).assign(self.initial_condition)
 
         # time integration form
-        self.form_full = self.set_theta_form(self.form_mass,
-                                             self.form_function,
-                                             self.dt, self.theta,
-                                             self.w0, self.w1)
+        self.form_full = self.set_theta_form(
+            self.form_mass, self.form_function,
+            self.dt, self.theta, self.w0, self.w1)
 
         appctx['uref'] = self.w1
         appctx['bcs'] = bcs
@@ -54,10 +56,11 @@ class SerialMiniApp(object):
         appctx['form_mass'] = form_mass
         appctx['form_function'] = form_function
 
-        self.nlproblem = fd.NonlinearVariationalProblem(self.form_full, self.w1, bcs=bcs)
-
-        self.nlsolver = fd.NonlinearVariationalSolver(self.nlproblem, appctx=appctx,
-                                                      solver_parameters=self.solver_parameters)
+        self.nlsolver = fd.NonlinearVariationalSolver(
+            fd.NonlinearVariationalProblem(
+                self.form_full, self.w1, bcs=bcs),
+            appctx=appctx, options_prefix=options_prefix,
+            solver_parameters=solver_parameters)
 
     def set_theta_form(self, form_mass, form_function, dt, theta, w0, w1):
         '''
@@ -104,10 +107,11 @@ class ComparisonMiniapp(object):
                  form_function,
                  w_initial,
                  dt, theta,
-                 serial_sparameters,
-                 parallel_sparameters,
-                 boundary_conditions=[],
-                 appctx={}):
+                 serial_parameters,
+                 parallel_parameters,
+                 boundary_conditions=None,
+                 options_prefix=None,
+                 appctx=None):
         '''
         A miniapp to run the same problem in serial and with paradiag and compare the results
 
@@ -131,17 +135,25 @@ class ComparisonMiniapp(object):
         self.w_initial = w_initial
         self.dt = dt
         self.theta = theta
-        self.serial_sparameters = serial_sparameters
-        self.parallel_sparameters = parallel_sparameters
         self.boundary_conditions = boundary_conditions
         self.appctx = appctx
 
         self.function_space = self.w_initial.function_space()
 
+        if options_prefix is None:
+            serial_prefix = options_prefix
+            paradiag_prefix = options_prefix
+        else:
+            if not options_prefix.endswith("_"):
+                options_prefix += "_"
+            serial_prefix = options_prefix + "serial"
+            paradiag_prefix = options_prefix + "paradiag"
+
         # set up serial solver
         self.serial_app = SerialMiniApp(dt, theta, w_initial,
                                         form_mass, form_function,
-                                        serial_sparameters,
+                                        options_prefix=serial_prefix,
+                                        solver_parameters=serial_parameters,
                                         bcs=boundary_conditions)
 
         # set up paradiag
@@ -151,7 +163,8 @@ class ComparisonMiniapp(object):
                                      ics=w_initial, dt=dt, theta=theta,
                                      time_partition=time_partition,
                                      bcs=boundary_conditions,
-                                     solver_parameters=parallel_sparameters,
+                                     options_prefix=paradiag_prefix,
+                                     solver_parameters=parallel_parameters,
                                      appctx=appctx)
 
         self.wserial = tuple(fd.Function(self.function_space)
