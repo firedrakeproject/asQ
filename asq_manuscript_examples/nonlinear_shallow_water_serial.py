@@ -165,7 +165,8 @@ serial_parameters.update(mg_sparameters)
 # for the serial-in-time method.
 miniapp = SerialMiniApp(dt, args.theta, w_initial,
                         form_mass, form_function,
-                        serial_parameters)
+                        options_prefix="swe_serial",
+                        solver_parameters=serial_parameters)
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')
 linear_its = 0

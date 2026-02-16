@@ -157,6 +157,7 @@ paradiag = asQ.Paradiag(ensemble=ensemble,
                         form_mass=form_mass,
                         ics=q0, dt=dt, theta=args.theta,
                         time_partition=time_partition,
+                        options_prefix="advection_paradiag",
                         solver_parameters=paradiag_parameters)
 
 # create a timer to profile the calculations
