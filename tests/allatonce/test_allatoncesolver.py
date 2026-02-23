@@ -160,7 +160,7 @@ cpx_types = [pytest.param('vector', id="vector_cpx"),
              pytest.param('mixed', id="mixed_cpx")]
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(nprocs=[1, 4])
 @pytest.mark.parametrize("extrude", extruded)
 @pytest.mark.parametrize("cpx_type", cpx_types)
 def test_solve_mixed_wave_equation(extrude, cpx_type):
@@ -171,7 +171,7 @@ def test_solve_mixed_wave_equation(extrude, cpx_type):
     """
 
     # space-time parallelism
-    nspace_ranks = 2
+    nspace_ranks = 1 if fd.COMM_WORLD.size == 1 else 2
     nslices = fd.COMM_WORLD.size//nspace_ranks
     slice_length = 2
 
