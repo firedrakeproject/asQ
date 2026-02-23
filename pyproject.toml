@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asQ"
+version = "2026.1"
+authors = [
+   {name = "Werner Bauer"},
+   {name = "Colin J. Cotter"},
+   {name = "Abdalaziz Hamdan"},
+   {name = "Josh Hope-Collins", email = "joshua.hope-collins13@imperial.ac.uk"},
+   {name = "Lawrence Mitchell"},
+]
+description = "A library for implementing ParaDiag timestepping algorithms using Firedrake"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+classifiers = [
+   "Programming Language :: Python",
+]
+dependencies = [
+   "petsctools>=2025.3"
+]
+
+[project.urls]
+Repository = "https://github.com/firedrakeproject/asQ.git"
+
+[tool.setuptools.packages.find]
+include = [
+   "asQ*",
+   "utils*",
+]
