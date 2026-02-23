@@ -12,10 +12,10 @@ from operator import mul
 from utils.mg import ManifoldTransferManager  # noqa: F401
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(nprocs=[1, 4])
 def test_Nitsche_BCs():
     # test the linear equation u_t - Delta u = 0, with u_ex = exp(0.5*x + y + 1.25*t) and weakly imposing Dirichlet BCs
-    nspatial_domains = 2
+    nspatial_domains = 1 if fd.COMM_WORLD.size == 1 else 2
     degree = 1
     nx = 10
     dx = 1/nx
@@ -87,12 +87,12 @@ def test_Nitsche_BCs():
         assert (errors.dglobal[step] < (dx)**(3/2)), "Error from analytical solution should be close to discretisation error"
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(nprocs=[1, 4])
 def test_Nitsche_heat_timeseries():
     from utils.serial import ComparisonMiniapp
 
     nwindows = 1
-    nslices = 2
+    nslices = 1 if fd.COMM_WORLD.size == 1 else 2
     slice_length = 2
     dt = 0.5
     theta = 0.5
@@ -191,7 +191,7 @@ def test_Nitsche_heat_timeseries():
         assert err/norm0 < tol, "Serial and parallel solutions should match to solver tolerance"
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(nprocs=[1, 4])
 def test_galewsky_timeseries():
     from utils import units
     from utils.planets import earth
@@ -201,7 +201,7 @@ def test_galewsky_timeseries():
 
     ref_level = 2
     nwindows = 1
-    nslices = 2
+    nslices = 1 if fd.COMM_WORLD.size == 1 else 2
     slice_length = 2
     dt = 0.5
     theta = 0.5
@@ -374,7 +374,7 @@ def test_galewsky_timeseries():
         assert err/norm0 < 10*tol, "Serial and parallel solutions should match to solver tolerance + leeway"
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(nprocs=[1, 4])
 def test_steady_swe_miniapp():
     # test that steady-state is maintained for shallow water eqs
     import utils.units as units
@@ -385,7 +385,7 @@ def test_steady_swe_miniapp():
     # set up the ensemble communicator for space-time parallelism
     ref_level = 2
 
-    nslices = fd.COMM_WORLD.size//2
+    nslices = 1 if fd.COMM_WORLD.size == 1 else fd.COMM_WORLD.size//2
     slice_length = 2
 
     time_partition = tuple((slice_length for _ in range(nslices)))
@@ -476,7 +476,7 @@ cpx_types = [pytest.param('vector', id="vector_cpx"),
              pytest.param('mixed', id="mixed_cpx")]
 
 
-@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parallel(nprocs=[1, 6])
 @pytest.mark.parametrize("bc_opt", bc_opts)
 @pytest.mark.parametrize("extruded", extruded_mixed)
 @pytest.mark.parametrize("cpx_type", cpx_types)
@@ -488,7 +488,7 @@ def test_solve_para_form(bc_opt, extruded, cpx_type):
     """
 
     # set up the ensemble communicator for space-time parallelism
-    nslices = fd.COMM_WORLD.size//2
+    nslices = 1 if fd.COMM_WORLD.size == 1 else fd.COMM_WORLD.size//2
     slice_length = 2
 
     time_partition = tuple((slice_length for _ in range(nslices)))
@@ -512,7 +512,7 @@ def test_solve_para_form(bc_opt, extruded, cpx_type):
     time = .01
     theta = 0.5
     c = fd.Constant(1)
-    time_partition = [2, 2, 2]
+    time_partition = [2 for _ in range(nslices)]
     ntimesteps = sum(time_partition)
 
     # Parameters for the diag
