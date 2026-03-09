@@ -120,7 +120,7 @@ serial_parameters.update(block_parameters)
 # for the serial-in-time method.
 miniapp = SerialMiniApp(dt, args.theta, q0,
                         form_mass, form_function,
-                        options_prefix="advection_serial",
+                        options_prefix="",
                         solver_parameters=serial_parameters)
 
 # create a timer to profile the calculations

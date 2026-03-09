@@ -233,7 +233,7 @@ miniapp = SerialMiniApp(dt=dt, theta=args.theta, w_initial=Un,
                         form_mass=form_mass,
                         form_function=form_function,
                         solver_parameters=solver_parameters,
-                        options_prefix="slice_serial",
+                        options_prefix="",
                         bcs=bcs, appctx=appctx)
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')

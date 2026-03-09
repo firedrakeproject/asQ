@@ -265,7 +265,7 @@ paradiag = asQ.Paradiag(ensemble=ensemble,
                         ics=Un, dt=dt, theta=args.theta,
                         reference_state=Uback,
                         bcs=bcs, appctx=appctx,
-                        options_prefix="slice_paradiag",
+                        options_prefix="",
                         solver_parameters=solver_parameters)
 
 aaofunc = paradiag.aaofunc

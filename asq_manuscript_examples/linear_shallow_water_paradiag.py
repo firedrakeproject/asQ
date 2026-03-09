@@ -139,7 +139,7 @@ miniapp = ShallowWaterMiniApp(
     dt=dt, theta=args.theta,
     time_partition=time_partition,
     solver_parameters=paradiag_parameters,
-    options_prefix="lswe_paradiag",
+    options_prefix="",
     record_diagnostics={'cfl': False, 'file': True},
     file_name=args.vtkfile)
 

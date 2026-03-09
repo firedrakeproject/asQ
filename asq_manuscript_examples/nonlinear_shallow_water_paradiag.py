@@ -163,7 +163,7 @@ miniapp = swe.ShallowWaterMiniApp(
     dt=dt, theta=args.theta,
     time_partition=time_partition,
     solver_parameters=paradiag_parameters,
-    options_prefix="swe_paradiag",
+    options_prefix="",
     file_name=args.vtkfile,
     record_diagnostics={'cfl': True, 'file': True})
 
