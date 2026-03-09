@@ -17,7 +17,7 @@ def initial_conditions(mesh, W, Vv, gas, H, perturbation=True, hydrostatic=False
         return NotImplementedError
 
     x, z = fd.SpatialCoordinate(mesh)
-    V2 = W.subfunctions[1]
+    V2 = W.subspaces[1]
     up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
     Un = fd.Function(W)
@@ -118,13 +118,13 @@ n = fd.FacetNormal(mesh)
 W, Vv = euler.function_space(mesh, horizontal_degree=args.degree,
                              vertical_degree=args.degree,
                              vertical_velocity_space=True)
-V1, V2, Vt = W.subfunctions  # velocity, density, temperature
+V1, V2, Vt = W.subspaces  # velocity, density, temperature
 
 PETSc.Sys.Print(f"DoFs: {W.dim()}")
 PETSc.Sys.Print(f"DoFs/core: {W.dim()/comm.size}")
 PETSc.Sys.Print("")
 
-PETSc.Sys.Print("Calculating initial condiions")
+PETSc.Sys.Print("Calculating initial conditions")
 
 # ideal gas properties
 gas = euler.StandardAtmosphere(N=0.01)
@@ -233,6 +233,7 @@ miniapp = SerialMiniApp(dt=dt, theta=args.theta, w_initial=Un,
                         form_mass=form_mass,
                         form_function=form_function,
                         solver_parameters=solver_parameters,
+                        options_prefix="",
                         bcs=bcs, appctx=appctx)
 
 PETSc.Sys.Print('### === --- Timestepping loop --- === ###')

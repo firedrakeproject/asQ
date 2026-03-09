@@ -152,18 +152,20 @@ create_mesh = partial(
     base_level=args.base_level,
     coords_degree=1)
 
-miniapp = swe.ShallowWaterMiniApp(gravity=earth.Gravity,
-                                  topography_expression=galewsky.topography_expression,
-                                  velocity_expression=galewsky.velocity_expression,
-                                  depth_expression=galewsky.depth_expression,
-                                  reference_depth=galewsky.H0,
-                                  reference_state=True,
-                                  create_mesh=create_mesh,
-                                  dt=dt, theta=args.theta,
-                                  time_partition=time_partition,
-                                  paradiag_sparameters=paradiag_parameters,
-                                  file_name=args.vtkfile,
-                                  record_diagnostics={'cfl': True, 'file': True})
+miniapp = swe.ShallowWaterMiniApp(
+    gravity=earth.Gravity,
+    topography_expression=galewsky.topography_expression,
+    velocity_expression=galewsky.velocity_expression,
+    depth_expression=galewsky.depth_expression,
+    reference_depth=galewsky.H0,
+    reference_state=True,
+    create_mesh=create_mesh,
+    dt=dt, theta=args.theta,
+    time_partition=time_partition,
+    solver_parameters=paradiag_parameters,
+    options_prefix="",
+    file_name=args.vtkfile,
+    record_diagnostics={'cfl': True, 'file': True})
 
 timer = SolverTimer()
 

@@ -37,6 +37,8 @@ jobs:
       PYOP2_SPMD_STRICT: 1
       # Make sure tests with >8 processes are not silently skipped
       PYTEST_MPI_MAX_NPROCS: 8
+      # Tell PETSc to ignore the pytest command line arguments
+      FIREDRAKE_DISABLE_OPTIONS_LEFT: 1
       # Common arguments for pytest. TODO: Is pytest coverage possible firedrake-run-split-tests?
       PYTEST_ARGS: --durations=30 --timeout=500 --timeout-method=thread -o faulthandler_timeout=600 --verbose asQ-repo/tests/
       # venv activation script

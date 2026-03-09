@@ -19,7 +19,7 @@ def initial_conditions(mesh, W, Vv, gas, H, perturbation=True, hydrostatic=False
         return NotImplementedError
 
     x, z = fd.SpatialCoordinate(mesh)
-    V2 = W.subfunctions[1]
+    V2 = W.subspaces[1]
     up = fd.as_vector([fd.Constant(0.0), fd.Constant(1.0)])  # up direction
 
     Un = fd.Function(W)
@@ -130,7 +130,7 @@ n = fd.FacetNormal(mesh)
 W, Vv = euler.function_space(mesh, horizontal_degree=args.degree,
                              vertical_degree=args.degree,
                              vertical_velocity_space=True)
-V1, V2, Vt = W.subfunctions  # velocity, density, temperature
+V1, V2, Vt = W.subspaces  # velocity, density, temperature
 
 Print(f'DoFs per timestep: {W.dim()}', comm=global_comm)
 Print(f'Number of MPI ranks per timestep: {mesh.comm.size}', comm=global_comm)
@@ -138,7 +138,7 @@ Print(f'DoFs/rank: {W.dim()/mesh.comm.size}', comm=global_comm)
 Print(f'Block DoFs/rank: {2*W.dim()/mesh.comm.size}', comm=global_comm)
 Print('')
 
-Print("Calculating initial condiions")
+Print("Calculating initial conditions")
 Print('')
 
 # ideal gas properties
@@ -251,7 +251,7 @@ solver_parameters = {
     "pc_python_type": "asQ.CirculantPC",
     "circulant_state": 'reference',  # use the Jacobian reference state
     "circulant_alpha": 1e-5,
-    "circulant_block": block_parameters,
+    "circulant_block": patch_parameters,
 }
 
 
@@ -265,6 +265,7 @@ paradiag = asQ.Paradiag(ensemble=ensemble,
                         ics=Un, dt=dt, theta=args.theta,
                         reference_state=Uback,
                         bcs=bcs, appctx=appctx,
+                        options_prefix="",
                         solver_parameters=solver_parameters)
 
 aaofunc = paradiag.aaofunc

@@ -190,10 +190,9 @@ class AllAtOnceJacobian(TimePartitionMixin):
         """
         Return a petsc4py.PETSc.Mat with this AllAtOnceJacobian as the python context.
         """
-        mat = PETSc.Mat().create(comm=self.ensemble.global_comm)
-        mat.setType("python")
         sizes = (self.aaofunc.nlocal_dofs, self.aaofunc.nglobal_dofs)
-        mat.setSizes((sizes, sizes))
-        mat.setPythonContext(self)
+        mat = PETSc.Mat().createPython(
+            size=(sizes, sizes), context=self,
+            comm=self.ensemble.global_comm)
         mat.setUp()
         return mat

@@ -153,6 +153,9 @@ class JacobiPC(AllAtOnceBlockPCBase):
         self.block_iterations = SharedArray(self.time_partition,
                                             dtype=int,
                                             comm=self.ensemble.ensemble_comm)
+
+        self.update(pc)
+
         self.initialized = True
 
     @profiler()
@@ -323,6 +326,7 @@ class SliceJacobiPC(AllAtOncePCBase):
             options_prefix=default_slice_prefix+str(self.slice_rank),
             solver_parameters=default_slice_options)
 
+        self.update(pc)
         self.initialized = final_initialize
 
     @profiler()
