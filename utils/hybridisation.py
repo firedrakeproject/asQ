@@ -1,5 +1,6 @@
 import firedrake as fd
 from firedrake.parloops import par_loop, READ, INC
+from firedrake.exceptions import NonUniqueMeshSequenceError
 from math import prod
 from functools import partial
 
@@ -23,7 +24,11 @@ class BrokenHDivProjector:
             raise TypeError(f"V must be in HDiv not {sobolev_space}")
 
         # create the broken function space
-        self.mesh = V.mesh()
+        try:
+            self.mesh = V.mesh().unique()
+        except NonUniqueMeshSequenceError:
+            raise NotImplementedError(
+                "Not implemented for general mixed meshes")
         self.V = V
         if Vb is None:
             Vb = fd.FunctionSpace(self.mesh, fd.BrokenElement(V.ufl_element()))
@@ -62,7 +67,7 @@ class BrokenHDivProjector:
         ev, eb = self.V.ufl_element(), self.Vb.ufl_element()
         echeck = (ev, eb)
         mx, my = x.function_space().mesh(), y.function_space().mesh()
-        mcheck = self.V.mesh()
+        mcheck = self.mesh
 
         valid_mesh = (mx == mcheck) and (my == mcheck)
         valid_elements = (ex in echeck) and (ey in echeck) and (ex != ey)
@@ -90,7 +95,11 @@ def _break_function_space(V, appctx=None):
     if appctx is None:
         appctx = {}
     cpx = appctx.get('cpx', None)
-    mesh = V.mesh()
+    try:
+        mesh = V.mesh().unique()
+    except NonUniqueMeshSequenceError:
+        raise NotImplementedError(
+            "Not implemented for general mixed meshes")
 
     # find HDiv space
     iu = None
@@ -307,7 +316,11 @@ class HybridisedSCPC(fd.PCBase):
 
         self.uref = appctx.get('uref')
         self.V = self.uref.function_space()
-        self.mesh = self.V.mesh()
+        try:
+            self.mesh = self.V.mesh().unique()
+        except NonUniqueMeshSequenceError:
+            raise NotImplementedError(
+                "Not implemented for general mixed meshes")
 
         self.bcs = appctx['bcs']
         self.tref = appctx['tref']
