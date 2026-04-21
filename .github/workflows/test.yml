@@ -32,7 +32,7 @@ jobs:
       image: firedrakeproject/firedrake-vanilla-default:latest
     env:
       # Sometimes we want to determine if tests are running on CI
-      ASQ_CI_TESTS: 1
+      FIREDRAKE_CI: 1
       # Tell pyop2 to complain if SPMD assumptions are broken
       PYOP2_SPMD_STRICT: 1
       # Make sure tests with >8 processes are not silently skipped
