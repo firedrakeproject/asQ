@@ -234,8 +234,10 @@ def test_galewsky_timeseries():
     u_initial = w_initial.subfunctions[0]
     h_initial = w_initial.subfunctions[1]
 
-    u_initial.project(galewsky.velocity_expression(*x))
-    h_initial.project(galewsky.depth_expression(*x))
+    fcp = {'max_quadrature_degree': 2*degree+2}
+
+    u_initial.project(galewsky.velocity_expression(*x), form_compiler_parameters=fcp)
+    h_initial.project(galewsky.depth_expression(*x), form_compiler_parameters=fcp)
 
     # shallow water equation forms
     def form_function(u, h, v, q, t):
