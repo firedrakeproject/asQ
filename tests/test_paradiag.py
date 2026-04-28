@@ -191,6 +191,7 @@ def test_Nitsche_heat_timeseries():
         assert err/norm0 < tol, "Serial and parallel solutions should match to solver tolerance"
 
 
+@pytest.mark.xfail(reason="https://github.com/firedrakeproject/firedrake/issues/5045")
 @pytest.mark.parallel(nprocs=[1, 4])
 def test_galewsky_timeseries():
     from utils import units
@@ -234,8 +235,10 @@ def test_galewsky_timeseries():
     u_initial = w_initial.subfunctions[0]
     h_initial = w_initial.subfunctions[1]
 
-    u_initial.project(galewsky.velocity_expression(*x))
-    h_initial.project(galewsky.depth_expression(*x))
+    fcp = {'max_quadrature_degree': 2*degree+2}
+
+    u_initial.project(galewsky.velocity_expression(*x), form_compiler_parameters=fcp)
+    h_initial.project(galewsky.depth_expression(*x), form_compiler_parameters=fcp)
 
     # shallow water equation forms
     def form_function(u, h, v, q, t):

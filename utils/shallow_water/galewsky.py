@@ -63,7 +63,10 @@ def velocity_expression(x, y, z):
 
 def velocity_function(x, y, z, V1, name="velocity"):
     v = fd.Function(V1, name=name)
-    return v.project(velocity_expression(x, y, z))
+    k = V1.ufl_element().degree()
+    return v.project(
+        velocity_expression(x, y, z),
+        form_compiler_parameters={'max_quadrature_degree': 2*k+2})
 
 
 def depth_integrand(theta):

@@ -20,8 +20,8 @@ class ManifoldTransferManager(fd.TransferManager):
         self._transfer(fine, coarse, super().inject)
 
     def _transfer(self, f0, f1, transfer_op):
-        mesh0 = f0.function_space().mesh()
-        mesh1 = f1.function_space().mesh()
+        mesh0 = f0.function_space().mesh().unique()
+        mesh1 = f1.function_space().mesh().unique()
 
         # backup the original coordinates the first time we see a mesh
         self._register_mesh(mesh0)

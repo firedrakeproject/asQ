@@ -5,7 +5,7 @@ import pytest
 
 def make_paradiag(time_partition, parameters):
     ensemble = asQ.create_ensemble(time_partition)
-    mesh = fd.UnitSquareMesh(
+    mesh = fd.PeriodicUnitSquareMesh(
         nx=16, ny=16, comm=ensemble.comm,
         distribution_parameters={'partitioner_type': 'simple'})
 
@@ -13,13 +13,19 @@ def make_paradiag(time_partition, parameters):
 
     V = fd.FunctionSpace(mesh, "CG", 1)
     uinitial = fd.Function(V)
-    uinitial.project(fd.sin(x) + fd.cos(y))
+    uinitial.project(fd.sin(2*fd.pi*x) + fd.cos(2*fd.pi*y))
+
+    c = fd.as_vector([1.0, 0.5])
+    nu = fd.Constant(1/100)
 
     def form_mass(u, v):
         return u*v*fd.dx
 
     def form_function(u, v, t):
-        return fd.inner(fd.grad(u), fd.grad(v))*fd.dx
+        return (
+            + fd.inner(fd.dot(c, fd.grad(u)), v)*fd.dx
+            + fd.inner(nu*fd.grad(u), fd.grad(v))*fd.dx
+        )
 
     return asQ.Paradiag(
         ensemble=ensemble,
@@ -68,6 +74,8 @@ def test_circulantpc(alpha):
 
     solver_parameters = {
         'snes_type': 'ksponly',
+        'ksp_monitor': None,
+        'ksp_converged_rate': None,
         'mat_type': 'matfree',
         'ksp_type': 'richardson',
         'ksp_rtol': alpha**3,
@@ -75,9 +83,8 @@ def test_circulantpc(alpha):
         'pc_python_type': 'asQ.CirculantPC',
         'circulant_alpha': alpha,
         'circulant_block': {
-            'ksp_type': 'richardson',
-            'ksp_rtol': alpha**2,
-            'pc_type': 'ilu',
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
         },
     }
 

@@ -107,9 +107,10 @@ class ShallowWaterMiniApp(TimePartitionMixin):
 
         # limit the projection degree to 2*V.degree+2 in case we
         # get a non-polynomial expression (e.g. Galewsky ics)
+        k = V1.ufl_element().degree()
         u0.project(
             velocity_expression(*x),
-            form_compiler_parameters={"quadrature_degree": 6})
+            form_compiler_parameters={"max_quadrature_degree": 2*k+2})
         h0.interpolate(depth_expression(*x))
 
         if reference_state:
