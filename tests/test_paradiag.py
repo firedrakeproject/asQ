@@ -191,7 +191,6 @@ def test_Nitsche_heat_timeseries():
         assert err/norm0 < tol, "Serial and parallel solutions should match to solver tolerance"
 
 
-@pytest.mark.xfail(reason="https://github.com/firedrakeproject/firedrake/issues/5045")
 @pytest.mark.parallel(nprocs=[1, 4])
 def test_galewsky_timeseries():
     from utils import units
