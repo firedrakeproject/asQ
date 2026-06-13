@@ -141,7 +141,8 @@ class JacobiPC(AllAtOnceBlockPCBase):
             # input/output AllAtOnceCofunction/Function
             block_problem = fd.LinearVariationalProblem(A, self._x[i], self._y[i],
                                                         bcs=self.block_bcs,
-                                                        constant_jacobian=True)
+                                                        constant_jacobian=True,
+                                                        form_compiler_parameters=self.aaoform.form_compiler_parameters)
 
             block_solver = fd.LinearVariationalSolver(
                 block_problem, appctx=appctx_h,

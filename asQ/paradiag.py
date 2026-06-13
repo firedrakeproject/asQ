@@ -22,7 +22,8 @@ class Paradiag(TimePartitionMixin):
                  jacobian_mass=None, jacobian_function=None,
                  pc_mass=None, pc_function=None,
                  pre_function_callback=None, post_function_callback=None,
-                 pre_jacobian_callback=None, post_jacobian_callback=None):
+                 pre_jacobian_callback=None, post_jacobian_callback=None,
+                 form_compiler_parameters=None):
         """A class to implement paradiag timestepping.
 
         :arg ensemble: time-parallel ensemble communicator. The timesteps are partitioned
@@ -80,7 +81,8 @@ class Paradiag(TimePartitionMixin):
 
         self.aaoform = AllAtOnceForm(self.aaofunc, dt, theta,
                                      form_mass, form_function,
-                                     bcs=bcs, alpha=function_alpha)
+                                     bcs=bcs, alpha=function_alpha,
+                                     form_compiler_parameters=form_compiler_parameters)
 
         # all-at-once jacobian
         if jacobian_mass is None:
@@ -92,7 +94,8 @@ class Paradiag(TimePartitionMixin):
 
         self.jacobian_form = AllAtOnceForm(self.jacobian_aaofunc, dt, theta,
                                            jacobian_mass, jacobian_function,
-                                           bcs=bcs, alpha=jacobian_alpha)
+                                           bcs=bcs, alpha=jacobian_alpha,
+                                           form_compiler_parameters=form_compiler_parameters)
 
         # pass seperate forms to the preconditioner
         if pc_mass is not None:

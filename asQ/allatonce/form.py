@@ -14,7 +14,8 @@ class AllAtOnceForm(TimePartitionMixin):
     def __init__(self,
                  aaofunc, dt, theta,
                  form_mass, form_function,
-                 bcs=None, alpha=None):
+                 bcs=None, alpha=None,
+                 form_compiler_parameters=None):
         """
         The all-at-once form representing the implicit theta-method (trapezium rule version)
         over multiple timesteps of a time-dependent finite-element problem.
@@ -38,6 +39,7 @@ class AllAtOnceForm(TimePartitionMixin):
         self.aaofunc = aaofunc
         self.field_function_space = aaofunc.field_function_space
         self.function_space = aaofunc.function_space
+        self.form_compiler_parameters = form_compiler_parameters
 
         self.dt = fd.Constant(dt)
         self.t0 = fd.Constant(0)
@@ -162,7 +164,8 @@ class AllAtOnceForm(TimePartitionMixin):
         self.aaofunc.update_time_halos()
 
         fd.assemble(self.form, bcs=self.bcs,
-                    tensor=self.F.cofunction)
+                    tensor=self.F.cofunction,
+                    form_compiler_parameters=self.form_compiler_parameters)
 
         if tensor:
             tensor.assign(self.F)

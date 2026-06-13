@@ -162,14 +162,16 @@ class AllAtOnceJacobian(TimePartitionMixin):
 
         # assembly stage
         fd.assemble(self.action, bcs=self.bcs,
-                    tensor=self.F.cofunction)
+                    tensor=self.F.cofunction,
+                    form_compiler_parameters=self.aaoform.form_compiler_parameters)
 
         if self._useprev:
             # repeat for the halo part of the matrix action
             for bc in self.field_bcs:
                 bc.zero(self.x.uprev)
             fd.assemble(self.action_prev, bcs=self.bcs,
-                        tensor=self.Fprev)
+                        tensor=self.Fprev,
+                        form_compiler_parameters=self.aaoform.form_compiler_parameters)
             self.F.cofunction += self.Fprev
 
         if len(self.bcs) > 0:

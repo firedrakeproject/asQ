@@ -246,7 +246,8 @@ class CirculantPC(AllAtOnceBlockPCBase):
 
             block_problem = fd.LinearVariationalProblem(A, L, self.block_sol,
                                                         bcs=self.block_bcs,
-                                                        constant_jacobian=True)
+                                                        constant_jacobian=True,
+                                                        form_compiler_parameters=self.aaoform.form_compiler_parameters)
 
             block_solver = fd.LinearVariationalSolver(
                 block_problem, appctx=appctx_h,
