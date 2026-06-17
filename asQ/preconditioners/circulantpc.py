@@ -307,11 +307,19 @@ class CirculantPC(AllAtOnceBlockPCBase):
                 t1 = self.aaoform.t0 + i1*self.dt
                 self.t_average.assign(t1 + self.dt*(self.nlocal_timesteps + 1)/2)
 
-        cpx.set_real(self.u0, ustate)
-        cpx.set_imag(self.u0, ustate)
+        uold = fd.Function(self.aaofunc.function_space)
+        cpx.get_real(self.u0, uold)
 
-        for block in self.block_solvers:
-            block.invalidate_jacobian()
+        err = fd.errornorm(uold, ustate)/(fd.norm(uold)+1e-12)
+        if err > 1e-12:
+            cpx.set_real(self.u0, ustate)
+            cpx.set_imag(self.u0, ustate)
+
+            for block in self.block_solvers:
+                block.invalidate_jacobian()
+        else:
+            # PETSc.Sys.Print(f"Not updating CirculantPC.u0, no change to reference state ({err=})")
+            pass
         return
 
     @profiler()
